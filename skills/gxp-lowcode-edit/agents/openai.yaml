@@ -1,0 +1,4 @@
+interface:
+  display_name: "GXP 低代码受控编辑"
+  short_description: "按真实画布规则规划修改，并在逐条人工审批后安全保存草稿。"
+  default_prompt: "使用 $gxp-lowcode-edit 为一个已有未发布编排生成受控画布修改计划，并在人工逐条审批后保存。"
