@@ -126,14 +126,18 @@ class EditorService:
             result["gates"]["least_privilege"] = {"ready": False, "error": str(exc)}
         try:
             registry = compiler.describe_registry()
+            binding = compiler.compiler_binding()
             result["compiler"] = {
-                "bridge_sha256": registry["bridge_sha256"],
-                "registry_hash": registry.get("registry_hash"),
-                "rule_source_sha256": registry.get("rule_source_sha256"),
-                "frontend_version": registry.get("frontend_version"),
+                **binding,
                 "element_count": len(registry.get("elements") or []),
             }
-            result["gates"]["compiler"] = {"ready": True}
+            result["gates"]["compiler"] = {
+                "ready": True,
+                "blocking": True,
+                "source_provenance_verified": True,
+                "canvas_validation_required": True,
+                "code_generation_required": True,
+            }
         except Exception as exc:
             result["gates"]["compiler"] = {"ready": False, "error": str(exc)}
         try:
@@ -238,6 +242,31 @@ class EditorService:
         data.setdefault("globalVariables", [])
         return data
 
+    @staticmethod
+    def _desired_hashes(desired: dict[str, Any]) -> dict[str, str]:
+        return {
+            "data_sha256": sha256_text(str(desired.get("data") or "")),
+            "js_sha256": sha256_text(str(desired.get("js_code") or "")),
+            "csharp_sha256": sha256_text(str(desired.get("csharp_code") or "")),
+            "relation_sha256": sha256_json(desired.get("relation_data")),
+        }
+
+    @classmethod
+    def _candidate_design(cls, baseline: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:
+        try:
+            parsed = json.loads(str(desired.get("data") or ""))
+        except json.JSONDecodeError as exc:
+            raise EditorServiceError(f"Candidate ActionDesign data is invalid JSON: {exc}") from exc
+        if not isinstance(parsed, dict):
+            raise EditorServiceError("Candidate ActionDesign data must be a JSON object")
+        candidate = dict(baseline)
+        candidate["data_json"] = parsed
+        return cls._compiler_design(candidate)
+
+    @staticmethod
+    def _compiler_binding_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
+        return isinstance(expected, dict) and expected == actual
+
     def begin_edit_session(self, identifier: str) -> dict[str, Any]:
         config, _, repository, compiler, runtime_validator = self._components()
         registry = compiler.describe_registry()
@@ -257,6 +286,7 @@ class EditorService:
             draft,
             {
                 "bridge_sha256": registry["bridge_sha256"],
+                "compiler_binding": compiler.compiler_binding(),
                 "registry_hash": registry.get("registry_hash"),
                 "rule_source_sha256": registry.get("rule_source_sha256"),
                 "frontend_version": registry.get("frontend_version"),
@@ -265,7 +295,12 @@ class EditorService:
             },
             runtime_artifacts,
         )
-        session = self.state.create_session(draft, backup["backup_id"], registry["bridge_sha256"])
+        binding = compiler.compiler_binding()
+        session = self.state.create_session(
+            draft,
+            backup["backup_id"],
+            binding["compiler_binding_sha256"],
+        )
         status = self.editor_status()
         return {
             "session_id": session["id"],
@@ -276,7 +311,8 @@ class EditorService:
             "backup_id": backup["backup_id"],
             "backup_manifest": backup["files"],
             "baseline_content_hash": draft["content_hash"],
-            "compiler_hash": registry["bridge_sha256"],
+            "compiler_hash": binding["compiler_binding_sha256"],
+            "compiler_binding": binding,
             "element_keys": sorted(used),
             "planning_ready": status["planning_ready"],
             "write_ready": status["write_ready"],
@@ -293,12 +329,14 @@ class EditorService:
         if current["content_hash"] != session["baseline"]["content_hash"]:
             raise EditorServiceError("Draft changed after the edit session began")
         registry = compiler.describe_registry()
-        if registry["bridge_sha256"] != session["compiler_hash"]:
-            raise EditorServiceError("Compiler bridge changed after the edit session began")
+        binding = compiler.compiler_binding()
+        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
+            raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
         result = compiler.compile_patch(self._compiler_design(session["baseline"]), operations)
-        design = result.get("design")
-        if not isinstance(design, dict):
-            raise EditorServiceError("Compiler did not return a design object")
+        compiler_evidence = compiler.verify_compiled_result(result)
+        if not self._compiler_binding_matches(binding, compiler_evidence["compiler_binding"]):
+            raise EditorServiceError("Compiler binding changed while the canvas patch was being generated")
+        design = result["design"]
         data_text = json.dumps(
             {
                 "actionData": design.get("actionData") or [],
@@ -309,9 +347,9 @@ class EditorService:
         )
         desired = {
             "data": data_text,
-            "js_code": str(result.get("js_code") or ""),
-            "csharp_code": str(result.get("csharp_code") or ""),
-            "relation_data": result.get("relation_data") or {},
+            "js_code": result["js_code"],
+            "csharp_code": result["csharp_code"],
+            "relation_data": result["relation_data"],
         }
         runtime_validation = self._runtime_validation_evidence(
             runtime_validator,
@@ -321,21 +359,18 @@ class EditorService:
         plan_artifact = {
             "session_id": session_id,
             "base_content_hash": current["content_hash"],
-            "compiler_hash": registry["bridge_sha256"],
+            "compiler_hash": binding["compiler_binding_sha256"],
+            "compiler_binding": binding,
             "registry_hash": registry.get("registry_hash"),
             "rule_source_sha256": registry.get("rule_source_sha256"),
             "frontend_version": registry.get("frontend_version"),
             "operations": operations,
             "desired": desired,
-            "validation": result.get("validation") or {},
+            "validation": compiler_evidence["validation"],
+            "code_generation_complete": compiler_evidence["code_generation_complete"],
             "runtime_validation": runtime_validation,
             "diff": result.get("diff") or [],
-            "hashes": {
-                "data_sha256": sha256_text(desired["data"]),
-                "js_sha256": sha256_text(desired["js_code"]),
-                "csharp_sha256": sha256_text(desired["csharp_code"]),
-                "relation_sha256": sha256_json(desired["relation_data"]),
-            },
+            "hashes": self._desired_hashes(desired),
         }
         new_hash = sha256_json(plan_artifact["hashes"])
         plan_dir = runtime_root() / "plans"
@@ -347,7 +382,7 @@ class EditorService:
             str(artifact_path),
             current["content_hash"],
             new_hash,
-            registry["bridge_sha256"],
+            binding["compiler_binding_sha256"],
         )
         return {
             "plan_id": plan_id,
@@ -356,6 +391,8 @@ class EditorService:
             "diff": plan_artifact["diff"],
             "validation": plan_artifact["validation"],
             "runtime_validation": plan_artifact["runtime_validation"],
+            "compiler_binding": binding,
+            "code_generation_complete": True,
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
         }
@@ -380,12 +417,34 @@ class EditorService:
             raise EditorServiceError("Only the current ready plan can enter approval")
         artifact = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
         current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != artifact["base_content_hash"]:
+        if (
+            current["content_hash"] != artifact.get("base_content_hash")
+            or plan.get("base_hash") != artifact.get("base_content_hash")
+        ):
             raise EditorServiceError("Draft changed after the plan was generated")
-        registry = compiler.describe_registry()
-        if registry["bridge_sha256"] != artifact["compiler_hash"]:
-            raise EditorServiceError("Compiler changed after the plan was generated")
-        desired = artifact["desired"]
+        binding = compiler.compiler_binding()
+        if (
+            plan.get("compiler_hash") != artifact.get("compiler_hash")
+            or session.get("compiler_hash") != artifact.get("compiler_hash")
+            or binding["compiler_binding_sha256"] != artifact.get("compiler_hash")
+            or not self._compiler_binding_matches(artifact.get("compiler_binding"), binding)
+        ):
+            raise EditorServiceError("Frontend compiler source, rules, registry, or bridge changed after planning")
+        desired = artifact.get("desired")
+        if not isinstance(desired, dict):
+            raise EditorServiceError("Plan artifact is missing the desired ActionDesign")
+        hashes = self._desired_hashes(desired)
+        if artifact.get("hashes") != hashes or plan.get("new_hash") != sha256_json(hashes):
+            raise EditorServiceError("Candidate design or generated-code hashes changed after planning")
+        candidate_design = self._candidate_design(session["baseline"], desired)
+        compiler_evidence = compiler.verify_candidate_artifact(candidate_design, desired)
+        if (
+            compiler_evidence.get("validation") != artifact.get("validation")
+            or not compiler_evidence.get("code_generation_complete")
+            or not self._compiler_binding_matches(compiler_evidence.get("compiler_binding"), binding)
+            or artifact.get("code_generation_complete") is not True
+        ):
+            raise EditorServiceError("Candidate canvas validation or generated-code evidence is no longer valid")
         runtime_validation = self._runtime_validation_evidence(
             runtime_validator,
             str(current.get("code") or ""),
@@ -403,6 +462,12 @@ class EditorService:
             desired_relations=desired["relation_data"],
             database_safety=database_safety,
             runtime_validation=runtime_validation,
+            compiler_evidence={
+                "compiler_binding": binding,
+                "validation": compiler_evidence["validation"],
+                "code_generation_complete": True,
+                "hashes": hashes,
+            },
         )
         tx_dir = runtime_root() / "transactions"
         tx_dir.mkdir(parents=True, exist_ok=True)
@@ -418,6 +483,7 @@ class EditorService:
             "approval_window_opened": True,
             "write_executed": False,
             "runtime_validation": runtime_validation,
+            "compiler_evidence": compiler_evidence,
             "manual_publication_required": True,
         }
 

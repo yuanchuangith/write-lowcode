@@ -8,15 +8,16 @@
 - Fixed SQL templates, parameter counts, design ownership, one-row expectations, and the absence of a generic SQL tool are the enforcement boundary for shared accounts. They do not reduce that account's permissions in Navicat, application code, or any client outside this plugin.
 - The MCP server creates plans but has no tool that directly executes a write transaction.
 - The interactive approval application requires one manual approval per exact statement and one final execute click.
-- All approvals bind the statement hash, parameters, design ID, old/new content hashes, expiry, transaction ID, available advisory runtime evidence, and complete transaction metadata hash.
+- All approvals bind the statement hash, parameters, design ID, old/new content hashes, expiry, transaction ID, blocking compiler evidence, available advisory runtime evidence, and complete transaction metadata hash.
 - Approval tokens are consumed when execution is first attempted; a failed or interrupted attempt requires a newly generated transaction and new per-statement approvals.
 - All approvals are collected before the database transaction starts.
 - The transaction locks the draft by primary key, rechecks draft state and optimistic-lock values, and rolls back unless all row counts match.
 - Full design payloads remain on the local machine. MCP responses expose bounded semantic diffs and hashes.
 - Backup files have per-file SHA-256 values and a Credential Manager backed HMAC manifest; altered files or manifests cannot be restored.
-- Compiler metadata includes the frontend version, ActionDesign source-rule hash, registry hash, and compiled bridge hash. Any bridge change invalidates an existing plan.
+- Compiler metadata includes the configured frontend Git commit/workspace fingerprint, frontend version, ActionDesign source-rule hash, stable registry hash, compiled bridge hash, and a complete binding hash. Any drift invalidates the current session or plan.
+- Invalid candidate JSON, `validation.valid != true`, revalidation mismatch, missing compiler fields, missing relation data, missing code fields, or blank code for an action type are hard stops before a plan or approval transaction exists.
 - No backend source, backend editor endpoint, Redis key, DLL, PDB, or server filesystem is modified by this plugin.
-- Candidate C# may be compiled locally against read-only runtime references as an advisory compatibility check. `source_mode=deployment_snapshot` can strengthen that evidence, but `development_build`, missing references, compilation failure, or reference drift do not block an otherwise valid database draft save.
+- Candidate C# may additionally be compiled locally against read-only runtime references as an advisory compatibility check. `source_mode=deployment_snapshot` can strengthen that evidence, but `development_build`, missing references, compilation failure, or runtime-reference drift do not block an otherwise compiler-valid database draft save.
 - The candidate C# hash and any available runtime-reference manifest are bound into the approval transaction. The candidate C# hash must match the exact `csharp_code` being saved; runtime evidence is not revalidated as a write gate.
 - Database verification proves only the unpublished draft and relation rows. It never proves server-side DLL generation, cache invalidation, publication, or runtime execution.
 - The existing manual publication path remains outside the plugin and happens after the database draft save. It is responsible for generating the dynamic DLL and its normal cache handling; the existing runtime may also lazily compile C# on first use.

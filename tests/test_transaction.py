@@ -146,6 +146,13 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(TransactionPlanError, "desired design"):
             validate_transaction_artifact(artifact)
 
+    def test_invalid_canvas_compiler_evidence_is_rejected(self):
+        artifact = transaction()
+        artifact["compiler_evidence"]["validation"]["valid"] = False
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        with self.assertRaisesRegex(TransactionPlanError, "validation is not complete"):
+            validate_transaction_artifact(artifact)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.0+codex.20260801141107",
-  "description": "Zero-backend-change GXP ActionDesign draft editing with canvas-first compilation, pinned account safety, fixed SQL templates, immutable backups, human approval, optimistic locking, and restore support.",
+  "version": "0.1.0+codex.20260826064226",
+  "description": "Zero-backend-change GXP ActionDesign draft editing with bound gxp2.components provenance, blocking canvas/code-generation validation, pinned account safety, immutable backups, human approval, optimistic locking, and restore support.",
   "author": {
     "name": "Local developer"
   },

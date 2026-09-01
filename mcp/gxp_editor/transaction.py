@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from .approval import statement_hash, transaction_binding_hash
-from .hashing import design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_text
+from .hashing import design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
 
 
 class TransactionPlanError(RuntimeError):
@@ -131,6 +131,7 @@ def build_transaction_artifact(
     desired_relations: dict[str, Any] | list[dict[str, Any]],
     database_safety: dict[str, Any],
     runtime_validation: dict[str, Any],
+    compiler_evidence: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     restore = kind == "restore"
     design_id = str(baseline["id"])
@@ -278,6 +279,7 @@ def build_transaction_artifact(
             "privileged_shared_override": bool(database_safety.get("privileged_shared_override")),
         },
         "runtime_validation": runtime_validation,
+        "compiler_evidence": compiler_evidence,
         "statements": statements,
         "approvals": {},
         "execution_started": False,
@@ -372,3 +374,49 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         str((artifact.get("desired_design") or {}).get("csharp_code") or "")
     ):
         raise TransactionPlanError("Runtime C# validation hash does not match the desired design")
+    compiler_evidence = artifact.get("compiler_evidence")
+    if artifact.get("kind") == "write":
+        if not isinstance(compiler_evidence, dict):
+            raise TransactionPlanError("Blocking compiler evidence is missing")
+        binding = compiler_evidence.get("compiler_binding")
+        validation = compiler_evidence.get("validation")
+        hashes = compiler_evidence.get("hashes")
+        if not isinstance(binding, dict) or not isinstance(validation, dict) or not isinstance(hashes, dict):
+            raise TransactionPlanError("Blocking compiler evidence is incomplete")
+        binding_payload = {
+            "bridge_sha256": binding.get("bridge_sha256"),
+            "registry_hash": binding.get("registry_hash"),
+            "rule_source_sha256": binding.get("rule_source_sha256"),
+            "frontend_version": binding.get("frontend_version"),
+            "source_provenance": binding.get("source_provenance"),
+        }
+        for field in ("bridge_sha256", "registry_hash", "rule_source_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", str(binding.get(field) or "").lower()):
+                raise TransactionPlanError(f"Compiler binding field {field} is invalid")
+        if binding.get("compiler_binding_sha256") != sha256_json(binding_payload):
+            raise TransactionPlanError("Compiler binding hash is invalid")
+        provenance = binding.get("source_provenance")
+        if not isinstance(provenance, dict) or provenance.get("ready") is not True:
+            raise TransactionPlanError("Frontend source provenance is not verified")
+        if not re.fullmatch(r"[0-9a-f]{40,64}", str(provenance.get("commit") or "").lower()):
+            raise TransactionPlanError("Frontend source commit is invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(provenance.get("workspace_sha256") or "").lower()):
+            raise TransactionPlanError("Frontend source workspace hash is invalid")
+        if validation.get("valid") is not True or compiler_evidence.get("code_generation_complete") is not True:
+            raise TransactionPlanError("Candidate canvas or generated-code validation is not complete")
+        if validation.get("registry_hash") != binding.get("registry_hash"):
+            raise TransactionPlanError("Candidate validation registry hash does not match the compiler binding")
+        if validation.get("rule_source_sha256") != binding.get("rule_source_sha256"):
+            raise TransactionPlanError("Candidate validation rule hash does not match the compiler binding")
+        desired = artifact.get("desired_design") or {}
+        expected_hashes = {
+            "data_sha256": sha256_text(str(desired.get("data") or "")),
+            "js_sha256": sha256_text(str(desired.get("js_code") or "")),
+            "csharp_sha256": sha256_text(str(desired.get("csharp_code") or "")),
+        }
+        if any(hashes.get(field) != value for field, value in expected_hashes.items()):
+            raise TransactionPlanError("Compiler evidence does not match the desired generated code")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(hashes.get("relation_sha256") or "").lower()):
+            raise TransactionPlanError("Compiler relation hash is invalid")
+    elif compiler_evidence is not None:
+        raise TransactionPlanError("Restore transactions must not claim new compiler evidence")

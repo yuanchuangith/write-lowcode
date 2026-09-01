@@ -10,7 +10,7 @@ if str(MCP_ROOT) not in sys.path:
     sys.path.insert(0, str(MCP_ROOT))
 
 from gxp_editor.config import DatabaseConfig, EditorConfig, RuntimeReferenceConfig
-from gxp_editor.hashing import design_content_hash, sha256_text
+from gxp_editor.hashing import design_content_hash, sha256_json, sha256_text
 from gxp_editor.transaction import build_transaction_artifact
 
 
@@ -100,6 +100,47 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
             "shared_account": False,
             "privileged_shared_override": False,
         }
+    provenance = {
+        "ready": True,
+        "frontend_repo": str(PLUGIN_ROOT),
+        "commit": "d" * 40,
+        "branch": "test",
+        "dirty": False,
+        "dirty_file_count": 0,
+        "workspace_sha256": "e" * 64,
+        "bridge_path": "bridge.js",
+    }
+    binding_payload = {
+        "bridge_sha256": "a" * 64,
+        "registry_hash": "b" * 64,
+        "rule_source_sha256": "c" * 64,
+        "frontend_version": "test",
+        "source_provenance": provenance,
+    }
+    compiler_binding = {
+        **binding_payload,
+        "compiler_binding_sha256": sha256_json(binding_payload),
+    }
+    compiler_evidence = None
+    if kind == "write":
+        compiler_evidence = {
+            "compiler_binding": compiler_binding,
+            "validation": {
+                "valid": True,
+                "action_count": 0,
+                "node_count": 0,
+                "registry_hash": binding_payload["registry_hash"],
+                "rule_source_sha256": binding_payload["rule_source_sha256"],
+                "frontend_version": binding_payload["frontend_version"],
+            },
+            "code_generation_complete": True,
+            "hashes": {
+                "data_sha256": sha256_text(desired["data"]),
+                "js_sha256": sha256_text(desired["js_code"]),
+                "csharp_sha256": sha256_text(desired["csharp_code"]),
+                "relation_sha256": sha256_json(desired_relations),
+            },
+        }
     return build_transaction_artifact(
         transaction_id="transaction-1",
         session_id="session-1",
@@ -111,4 +152,5 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
         desired_relations=desired_relations,
         database_safety=database_safety,
         runtime_validation=runtime_validation(desired["csharp_code"]),
+        compiler_evidence=compiler_evidence,
     )

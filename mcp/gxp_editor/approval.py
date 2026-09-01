@@ -48,6 +48,7 @@ def transaction_binding_hash(artifact: dict[str, Any]) -> str:
             "expected_relation_hash": artifact.get("expected_relation_hash"),
             "database_safety": artifact.get("database_safety"),
             "runtime_validation": artifact.get("runtime_validation"),
+            "compiler_evidence": artifact.get("compiler_evidence"),
             "statement_hashes": [item.get("statement_hash") for item in artifact.get("statements") or []],
             "created_at": artifact.get("created_at"),
         }

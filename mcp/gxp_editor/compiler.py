@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+import re
 import subprocess
 from copy import deepcopy
 from pathlib import Path
@@ -25,8 +27,64 @@ class CompilerBridge:
         self._registry: dict[str, Any] | None = None
 
     @property
+    def frontend_repo(self) -> Path:
+        return Path(self.config.frontend_repo).expanduser().resolve()
+
+    @property
     def path(self) -> Path:
         return self.config.compiler_path
+
+    def _git(self, *arguments: str, binary: bool = False) -> str | bytes:
+        process = subprocess.run(
+            ["git", "-C", str(self.frontend_repo), *arguments],
+            capture_output=True,
+            text=not binary,
+            encoding=None if binary else "utf-8",
+            timeout=20,
+            check=False,
+        )
+        if process.returncode != 0:
+            error = process.stderr if isinstance(process.stderr, str) else process.stderr.decode("utf-8", "replace")
+            raise CompilerError(f"Cannot inspect configured frontend Git repository: {error.strip()}")
+        return process.stdout
+
+    def source_provenance(self) -> dict[str, Any]:
+        if not self.frontend_repo.is_dir():
+            raise CompilerError(f"Configured frontend repository was not found: {self.frontend_repo}")
+        root = Path(str(self._git("rev-parse", "--show-toplevel")).strip()).resolve()
+        if root != self.frontend_repo:
+            raise CompilerError(
+                f"Configured frontend repository must be its Git root: configured={self.frontend_repo}, root={root}"
+            )
+        try:
+            relative_bridge = self.path.resolve().relative_to(root)
+        except ValueError as exc:
+            raise CompilerError("ActionDesign compiler bridge must be inside the configured frontend repository") from exc
+        commit = str(self._git("rev-parse", "HEAD")).strip()
+        if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
+            raise CompilerError("Configured frontend repository returned an invalid commit id")
+        branch = str(self._git("branch", "--show-current")).strip() or "DETACHED"
+        status = self._git("status", "--porcelain=v1", "-z", "--untracked-files=all", binary=True)
+        diff = self._git("diff", "--no-ext-diff", "--binary", "HEAD", "--", binary=True)
+        if not isinstance(status, bytes) or not isinstance(diff, bytes):
+            raise CompilerError("Configured frontend repository returned invalid Git evidence")
+        dirty_entries = [entry for entry in status.split(b"\0") if entry]
+        workspace_hash = hashlib.sha256()
+        workspace_hash.update(commit.encode("ascii"))
+        workspace_hash.update(b"\0")
+        workspace_hash.update(status)
+        workspace_hash.update(b"\0")
+        workspace_hash.update(diff)
+        return {
+            "ready": True,
+            "frontend_repo": str(root),
+            "commit": commit,
+            "branch": branch,
+            "dirty": bool(dirty_entries),
+            "dirty_file_count": len(dirty_entries),
+            "workspace_sha256": workspace_hash.hexdigest(),
+            "bridge_path": relative_bridge.as_posix(),
+        }
 
     def _call(self, payload: dict[str, Any]) -> dict[str, Any]:
         if not self.path.exists():
@@ -82,16 +140,119 @@ class CompilerBridge:
     def describe_registry(self) -> dict[str, Any]:
         if self._registry is None:
             result = self._call({"command": "describe_registry"})
+            if result.get("command") != "describe_registry":
+                raise CompilerError("Compiler registry response has an invalid command identity")
+            if not isinstance(result.get("elements"), list) or not result["elements"]:
+                raise CompilerError("Compiler registry did not return any ActionDesign elements")
+            for field in ("rule_source_sha256",):
+                if not re.fullmatch(r"[0-9a-f]{64}", str(result.get(field) or "").lower()):
+                    raise CompilerError(f"Compiler registry field {field} is missing or invalid")
             result["registry_hash"] = self._stable_registry_hash(result)
             result["bridge_sha256"] = sha256_text(self.path.read_text(encoding="utf-8"))
+            result["source_provenance"] = self.source_provenance()
+            result["compiler_binding_sha256"] = sha256_json(self._binding_fields(result))
             self._registry = result
         return deepcopy(self._registry)
 
+    @staticmethod
+    def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "bridge_sha256": registry.get("bridge_sha256"),
+            "registry_hash": registry.get("registry_hash"),
+            "rule_source_sha256": registry.get("rule_source_sha256"),
+            "frontend_version": registry.get("frontend_version"),
+            "source_provenance": registry.get("source_provenance"),
+        }
+
+    def compiler_binding(self) -> dict[str, Any]:
+        registry = self.describe_registry()
+        binding = self._binding_fields(registry)
+        binding["compiler_binding_sha256"] = sha256_json(binding)
+        return binding
+
     def _bind_registry_hash(self, result: dict[str, Any]) -> dict[str, Any]:
+        registry = self.describe_registry()
         validation = result.get("validation")
-        if isinstance(validation, dict):
-            validation["registry_hash"] = self.describe_registry()["registry_hash"]
+        if not isinstance(validation, dict) or validation.get("valid") is not True:
+            raise CompilerError("ActionDesign compiler did not confirm a valid canvas")
+        for field in ("rule_source_sha256", "frontend_version"):
+            if validation.get(field) != registry.get(field):
+                raise CompilerError(f"Compiler validation {field} does not match the active registry")
+        validation["registry_hash"] = registry["registry_hash"]
+        result["compiler_binding"] = self.compiler_binding()
         return result
+
+    @staticmethod
+    def _validate_generated_artifacts(
+        design: dict[str, Any],
+        *,
+        js_code: Any,
+        csharp_code: Any,
+        relation_data: Any,
+    ) -> None:
+        actions = design.get("actionData")
+        variables = design.get("globalVariables")
+        if not isinstance(actions, list) or not isinstance(variables, list):
+            raise CompilerError("Compiler design must contain actionData and globalVariables arrays")
+        if not isinstance(js_code, str) or not isinstance(csharp_code, str):
+            raise CompilerError("Compiler must return both js_code and csharp_code string fields")
+        if not isinstance(relation_data, dict):
+            raise CompilerError("Compiler relation_data must be an object")
+        action_types = {str(action.get("actionType") or "") for action in actions if isinstance(action, dict)}
+        unknown = sorted(action_type for action_type in action_types if action_type not in {"js", "csharp"})
+        if unknown:
+            raise CompilerError("Compiler design contains unsupported action types: " + ", ".join(unknown))
+        if "js" in action_types and not js_code.strip():
+            raise CompilerError("Compiler generated no JavaScript for a canvas containing JS actions")
+        if "csharp" in action_types and not csharp_code.strip():
+            raise CompilerError("Compiler generated no C# for a canvas containing C# actions")
+        if actions and not js_code.strip() and not csharp_code.strip():
+            raise CompilerError("Compiler generated no executable code for a non-empty ActionDesign canvas")
+
+    def verify_compiled_result(self, result: dict[str, Any]) -> dict[str, Any]:
+        design = result.get("design")
+        if not isinstance(design, dict):
+            raise CompilerError("Compiler did not return a design object")
+        for field in ("js_code", "csharp_code", "relation_data"):
+            if field not in result:
+                raise CompilerError(f"Compiler response is missing {field}")
+        self._validate_generated_artifacts(
+            design,
+            js_code=result["js_code"],
+            csharp_code=result["csharp_code"],
+            relation_data=result["relation_data"],
+        )
+        revalidation = self.validate_design(design)
+        if revalidation.get("validation") != result.get("validation"):
+            raise CompilerError("Compiler result validation changed when the candidate canvas was revalidated")
+        if revalidation.get("compiler_binding") != result.get("compiler_binding"):
+            raise CompilerError("Compiler binding changed while verifying the candidate canvas")
+        return {
+            "validation": deepcopy(revalidation["validation"]),
+            "compiler_binding": deepcopy(revalidation["compiler_binding"]),
+            "code_generation_complete": True,
+        }
+
+    def verify_candidate_artifact(
+        self,
+        design: dict[str, Any],
+        desired: dict[str, Any],
+    ) -> dict[str, Any]:
+        for field in ("js_code", "csharp_code", "relation_data"):
+            if field not in desired:
+                raise CompilerError(f"Candidate artifact is missing {field}")
+        self._validate_generated_artifacts(
+            design,
+            js_code=desired["js_code"],
+            csharp_code=desired["csharp_code"],
+            relation_data=desired["relation_data"],
+        )
+        validation = self.validate_design(design)
+        return {
+            "validation": deepcopy(validation["validation"]),
+            "compiler_binding": deepcopy(validation["compiler_binding"]),
+            "code_generation_complete": True,
+        }
 
     def validate_design(self, design: dict[str, Any]) -> dict[str, Any]:
         result = self._call({"command": "validate_design", "design": design})
