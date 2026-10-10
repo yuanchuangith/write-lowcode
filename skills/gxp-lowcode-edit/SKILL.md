@@ -54,3 +54,4 @@ Before constructing any operations, read [references/targeting-and-source.md](re
 - A successful local check does not prove publication, dynamic DLL generation, cache invalidation, or runtime execution.
 
 Read references/safety-contract.md for invariants and references/patch-schema.md before constructing operations. Read references/frontend-compiler-contract.md when checking compiler readiness, interpreting a blocked plan, or explaining why approval was not opened.
+The approval review section in references/frontend-compiler-contract.md explains component/scope differences and display-only temporary-name hints; use it when interpreting the component and code comparison tabs.

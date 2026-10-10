@@ -15,6 +15,7 @@ from gxp_editor.approval_display import canvas_change_summary, execution_result_
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.code_review_ui import CodeReview
 from gxp_editor.component_review_ui import ComponentReview
+from gxp_editor.component_preview import component_changes
 from gxp_editor.config import load_config
 from gxp_editor.hashing import sha256_text
 from gxp_editor.state import StateStore
@@ -170,21 +171,18 @@ class ApprovalWindow:
             except OSError as exc:
                 messagebox.showerror("导出失败", str(exc), parent=self.root)
 
-    def change_details(self) -> str:
-        before = json.loads(self.session["baseline"]["data"])
-        after = json.loads(self.artifact["desired_design"]["data"])
-        old_groups = {group["key"]: group for group in before.get("actionData", [])}
+    def change_details(self, changes=None) -> str:
+        if changes is None:
+            before = json.loads(self.session["baseline"]["data"])
+            after = json.loads(self.artifact["desired_design"]["data"])
+            changes = component_changes(before, after)
         chunks = []
-        for group in after.get("actionData", []):
-            old_nodes = {node["key"]: node for node in old_groups.get(group["key"], {}).get("data", [])}
-            for line, node in enumerate(group.get("data", []), 1):
-                old = old_nodes.pop(node["key"], None)
-                if old != node:
-                    chunks.append(f"{group.get('title') or group['key']} · 第 {line} 行 · {node.get('title') or node['elementKey']}\n节点：{node['key']}\n修改前：\n{json.dumps(old, ensure_ascii=False, indent=2)}\n修改后：\n{json.dumps(node, ensure_ascii=False, indent=2)}")
-            for old in old_nodes.values():
-                chunks.append(f"{group.get('title') or group['key']} · 删除节点 {old['key']}\n{json.dumps(old, ensure_ascii=False, indent=2)}")
-        if before.get("globalVariables") != after.get("globalVariables"):
-            chunks.append("全局变量发生变更：\n" + json.dumps({"修改前": before.get("globalVariables"), "修改后": after.get("globalVariables")}, ensure_ascii=False, indent=2))
+        for item in changes:
+            side = item["after"] or item["before"]
+            node = side["node"]
+            old = item["before"]["node"] if item["before"] else None
+            new = item["after"]["node"] if item["after"] else None
+            chunks.append(f"{item['kind']} · {side['group']} · 第 {side['line']} 行 · {node.get('title') or node['elementKey']}\n节点：{node.get('key', 'globalVariables')}\n修改前：\n{json.dumps(old, ensure_ascii=False, indent=2)}\n修改后：\n{json.dumps(new, ensure_ascii=False, indent=2)}")
         return "\n\n".join(chunks) or "画布节点未发生变更。"
 
     def current(self) -> dict[str, Any]:
@@ -232,12 +230,16 @@ class ApprovalWindow:
                 self.text.tag_add("scope", f"{line}.0", f"{line}.end")
         self.set_text(self.params_text, parameter_details(statement))
         self.set_text(self.validation_text, content)
-        before = json.loads(self.session["baseline"]["data"])
-        after = json.loads(self.artifact["desired_design"]["data"])
-        self.component_review.render(before, after)
+        canvas_sources = (self.session["baseline"]["data"], self.artifact["desired_design"]["data"])
+        if getattr(self, "_canvas_sources", None) != canvas_sources:
+            before, after = (json.loads(source) for source in canvas_sources)
+            changes = component_changes(before, after)
+            self.component_review.render(before, after, changes=changes)
+            self.code_review.set_canvas_context(before, after, changes=changes)
+            self.set_text(self.changes_text, canvas_change_summary(before, after, changes=changes))
+            self.set_text(self.raw_changes_text, self.change_details(changes))
+            self._canvas_sources = canvas_sources
         self.code_review.update_sources(self.session["baseline"], self.artifact["desired_design"])
-        self.set_text(self.changes_text, canvas_change_summary(before, after))
-        self.set_text(self.raw_changes_text, self.change_details())
         self.changes_text.tag_configure("before", foreground="#9a3412")
         self.changes_text.tag_configure("after", foreground="#166534")
         for line, value in enumerate(self.changes_text.get("1.0", "end-1c").splitlines(), 1):

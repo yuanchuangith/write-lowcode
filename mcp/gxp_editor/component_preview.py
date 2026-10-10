@@ -26,10 +26,12 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
     result: list[dict[str, Any]] = []
     old_groups = {g["key"]: g for g in before.get("actionData", [])}
 
-    def side(group, nodes, index):
+    def names_for(nodes):
+        return {item["key"]: item.get("title") or item["elementKey"] for item in nodes}
+
+    def side(group, nodes, index, names):
         node = nodes[index]
         neighbor = lambda i: {"line": i + 1, "name": nodes[i].get("title") or nodes[i]["elementKey"]} if 0 <= i < len(nodes) else None
-        names = {item["key"]: item.get("title") or item["elementKey"] for item in nodes}
         return {"group": group.get("title") or group["key"], "group_key": group["key"],
                 "parents": [names.get(key, key) for key in node.get("depth") or []],
                 "line": index + 1, "node": node, "previous": neighbor(index - 1), "next": neighbor(index + 1)}
@@ -37,6 +39,7 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
     for group in after.get("actionData", []):
         previous_group = old_groups.pop(group["key"], {})
         old_nodes, new_nodes = previous_group.get("data", []), group.get("data", [])
+        old_names, new_names = names_for(old_nodes), names_for(new_nodes)
         old_by_key = {node["key"]: index for index, node in enumerate(old_nodes)}
         common = set(old_by_key) & {node["key"] for node in new_nodes}
         old_order = [node["key"] for node in old_nodes if node["key"] in common]
@@ -44,22 +47,23 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
         moved = {key for i, key in enumerate(new_order) if key != old_order[i]}
         for index, node in enumerate(new_nodes):
             old_index = old_by_key.pop(node["key"], None)
-            old_side = side(previous_group, old_nodes, old_index) if old_index is not None else None
-            new_side = side(group, new_nodes, index)
-            if old_side is None:
+            if old_index is None:
                 kind = "新增"
             else:
-                old = old_side["node"]
-                changed = any(old.get(key) != node.get(key) for key in ("elementKey", "paramsValue", "depth"))
+                old = old_nodes[old_index]
+                changed = any(old.get(key) != node.get(key) for key in ("elementKey", "paramsValue")) or (old.get("depth") or []) != (node.get("depth") or [])
                 if not changed and node["key"] not in moved:
                     continue
                 kind = "修改并移动" if changed and node["key"] in moved else "修改" if changed else "移动"
+            old_side = side(previous_group, old_nodes, old_index, old_names) if old_index is not None else None
+            new_side = side(group, new_nodes, index, new_names)
             result.append({"kind": kind, "before": old_side, "after": new_side})
         for index in old_by_key.values():
-            result.append({"kind": "删除", "before": side(previous_group, old_nodes, index), "after": None})
+            result.append({"kind": "删除", "before": side(previous_group, old_nodes, index, old_names), "after": None})
     for group in old_groups.values():
+        names = names_for(group.get("data", []))
         for index in range(len(group.get("data", []))):
-            result.append({"kind": "删除", "before": side(group, group["data"], index), "after": None})
+            result.append({"kind": "删除", "before": side(group, group["data"], index, names), "after": None})
     if before.get("globalVariables") != after.get("globalVariables"):
         def variables(data):
             return {"group": "全局变量", "line": None, "node": {"title": "全局变量", "elementKey": "globalVariables",

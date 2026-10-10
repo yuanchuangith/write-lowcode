@@ -7,6 +7,7 @@ from typing import Any
 
 from pymysql.converters import escape_item
 from .single_row_checker import check_single_row_statement
+from .component_preview import component_changes, plain_description
 
 
 STATEMENT_LABELS = {
@@ -85,9 +86,8 @@ def _condition(condition: dict[str, Any]) -> str:
     return ("，并且 " if str(condition.get("Logic", "And")).lower() == "and" else "，或者 ").join(parts) or "未设置条件"
 
 
-def canvas_change_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
+def canvas_change_summary(before: dict[str, Any], after: dict[str, Any], *, changes=None) -> str:
     """Summarize real parameter/position changes, excluding generated metadata."""
-    old_groups = {group["key"]: group for group in before.get("actionData", [])}
     queries: dict[str, str] = {}
     new_flags: set[str] = set()
     for data in (before, after):
@@ -119,28 +119,33 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
 
     target_codes: dict[str, str] = {}
     chunks: list[str] = []
-    count = 0
-    for group in after.get("actionData", []):
-        old_group = old_groups.pop(group["key"], {})
-        old_keys = [node["key"] for node in old_group.get("data", [])]
-        new_keys = [node["key"] for node in group.get("data", [])]
-        common = set(old_keys) & set(new_keys)
-        old_order = [key for key in old_keys if key in common]
-        new_order = [key for key in new_keys if key in common]
-        moved = {key for position, key in enumerate(new_order) if old_order[position] != key}
-        old_nodes = {node["key"]: (line, node) for line, node in enumerate(old_group.get("data", []), 1)}
-        for line, node in enumerate(group.get("data", []), 1):
-            old_line, old = old_nodes.pop(node["key"], (None, None))
-            if old is not None and old.get("elementKey") == node.get("elementKey") and old.get("paramsValue") == node.get("paramsValue") and node["key"] not in moved:
-                continue
-            count += 1
-            location = f"{group.get('title') or group['key']} → 第 {line} 行 → {node.get('title') or node['elementKey']}"
-            if old is None:
-                chunks.append(f"{count}. 新增节点\n位置：{location}\n内容：{node.get('description') or '新增一项操作'}")
-                continue
-            if old.get("paramsValue") == node.get("paramsValue") and old.get("elementKey") == node.get("elementKey"):
-                chunks.append(f"{count}. 移动节点\n位置：{location}\n修改前：第 {old_line} 行\n修改后：第 {line} 行")
-                continue
+    items = component_changes(before, after) if changes is None else changes
+    for count, item in enumerate(items, 1):
+        old_side, new_side = item["before"], item["after"]
+        side = new_side or old_side
+        node = side["node"]
+        old = old_side["node"] if old_side else None
+        location = f"{side['group']} → 第 {side['line']} 行 → {node.get('title') or node['elementKey']}"
+        if node["elementKey"] == "globalVariables":
+            chunks.append(f"{count}. 全局变量发生变更，完整内容见“元件预览”。")
+            continue
+        if old_side is None:
+            chunks.append(f"{count}. 新增节点\n位置：{location}\n内容：{plain_description(node) or '新增一项操作'}")
+            continue
+        if new_side is None:
+            chunks.append(f"{count}. 删除节点\n位置：{location}")
+            continue
+        structural = []
+        if item["kind"] in {"移动", "修改并移动"}:
+            structural.append(f"位置变化：第 {old_side['line']} 行 → 第 {new_side['line']} 行")
+        if (old.get("depth") or []) != (node.get("depth") or []):
+            layer = lambda value: " → ".join(value.get("parents") or []) or "分组顶层"
+            structural.append(f"所在层级\n修改前：{layer(old_side)}\n修改后：{layer(new_side)}")
+        if old.get("elementKey") != node.get("elementKey"):
+            structural.append(f"元件类型：{old['elementKey']} → {node['elementKey']}")
+        if old.get("paramsValue") == node.get("paramsValue"):
+            detail = "\n".join(structural)
+        else:
             inputs = node.get("paramsValue", {}).get("inputParams", {})
             old_inputs = old.get("paramsValue", {}).get("inputParams", {})
             if node["elementKey"] in {"SetVariable", "SetVariableValue"} and "variableValue" in inputs:
@@ -165,10 +170,8 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
                             changes.append(f"字段“{field}”\n修改前：{_label(previous.get(field))}\n修改后：{_label(current.get(field))}")
                 detail = "\n".join(changes) or "节点类型发生变更，完整配置见“原始节点详情”。"
             if node["elementKey"] == "SetVariable":
-                nodes = group.get("data", [])
-                previous = nodes[line - 2] if line > 1 else None
-                following = nodes[line] if line < len(nodes) else None
-                name = lambda adjacent: (adjacent.get("title") or adjacent.get("elementKey")) if adjacent else "无（分组边界）"
+                previous, following = new_side["previous"], new_side["next"]
+                name = lambda adjacent: adjacent["name"] if adjacent else "无（分组边界）"
                 detail += (
                     f"\n草稿查看：打开该动作草稿 → {location} → 元件配置 → 输入参数 → 变量值"
                     f"\n相邻元件：上一行“{name(previous)}”；下一行“{name(following)}”"
@@ -178,16 +181,11 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any]) -> str:
                     detail += f"\n配置方式：自定义表达式（在原元件内，未新增 IF 元件）\n变量值（完整）：{value.get('value', '未设置')}"
                     if value.get("value") != value.get("code"):
                         detail += "\n警告：显示值与生成表达式不一致，重新保存可能覆盖修改。"
-            chunks.append(f"{count}. 修改节点\n位置：{location}\n{detail}")
-        for old_line, old in old_nodes.values():
-            count += 1
-            chunks.append(f"{count}. 删除节点\n位置：{old_group.get('title') or group['key']} → 第 {old_line} 行 → {old.get('title') or old['elementKey']}")
-    for group in old_groups.values():
-        count += 1
-        chunks.append(f"{count}. 删除分组“{group.get('title') or group['key']}”，包含 {len(group.get('data', []))} 个节点")
-    if before.get("globalVariables") != after.get("globalVariables"):
-        count += 1
-        chunks.append(f"{count}. 全局变量发生变更，完整内容见“原始节点详情”。")
+            if structural:
+                detail += "\n" + "\n".join(structural)
+        heading = "移动节点" if item["kind"] == "移动" else "修改节点"
+        chunks.append(f"{count}. {heading}\n位置：{location}\n{detail}")
+    count = len(items)
     return f"本次共 {count} 项画布变更\n\n" + "\n\n".join(chunks) if count else "画布参数未变更。"
 
 

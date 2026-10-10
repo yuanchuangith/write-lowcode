@@ -1,6 +1,7 @@
 """Native, read-only component cards and configuration details for approval."""
 from __future__ import annotations
 
+from copy import deepcopy
 import tkinter as tk
 from tkinter import ttk
 from typing import Any
@@ -12,6 +13,8 @@ class ComponentReview:
     def __init__(self, notebook: ttk.Notebook, registry: dict[str, Any], registry_note: str):
         self.registry = registry
         self.items: list[dict[str, Any]] = []
+        self._rendered = False
+        self._shown_item = None
         self.frame = ttk.Frame(notebook, padding=8)
         notebook.add(self.frame, text="元件预览")
         ttk.Label(self.frame, text="点击元件展开配置；双击或点击“打开元件配置”查看详情。黄色字段表示有变化。", wraplength=1080).pack(fill="x", pady=(0, 4))
@@ -53,8 +56,23 @@ class ComponentReview:
         canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(-int(event.delta / 120), "units"))
         return body
 
-    def render(self, before: dict[str, Any], after: dict[str, Any]):
-        self.items = component_changes(before, after)
+    @staticmethod
+    def identity(item):
+        side = item["after"] or item["before"]
+        return side.get("group_key", "globalVariables"), side["node"].get("key", "globalVariables")
+
+    def render(self, before: dict[str, Any], after: dict[str, Any], *, changes=None):
+        items = component_changes(before, after) if changes is None else changes
+        if self._rendered and self.items == items:
+            return
+        selected = self.selected()
+        selected_key = self.identity(selected) if selected else None
+        selection = self.tree.selection()
+        suffix = selection[0].partition(":")[2] if selection else ""
+        open_keys = {self.identity(self.items[int(iid)]) for iid in self.tree.get_children() if self.tree.item(iid, "open")}
+        scroll = self.tree.yview()[0]
+        self.items = deepcopy(items)
+        self._rendered = True
         self.tree.delete(*self.tree.get_children())
         for index, item in enumerate(self.items):
             side = item["after"] or item["before"]
@@ -65,11 +83,17 @@ class ComponentReview:
             self.tree.insert("", "end", iid=iid, text=title, values=(item["kind"],), tags=(item["kind"],))
             self.tree.insert(iid, "end", iid=f"{index}:location", text=side["group"] + position)
             self.tree.insert(iid, "end", iid=f"{index}:description", text=plain_description(node) or "点击查看输入、输出参数")
+            self.tree.item(iid, open=self.identity(item) in open_keys)
         if self.items:
-            self.tree.selection_set("0")
-            self.tree.item("0", open=True)
-            self.show(self.items[0], self.detail_body)
+            index = next((i for i, item in enumerate(self.items) if self.identity(item) == selected_key), 0)
+            iid = str(index)
+            self.tree.selection_set(iid + (":" + suffix if suffix and selected_key == self.identity(self.items[index]) else ""))
+            if selected_key is None or selected_key != self.identity(self.items[index]):
+                self.tree.item(iid, open=True)
+            self.tree.yview_moveto(scroll)
+            self.select()
         else:
+            self._shown_item = None
             for child in self.detail_body.winfo_children():
                 child.destroy()
             ttk.Label(self.detail_body, text="本次没有元件参数或位置变更。请结合“本次改动”和完整 SQL 核对。", wraplength=600).pack(anchor="w")
@@ -81,8 +105,17 @@ class ComponentReview:
     def select(self, event=None):
         item = self.selected()
         if item:
-            self.tree.item(self.tree.selection()[0].split(":")[0], open=True)
+            if event is not None:
+                self.tree.item(self.tree.selection()[0].split(":")[0], open=True)
+            if self._shown_item == item:
+                return
+            same_node = self._shown_item is not None and self.identity(self._shown_item) == self.identity(item)
+            canvas = self.detail_body.master
+            scroll = canvas.yview()[0] if same_node else 0
             self.show(item, self.detail_body)
+            self._shown_item = deepcopy(item)
+            canvas.update_idletasks()
+            canvas.yview_moveto(scroll)
 
     def open_details(self, event=None):
         item = self.selected()

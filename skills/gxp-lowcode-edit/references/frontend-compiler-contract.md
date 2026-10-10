@@ -50,6 +50,24 @@ Report the action, group, canvas row, element name, adjacent visible elements,
 configuration field, and full expression. An isolated generateActionData round trip
 checks compiler preservation; it does not prove deployed browser editing behavior.
 
+## Approval review
+
+Component cards, the change summary, and raw node details use the same canvas
+differences. Review nesting changes as well as parameters: moving a node into or
+out of an IF changes its execution scope even when its expression is unchanged.
+SQL navigation preserves the selected component, expanded items, and scroll
+position. Unchanged canvases reuse their review model; code comparisons are
+cached separately for JavaScript and C#.
+
+Start with the component parameters and their before/after values. The code tab
+still displays and copies the exact full saved/candidate code. Blue differences
+are a display-only hint for consistent temporary-variable renames recognized
+from unchanged SetFormReadOnly, SelectModelData, or CallAction elements and their
+known declaration forms. Unknown identifiers, inconsistent references, changed
+literals, and ambiguous syntax remain ordinary differences. The hint is not a
+per-node source map or proof of semantic equivalence; it never changes signed
+artifacts, SQL, approval requirements, or executable code.
+
 `prepare_write` parses and revalidates the stored candidate, recomputes every hash, compares the complete compiler binding, and binds the resulting evidence into the approval transaction. Failure occurs before transaction creation and before the approval application is launched.
 
 Runtime-reference C# compilation remains a separate advisory check. It cannot replace or weaken these frontend compiler gates.

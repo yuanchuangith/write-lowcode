@@ -4,17 +4,20 @@ from __future__ import annotations
 from difflib import SequenceMatcher
 import tkinter as tk
 from tkinter import ttk
+from .generated_code_review import canvas_context, normalized_review_lines
 
 
-def aligned_code_rows(before: str, after: str) -> tuple[list[dict], list[int]]:
+def aligned_code_rows(before: str, after: str, *, context=None) -> tuple[list[dict], list[int]]:
     old, new = before.splitlines(), after.splitlines()
+    normalized_old, normalized_new = normalized_review_lines(before, after, context)
     rows, changes = [], []
     for kind, start, end, new_start, new_end in SequenceMatcher(None, old, new, autojunk=False).get_opcodes():
+        generated_only = kind == "replace" and end - start == new_end - new_start and normalized_old[start:end] == normalized_new[new_start:new_end]
         if kind != "equal":
             changes.append(len(rows) + 1)
         for offset in range(max(end - start, new_end - new_start)):
             old_index, new_index = start + offset, new_start + offset
-            rows.append({"kind": kind,
+            rows.append({"kind": kind, "generated_only": generated_only,
                          "before_number": old_index + 1 if old_index < end else None,
                          "after_number": new_index + 1 if new_index < new_end else None,
                          "before": old[old_index] if old_index < end else "",
@@ -30,6 +33,8 @@ class CodeReview:
         self.frame = ttk.Frame(notebook, padding=8)
         notebook.add(self.frame, text="代码对比")
         ttk.Label(self.frame, text="修改前：本次编辑前备份的草稿代码。修改后：待保存代码。这里比较整个动作；单个元件的参数和表达式见“元件预览”。", wraplength=1100).pack(fill="x", pady=(0, 6))
+        self.canvas_note = ttk.Label(self.frame, text="先核对元件参数，再核对完整代码。蓝色差异仅表示识别到临时变量一致改名，仍需审阅。", wraplength=1100)
+        self.canvas_note.pack(fill="x", pady=(0, 4))
         toolbar = ttk.Frame(self.frame)
         toolbar.pack(fill="x", pady=4)
         self.language = tk.StringVar(self.frame, value="js_code")
@@ -60,19 +65,38 @@ class CodeReview:
             horizontal.pack(side="bottom", fill="x")
             text.pack(fill="both", expand=True)
             text.tag_configure("changed", background=color)
+            text.tag_configure("generated", background="#e0f2fe", foreground="#075985")
             text.tag_configure("empty", foreground="#94a3b8")
             text.configure(state="disabled")
             text.bind("<Control-a>", lambda event, box=text: (box.tag_add("sel", "1.0", "end-1c"), "break")[-1])
             self.texts[key] = text
         self.sources = {"before": {}, "after": {}}
+        self.context = None
+        self._context_changed = False
+        self._diff_cache = {}
+        self.generated_blocks = 0
         self.changes = []
         self.index = 0
+
+    def set_canvas_context(self, before, after, *, changes=None):
+        from .component_preview import component_changes
+        items = component_changes(before, after) if changes is None else changes
+        counts = {kind: sum(item["kind"] == kind for item in items) for kind in ("新增", "修改", "移动", "修改并移动", "删除")}
+        summary = "、".join(f"{kind} {count} 项" for kind, count in counts.items() if count) or "无元件参数或位置变化"
+        self.canvas_note.configure(text=f"画布：{summary}。蓝色差异仅表示识别到临时变量一致改名，完整代码保留；此标注不代表语义验证。")
+        context = canvas_context(before, after)
+        if self.context != context:
+            self.context = context
+            self._context_changed = True
+            self._diff_cache.clear()
 
     def update_sources(self, before, after):
         sources = {"before": {field: before.get(field) or "" for field in ("js_code", "csharp_code")},
                    "after": {field: after.get(field) or "" for field in ("js_code", "csharp_code")}}
-        if self.sources != sources:
+        if self.sources != sources or self._context_changed:
             self.sources = sources
+            self._context_changed = False
+            self._diff_cache.clear()
             if not sources["before"]["js_code"] and not sources["after"]["js_code"]:
                 self.language.set("csharp_code")
             self.render()
@@ -81,7 +105,10 @@ class CodeReview:
         field = self.language.get()
         before, after = self.sources["before"].get(field, ""), self.sources["after"].get(field, "")
         self.format_only = before != after and before.splitlines() == after.splitlines()
-        rows, self.changes = aligned_code_rows(before, after)
+        if field not in self._diff_cache:
+            self._diff_cache[field] = aligned_code_rows(before, after, context=self.context)
+        rows, self.changes = self._diff_cache[field]
+        self.generated_blocks = sum(rows[line - 1]["generated_only"] for line in self.changes if line <= len(rows))
         self.index = 0
         for key, text in self.texts.items():
             text.configure(state="normal")
@@ -93,7 +120,7 @@ class CodeReview:
                 if number is None:
                     text.tag_add("empty", f"{line}.0", f"{line}.end")
                 elif row["kind"] != "equal":
-                    text.tag_add("changed", f"{line}.0", f"{line}.end")
+                    text.tag_add("generated" if row["generated_only"] else "changed", f"{line}.0", f"{line}.end")
             text.configure(state="disabled")
         self.navigate(0)
 
@@ -102,7 +129,10 @@ class CodeReview:
             self.index = max(0, min(len(self.changes) - 1, self.index + direction))
             for text in self.texts.values():
                 text.see(f"{self.changes[self.index]}.0")
-        self.status.configure(text="换行符或末尾换行不同（可复制完整代码核对）" if self.format_only else f"差异 {self.index + 1}/{len(self.changes)} 块" if self.changes else "代码一致")
+        status = "换行符或末尾换行不同（可复制完整代码核对）" if self.format_only else f"差异 {self.index + 1}/{len(self.changes)} 块" if self.changes else "代码一致"
+        if self.generated_blocks:
+            status += f" · {self.generated_blocks} 块仅临时变量名不同"
+        self.status.configure(text=status)
         self.previous.configure(state="normal" if self.changes and self.index > 0 else "disabled")
         self.next.configure(state="normal" if self.changes and self.index + 1 < len(self.changes) else "disabled")
 

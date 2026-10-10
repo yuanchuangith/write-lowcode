@@ -4,6 +4,7 @@ import copy
 import tkinter as tk
 from tkinter import ttk
 import unittest
+from unittest.mock import patch
 
 from tests import test_approval_display as display_fixtures
 from gxp_editor.component_preview import component_changes, parameter_rows, plain_description
@@ -105,6 +106,41 @@ class ComponentPreviewTests(unittest.TestCase):
         self.assertTrue(all(widget.cget("state") == "disabled" for widget in texts))
         self.assertTrue(any("完整表达式：isNew ? parameter : current" in widget.get("1.0", "end-1c") for widget in texts))
         self.assertEqual((before, after), original)
+
+    def test_refresh_keeps_selection_expansion_scroll_and_uses_stable_node_identity(self):
+        before, after = self.canvases()
+        after["actionData"][0]["data"][1]["paramsValue"]["inputParams"]["paramName"] = "new_parameter"
+        try:
+            root = tk.Tk()
+        except tk.TclError as exc:
+            self.skipTest(str(exc))
+        self.addCleanup(root.destroy)
+        root.withdraw()
+        view = ComponentReview(ttk.Notebook(root), REGISTRY, "")
+        view.render(before, after)
+        root.update_idletasks()
+        view.tree.selection_set("1:location")
+        view.select()
+        root.update()
+        view.tree.item("0", open=False)
+        view.tree.item("1", open=True)
+        scroll = view.tree.yview()
+        detail_scroll = view.detail_body.master.yview()
+        with patch.object(view, "show", wraps=view.show) as redraw:
+            view.render(copy.deepcopy(before), copy.deepcopy(after))
+            redraw.assert_not_called()
+        self.assertEqual(view.tree.selection(), ("1:location",))
+        self.assertFalse(view.tree.item("0", "open"))
+        self.assertTrue(view.tree.item("1", "open"))
+        self.assertEqual(view.tree.yview(), scroll)
+        self.assertEqual(view.detail_body.master.yview(), detail_scroll)
+        # Another change inserted ahead of this item must not change selection.
+        after["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["extra"] = "changed"
+        view.render(before, after)
+        root.update()
+        self.assertEqual(view.tree.selection(), ("2:location",))
+        self.assertEqual(view.selected()["after"]["node"]["key"], "assign")
+        self.assertTrue(view.tree.item("2", "open"))
 
 
 if __name__ == "__main__":

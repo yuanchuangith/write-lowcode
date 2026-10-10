@@ -69,6 +69,30 @@ class ApprovalDisplayTests(unittest.TestCase):
         summary = canvas_change_summary(before, after)
         self.assertIn("变更类型 不为空，或者 是否新增 等于 是", summary)
 
+    def test_nesting_and_type_changes_share_preview_counts_and_show_both_layers(self):
+        from gxp_editor.component_preview import component_changes
+        before = self.canvas()
+        after = copy.deepcopy(before)
+        after["actionData"][0]["data"][2]["depth"] = ["query"]
+        items = component_changes(before, after)
+        summary = canvas_change_summary(before, after, changes=items)
+        self.assertIn(f"共 {len(items)} 项", summary)
+        self.assertIn("修改前：分组顶层", summary)
+        self.assertIn("修改后：获取页面参数", summary)
+        after["actionData"][0]["data"][2]["elementKey"] = "SetVariableValue"
+        summary = canvas_change_summary(before, after)
+        self.assertIn("元件类型：SetVariable → SetVariableValue", summary)
+        self.assertIn("所在层级", summary)
+
+    def test_removed_groups_summary_counts_match_component_preview(self):
+        from gxp_editor.component_preview import component_changes
+        before = self.canvas()
+        after = {"actionData": [], "globalVariables": []}
+        items = component_changes(before, after)
+        summary = canvas_change_summary(before, after)
+        self.assertIn(f"共 {len(items)} 项", summary)
+        self.assertEqual(summary.count("删除节点"), 3)
+
     def test_complete_sql_matches_driver_escaping_without_truncation(self):
         statement = transaction()["statements"][0]
         payload = "中文 'quote' \\ path\n WHERE AND SET %s " + "长内容" * 1000
@@ -113,6 +137,23 @@ class ApprovalDisplayTests(unittest.TestCase):
 
 
 class ApprovalWindowTests(unittest.TestCase):
+    def test_raw_details_include_structural_changes_and_removed_group_nodes(self):
+        spec = importlib.util.spec_from_file_location("approval_raw_test", PLUGIN_ROOT / "scripts" / "approval_app.py")
+        app = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(app)
+        window = object.__new__(app.ApprovalWindow)
+        before = ApprovalDisplayTests().canvas()
+        after = copy.deepcopy(before)
+        after["actionData"][0]["data"].reverse()
+        import json
+        window.session = {"baseline": {"data": json.dumps(before)}}
+        window.artifact = {"desired_design": {"data": json.dumps(after)}}
+        self.assertIn("移动", window.change_details())
+        window.artifact["desired_design"]["data"] = json.dumps({"actionData": [], "globalVariables": []})
+        details = window.change_details()
+        self.assertEqual(details.count("删除 ·"), 3)
+        self.assertIn("节点：assign", details)
+
     def test_preview_parameter_titles_are_accepted_only_from_bound_registry(self):
         from gxp_editor.compiler import CompilerBridge
         from gxp_editor.hashing import sha256_text
@@ -196,6 +237,11 @@ class ApprovalWindowTests(unittest.TestCase):
             window.toggle_wrap()
             self.assertEqual(window.text.cget("wrap"), "word")
             self.assertEqual(artifact, original)
+            with patch.object(app, "component_changes", wraps=app.component_changes) as model, \
+                 patch.object(window.component_review, "render") as preview:
+                window.render()
+                model.assert_not_called()
+                preview.assert_not_called()
             approve.assert_not_called()
             execute.assert_not_called()
 
