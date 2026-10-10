@@ -58,6 +58,7 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     database_saved = False
     try:
         with database.write_transaction() as session:
+            repository.check_statement_targets(artifact["statements"], session)
             current = repository.load_draft_by_id(artifact["design_id"], for_update=True, session=session)
             if _flag(current.get("is_publish")) or _flag(current.get("isDeleted")):
                 raise WriteExecutionError("The locked row is no longer an active unpublished draft")

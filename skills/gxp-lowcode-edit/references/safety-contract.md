@@ -1,5 +1,18 @@
 # Safety contract
 
+The local approval application defaults to a read-only component preview derived
+from the session baseline and signed desired canvas. Clicking expands a component;
+the configuration detail window compares input/output parameters before and after
+and highlights changed fields. Display titles are accepted only from the bridge
+and registry hashes bound to the approval; unavailable metadata falls back to actual
+parameter keys and complete values. Preview interaction never edits parameters,
+approves statements, or writes a draft. The code-comparison tab compares complete
+saved draft JS/C# from the session baseline with the signed candidate code, aligns
+insertions/deletions and highlights differences. It compares the whole action, not
+an inferred per-node source map; node expressions remain in the component details.
+Copy buttons retain the exact original code, including line endings. Full SQL and
+raw nodes remain available.
+
 - The editor handles one existing active draft identified by its design primary key.
 - The published version, publish flag, design ID, RefId, version, creator fields, and unrelated business tables are immutable.
 - Database DDL is never executed by this plugin.
@@ -8,6 +21,9 @@
 - Fixed SQL templates, parameter counts, design ownership, one-row expectations, and the absence of a generic SQL tool are the enforcement boundary for shared accounts. They do not reduce that account's permissions in Navicat, application code, or any client outside this plugin.
 - The MCP server creates plans but has no tool that directly executes a write transaction.
 - The interactive approval application requires one manual approval per exact statement and one final execute click.
+- Each approval item contains exactly one SQL statement targeting exactly one row. Multiple changes must be separate single-row statements with a nonempty ID; stacked SQL, batch VALUES, OR/IN/range guards, duplicate targets, and empty/list IDs are blocked by the independent single-row checker.
+- Before the first database write, the executor verifies a full single-column unique index on each target table's id, locks and checks every target, verifies relation ownership, and rejects zero/multiple existing matches or an already-existing insert ID. Every affected-row count must remain exactly one; all statements retain one atomic transaction.
+- The approval window defaults to a plain-language canvas location and before/after summary. Complete SQL, complete parameters and raw node evidence remain separate review tabs; an unsafe statement is blocked with a visible error before approval or execution.
 - All approvals bind the statement hash, parameters, design ID, old/new content hashes, expiry, transaction ID, blocking compiler evidence, available advisory runtime evidence, and complete transaction metadata hash.
 - Approval tokens are consumed when execution is first attempted; a failed or interrupted attempt requires a newly generated transaction and new per-statement approvals.
 - All approvals are collected before the database transaction starts.

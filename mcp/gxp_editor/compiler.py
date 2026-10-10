@@ -37,6 +37,7 @@ class CompilerBridge:
     def _git(self, *arguments: str, binary: bool = False) -> str | bytes:
         process = subprocess.run(
             ["git", "-C", str(self.frontend_repo), *arguments],
+            stdin=subprocess.DEVNULL,
             capture_output=True,
             text=not binary,
             encoding=None if binary else "utf-8",
@@ -86,7 +87,7 @@ class CompilerBridge:
             "bridge_path": relative_bridge.as_posix(),
         }
 
-    def _call(self, payload: dict[str, Any]) -> dict[str, Any]:
+    def _call(self, payload: dict[str, Any], *, timeout_seconds: int = 60) -> dict[str, Any]:
         if not self.path.exists():
             raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}")
         process = subprocess.run(
@@ -96,7 +97,7 @@ class CompilerBridge:
             encoding="utf-8",
             capture_output=True,
             cwd=self.config.frontend_repo,
-            timeout=60,
+            timeout=timeout_seconds,
             check=False,
         )
         if process.returncode != 0:
@@ -255,8 +256,34 @@ class CompilerBridge:
         }
 
     def validate_design(self, design: dict[str, Any]) -> dict[str, Any]:
+        self._validate_editable_variable_values(design)
         result = self._call({"command": "validate_design", "design": design})
         return self._bind_registry_hash(result)
+
+    @staticmethod
+    def _validate_editable_variable_values(design: dict[str, Any]) -> None:
+        """ParamInput displays value and recommits it as code on blur.
+
+        Scope this contract to known ParamInput fields, rather than assuming all
+        custom objects in arbitrary elements have the same editor behavior.
+        """
+        fields = {
+            "SetVariable": (("inputParams", "variableValue", "变量值"),
+                            ("outputParams", "variableName", "保存至变量")),
+            "SetVariableValue": (("inputParams", "attributeValue", "属性值"),),
+        }
+        for group in design.get("actionData") or []:
+            for line, node in enumerate(group.get("data") or [], 1):
+                for section, field, title in fields.get(node.get("elementKey"), ()):
+                    value = (node.get("paramsValue") or {}).get(section, {}).get(field)
+                    if not isinstance(value, dict) or value.get("paramTypes") != "custom":
+                        continue
+                    if not isinstance(value.get("value"), str) or value.get("value") != value.get("code"):
+                        location = f"{group.get('title') or group.get('key')} → 第 {line} 行 → {node.get('title') or node.get('elementKey')}"
+                        raise CompilerError(
+                            f"{location}：{title}的显示值 value 与生成表达式 code 不一致，"
+                            "打开元件重新保存可能覆盖修改。请通过元件参数同步修改两者；已阻止生成审批。"
+                        )
 
     def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
         if not operations:

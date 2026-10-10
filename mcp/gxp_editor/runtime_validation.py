@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
+import signal
 import subprocess
+import sys
 import tempfile
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
@@ -83,11 +87,69 @@ class RuntimeCsharpValidator:
             "reference_manifest_sha256": sha256_json(entries),
         }
 
+    def _probe(self, command: str, *, timeout: float, **payload: Any) -> dict[str, Any]:
+        # DLL reads can block inside the OS, so a thread timeout is insufficient.
+        environment = dict(os.environ)
+        module_root = str(Path(__file__).resolve().parents[1])
+        environment["PYTHONPATH"] = module_root + os.pathsep + environment.get("PYTHONPATH", "")
+        process = subprocess.Popen(
+            [sys.executable, "-m", "gxp_editor.runtime_probe"],
+            stdin=subprocess.PIPE,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            text=True,
+            encoding="utf-8",
+            env=environment,
+            start_new_session=os.name != "nt",
+            creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
+        )
+        request = {"command": command, "runtime": asdict(self.runtime), **payload}
+        try:
+            stdout, stderr = process.communicate(json.dumps(request, ensure_ascii=False), timeout=timeout)
+        except subprocess.TimeoutExpired as exc:
+            if os.name == "nt":
+                try:
+                    subprocess.run(
+                        ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+                        capture_output=True, timeout=5, check=False,
+                        creationflags=subprocess.CREATE_NO_WINDOW,
+                    )
+                except (OSError, subprocess.TimeoutExpired):
+                    pass
+            else:
+                try:
+                    os.killpg(process.pid, signal.SIGKILL)
+                except ProcessLookupError:
+                    pass
+            if process.poll() is None:
+                process.kill()
+            try:
+                process.communicate(timeout=5)
+            except subprocess.TimeoutExpired:
+                for stream in (process.stdin, process.stdout, process.stderr):
+                    if stream is not None:
+                        stream.close()
+            raise RuntimeValidationError(
+                f"Advisory runtime {command} exceeded {timeout:g} seconds; "
+                "local DLL access or compilation did not finish."
+            ) from exc
+        try:
+            response = json.loads(stdout)
+        except json.JSONDecodeError as exc:
+            raise RuntimeValidationError("Runtime probe returned invalid JSON: " + stderr[-2000:]) from exc
+        if process.returncode != 0 or not response.get("ok"):
+            raise RuntimeValidationError(str(response.get("error") or "Runtime probe failed"))
+        return response["result"]
+
     def status(self) -> dict[str, Any]:
+        return self._probe("status", timeout=10)
+
+    def _status(self) -> dict[str, Any]:
         references = self._references()
         try:
             process = subprocess.run(
                 [self.runtime.dotnet_command, "--version"],
+                stdin=subprocess.DEVNULL,
                 text=True,
                 capture_output=True,
                 timeout=10,
@@ -117,8 +179,11 @@ class RuntimeCsharpValidator:
         return "\n".join(meaningful[-80:])[:16000]
 
     def validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
+        return self._probe("validate", timeout=30, action_code=action_code, csharp_code=csharp_code)
+
+    def _validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
         if not csharp_code.strip():
-            status = self.status()
+            status = self._status()
             return {
                 **status,
                 "success": True,
@@ -172,6 +237,7 @@ class RuntimeCsharpValidator:
                         "minimal",
                         "--ignore-failed-sources",
                     ],
+                    stdin=subprocess.DEVNULL,
                     text=True,
                     capture_output=True,
                     cwd=root,

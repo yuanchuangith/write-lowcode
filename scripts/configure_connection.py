@@ -11,6 +11,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 from gxp_editor.config import (
     ConfigurationError,
     DatabaseConfig,
+    DEFAULT_BACKEND_REPO,
     EditorConfig,
     RuntimeReferenceConfig,
     ensure_approval_secret,
@@ -75,6 +76,10 @@ def main() -> int:
         "ActionDesign frontend repository",
         current.frontend_repo if current else r"G:\hoyi\updateComponents\gxp2.components",
     )
+    backend_repo = ask(
+        "Read-only backend source repository (same as gxp-lowcode-debug)",
+        current.backend_repo if current else DEFAULT_BACKEND_REPO,
+    )
     compiler_bridge = ask(
         "Compiler bridge path relative to frontend repository",
         current.compiler_bridge if current else "dist/action-design-compiler/bridge.js",
@@ -103,6 +108,7 @@ def main() -> int:
             account_mode=account_mode,
         ),
         frontend_repo=frontend_repo,
+        backend_repo=backend_repo,
         compiler_bridge=compiler_bridge,
         runtime_references=RuntimeReferenceConfig.from_dict(
             {

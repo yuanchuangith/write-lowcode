@@ -77,6 +77,10 @@ class FakeRepository:
     def _relations(self, design_id, session):
         return list(self.relations)
 
+    def check_statement_targets(self, statements, session):
+        from gxp_editor.single_row_checker import check_statement_list
+        check_statement_list(statements)
+
 
 class WriterTests(unittest.TestCase):
     def setUp(self):
@@ -119,6 +123,25 @@ class WriterTests(unittest.TestCase):
                 execute_approved_transaction("transaction-1")
         self.assertEqual(session.executed, [])
         self.assertTrue(load_artifact(self.path)["execution_started"])
+
+    def test_target_preflight_failure_blocks_all_writes(self):
+        from gxp_editor.repository import RepositoryError
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session), patch.object(repository, "check_statement_targets", side_effect=RepositoryError("已阻止修改：实际匹配 2 条数据")):
+            with self.assertRaisesRegex(RepositoryError, "实际匹配 2"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(session.executed, [])
+        self.assertEqual(repository.loads, 0)
+        self.assertEqual(self.state.transaction["state"], "failed")
+
+    def test_multiple_affected_rows_abort_before_next_statement(self):
+        session = FakeSession(affected_rows=2)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session):
+            with self.assertRaisesRegex(WriteExecutionError, "affected 2 rows"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.transaction["state"], "failed")
 
     def test_unexpected_affected_rows_rolls_back_and_blocks_reuse(self):
         session = FakeSession(affected_rows=0)

@@ -17,7 +17,7 @@ class TransactionTests(unittest.TestCase):
         statement["sql_sha256"] = sha256_text(statement["sql"])
         statement["statement_hash"] = statement_hash(statement)
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
-        with self.assertRaisesRegex(TransactionPlanError, "approved SQL template"):
+        with self.assertRaisesRegex(TransactionPlanError, "多条 SQL|approved SQL template"):
             validate_transaction_artifact(artifact)
 
     def test_relation_cannot_target_another_design(self):
@@ -26,7 +26,7 @@ class TransactionTests(unittest.TestCase):
         statement["params"][-1] = "another-design"
         statement["statement_hash"] = statement_hash(statement)
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
-        with self.assertRaisesRegex(TransactionPlanError, "ownership guard"):
+        with self.assertRaisesRegex(TransactionPlanError, "ownership guard|审批目标不一致"):
             validate_transaction_artifact(artifact)
 
     def test_restore_preserves_complete_relation_metadata(self):

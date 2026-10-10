@@ -8,6 +8,7 @@ from typing import Any
 
 from .approval import statement_hash, transaction_binding_hash
 from .hashing import design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
+from .single_row_checker import SingleRowCheckError, check_statement_list
 
 
 class TransactionPlanError(RuntimeError):
@@ -315,6 +316,10 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
     statements = artifact.get("statements")
     if not isinstance(statements, list) or not statements:
         raise TransactionPlanError("Transaction artifact has no statements")
+    try:
+        check_statement_list(statements)
+    except SingleRowCheckError as exc:
+        raise TransactionPlanError(str(exc)) from exc
     expected_sql = {
         "update_design": (UPDATE_DESIGN_SQL, 6),
         "delete_relation": (DELETE_RELATION_SQL, 2),

@@ -84,6 +84,11 @@ class EditorService:
             result["configured"] = True
             result["config_path"] = str(default_config_path())
             result["frontend_repo"] = str(config.frontend_repo)
+            result["backend_repo"] = str(config.backend_repo)
+            result["source_repositories"] = {
+                "frontend": {"path": str(config.frontend_repo), "role": "readonly_source_and_canvas_compiler"},
+                "backend": {"path": str(config.backend_repo), "role": "readonly_source_evidence", "compiler_binding": False},
+            }
             result["account_mode"] = config.database.account_mode
         except Exception as exc:
             result["gates"]["configuration"] = {"ready": False, "error": str(exc)}

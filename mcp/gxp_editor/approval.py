@@ -9,6 +9,7 @@ from typing import Any
 
 from .config import EditorConfig, approval_secret
 from .hashing import canonical_json, sha256_json
+from .single_row_checker import check_statement_list
 
 
 class ApprovalError(RuntimeError):
@@ -68,6 +69,7 @@ def approval_signature(config: EditorConfig, artifact: dict[str, Any], statement
 
 
 def approve_statement(config: EditorConfig, artifact: dict[str, Any], statement_id: str) -> dict[str, Any]:
+    check_statement_list(artifact.get("statements"))
     statement = next((item for item in artifact["statements"] if item["id"] == statement_id), None)
     if not statement:
         raise ApprovalError(f"Statement {statement_id!r} was not found")

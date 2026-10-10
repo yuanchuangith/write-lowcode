@@ -16,6 +16,7 @@ class ConfigurationError(RuntimeError):
 
 
 ACCOUNT_MODES = {"dedicated", "shared_restricted", "shared_unrestricted"}
+DEFAULT_BACKEND_REPO = r"G:\hoyi\updateWeb\gxp2.web"
 
 
 def default_config_path() -> Path:
@@ -119,6 +120,7 @@ class EditorConfig:
     runtime_references: RuntimeReferenceConfig
     approval_hmac_target: str = "Codex.GxpLowcodeEditor.Approval"
     approval_ttl_minutes: int = 15
+    backend_repo: str = DEFAULT_BACKEND_REPO
 
     @classmethod
     def from_dict(cls, value: dict[str, Any]) -> "EditorConfig":
@@ -142,6 +144,7 @@ class EditorConfig:
             runtime_references=RuntimeReferenceConfig.from_dict(runtime_references),
             approval_hmac_target=str(value.get("approval_hmac_target") or cls.approval_hmac_target).strip(),
             approval_ttl_minutes=max(1, min(int(value.get("approval_ttl_minutes", 15)), 60)),
+            backend_repo=str(value.get("backend_repo") or DEFAULT_BACKEND_REPO).strip() or DEFAULT_BACKEND_REPO,
         )
 
     def public_dict(self) -> dict[str, Any]:

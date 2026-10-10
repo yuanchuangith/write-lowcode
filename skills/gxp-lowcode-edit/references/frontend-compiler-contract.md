@@ -31,6 +31,25 @@ The working tree may be dirty, but its exact fingerprint is bound. Any binding c
 6. Require nonblank `js_code` when a JS action group exists and nonblank `csharp_code` when a C# action group exists.
 7. Bind data, JS, C#, and relation hashes into the plan.
 
+## Canvas visibility and re-editing
+
+The canvas parameters are the source of truth. The platform regenerates JS/C# on
+save; changing only generated code would be overwritten. Use native IF blocks
+when the requested change is a visible control-flow change. A conditional expression
+inside a variable element is not an added IF block; describe that distinction in
+the review and give the exact component configuration field where it can be read.
+
+For the known ParamInput fields in SetVariable (variableValue and variableName)
+and SetVariableValue (attributeValue), custom input displays `value`, and input
+commit writes that string to both `value` and `code`. Validation blocks missing or
+different custom `value`/`code` before approval. A human-readable `label` may differ;
+it is the canvas description, not the executable expression. Do not extend this
+equality rule to other element contracts without inspecting their actual editors.
+
+Report the action, group, canvas row, element name, adjacent visible elements,
+configuration field, and full expression. An isolated generateActionData round trip
+checks compiler preservation; it does not prove deployed browser editing behavior.
+
 `prepare_write` parses and revalidates the stored candidate, recomputes every hash, compares the complete compiler binding, and binds the resulting evidence into the approval transaction. Failure occurs before transaction creation and before the approval application is launched.
 
 Runtime-reference C# compilation remains a separate advisory check. It cannot replace or weaken these frontend compiler gates.

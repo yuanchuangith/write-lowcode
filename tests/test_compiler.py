@@ -151,6 +151,35 @@ class CompilerBridgeTests(unittest.TestCase):
         self.assertEqual(binding["source_provenance"]["commit"], "d" * 40)
         self.assertRegex(binding["compiler_binding_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_invisible_custom_code_is_blocked_before_compiler_call(self):
+        with tempfile.TemporaryDirectory() as temporary:
+            bridge = self.bridge(Path(temporary))
+            for element, section, field in (
+                ("SetVariable", "inputParams", "variableValue"),
+                ("SetVariable", "outputParams", "variableName"),
+                ("SetVariableValue", "inputParams", "attributeValue"),
+            ):
+                for custom in ({"code": "newRule"}, {"value": "oldRule", "code": "newRule"}):
+                    with self.subTest(element=element, custom=custom):
+                        design = {"actionData": [{"title": "主动作", "data": [{
+                            "elementKey": element, "title": "变量元件",
+                            "paramsValue": {section: {field: {"paramTypes": "custom", **custom}}},
+                        }]}]}
+                        with patch.object(bridge, "_call") as call:
+                            with self.assertRaisesRegex(CompilerError, "显示值.*不一致"):
+                                bridge.validate_design(design)
+                            call.assert_not_called()
+
+    def test_editable_expression_and_selected_reference_are_supported(self):
+        expression = "isNew ? parameter : currentValue"
+        for parameter in (
+            {"paramTypes": "custom", "value": expression, "code": expression, "label": "条件赋值"},
+            {"paramTypes": "localVariable", "value": "localVariable-result", "code": "result"},
+        ):
+            CompilerBridge._validate_editable_variable_values({"actionData": [{"data": [{
+                "elementKey": "SetVariable", "paramsValue": {"inputParams": {"variableValue": parameter}},
+            }]}]})
+
 
 if __name__ == "__main__":
     unittest.main()

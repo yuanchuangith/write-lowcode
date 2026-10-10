@@ -7,6 +7,7 @@ from typing import Any
 
 from .db import DatabaseSession, EditorDatabase
 from .hashing import design_content_hash, json_default, sha256_text
+from .single_row_checker import check_statement_list
 
 
 class RepositoryError(RuntimeError):
@@ -154,13 +155,45 @@ LIMIT 1001
                     for name, columns in grouped.items()
                 }
                 matching = [name for name, columns in indexes.items() if columns[: len(required)] == required]
+                unique_id = self._unique_id_indexes(rows)
                 result[table] = {
                     "required_columns": required,
                     "matching_indexes": matching,
-                    "ready": bool(matching),
+                    "ready": bool(matching) and bool(unique_id),
+                    "unique_id_indexes": unique_id,
                     "indexes": indexes,
                 }
         return result
+
+    @staticmethod
+    def _unique_id_indexes(rows: list[dict[str, Any]]) -> list[str]:
+        grouped: dict[str, list[dict[str, Any]]] = {}
+        for row in rows:
+            grouped.setdefault(str(row.get("Key_name") or ""), []).append(row)
+        return [name for name, entries in grouped.items()
+                if len(entries) == 1 and str(entries[0].get("Column_name") or "").lower() == "id"
+                and entries[0].get("Non_unique") in (0, "0") and entries[0].get("Sub_part") is None]
+
+    def check_statement_targets(self, statements: list[dict[str, Any]], session: DatabaseSession) -> None:
+        """Check and lock every target before the first DML in the transaction."""
+        checks = check_statement_list(statements)
+        for table in sorted({check["table"] for check in checks}):
+            indexes = session.query(f"SHOW INDEX FROM `{table}`", max_rows=500)
+            if not self._unique_id_indexes(indexes):
+                raise RepositoryError(f"已阻止修改：{table}.id 未确认有单列唯一索引，不能保证只修改一条数据。")
+        for check in checks:
+            table = check["table"]
+            rows = session.query(f"SELECT id FROM `{table}` WHERE id=%s LIMIT 2 FOR UPDATE", [check["row_id"]], max_rows=2)
+            if check["operation"] == "insert":
+                if rows:
+                    raise RepositoryError("已阻止修改：待新增的唯一 ID 已存在。")
+            elif len(rows) != 1:
+                raise RepositoryError(f"已阻止修改：唯一 ID 实际匹配 {len(rows)} 条数据，必须恰好匹配 1 条。")
+            if table == "cpm_bizflows_design_relation_data" and check["operation"] != "insert":
+                owned = session.query(f"SELECT id FROM `{table}` WHERE id=%s AND design_Id=%s LIMIT 2 FOR UPDATE",
+                                      [check["row_id"], check["design_id"]], max_rows=2)
+                if len(owned) != 1:
+                    raise RepositoryError("已阻止修改：关联记录不属于本次审批的草稿。")
 
     def grant_status(
         self,
