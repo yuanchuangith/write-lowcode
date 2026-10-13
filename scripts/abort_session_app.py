@@ -24,7 +24,8 @@ class AbortSessionWindow:
         ttk.Label(frame, text=f"动作：{session['action_name']}（{session['action_code']}）\n"
                   f"会话：{session_id}\n状态：{session['state']}\n\n"
                   "中止会取消尚未执行的审批并释放会话占用，保留备份和记录。\n"
-                  "正在执行、已保存或执行结果不确定的事务不能中止。\n"
+                  "写入前拒绝或确认已回滚的失败不会继续占用会话。\n"
+                  "正在执行、已保存或提交结果不确定的事务需核对结果。\n"
                   "关闭窗口会保留原会话；中止后请重新发起编辑。", wraplength=600, justify="left").pack(anchor="w")
         buttons = ttk.Frame(frame)
         buttons.pack(fill="x", pady=18)

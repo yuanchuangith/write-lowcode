@@ -20,6 +20,7 @@ class DatabaseSession:
     def __init__(self, connection: Connection):
         self.connection = connection
         self.cursor: DictCursor = connection.cursor()
+        self.rollback_confirmed = False
 
     def query(
         self,
@@ -100,14 +101,18 @@ class EditorDatabase:
     def write_transaction(self) -> Iterator[DatabaseSession]:
         connection = self._connect()
         session = DatabaseSession(connection)
+        commit_attempted = False
         try:
             session.execute("SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED")
             session.execute("SET SESSION innodb_lock_wait_timeout = 3")
             session.execute("START TRANSACTION")
             yield session
+            commit_attempted = True
             connection.commit()
         except Exception:
             connection.rollback()
+            # A failed COMMIT acknowledgement can hide a successful commit.
+            session.rollback_confirmed = not commit_attempted
             raise
         finally:
             with contextlib.suppress(Exception):

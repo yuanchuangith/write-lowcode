@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.6+codex.local-20261013-approval-buttons",
+  "version": "0.1.7+codex.local-20261013-failure-release",
   "description": "Zero-backend-change GXP ActionDesign draft editing with bound gxp2.components provenance, blocking canvas/code-generation validation, pinned account safety, immutable backups, human approval, optimistic locking, and restore support.",
   "author": {
     "name": "Local developer"

@@ -40,6 +40,10 @@ class FakeState:
             raise WriteExecutionError("Transaction cannot be executed")
         self.update_transaction(transaction_id, "executing")
 
+    def release_failed_transaction(self, transaction_id, outcome, message):
+        self.update_transaction(transaction_id, outcome, message)
+        self.session_state = outcome
+
 
 class FakeSession:
     def __init__(self, affected_rows: int):
@@ -128,6 +132,7 @@ class WriterTests(unittest.TestCase):
                 execute_approved_transaction("transaction-1")
         self.assertEqual(session.executed, [])
         self.assertTrue(load_artifact(self.path)["execution_started"])
+        self.assertEqual(self.state.session_state, "failed_no_write")
 
     def test_cancelled_transaction_cannot_write(self):
         self.state.transaction["state"] = "cancelled"
@@ -159,7 +164,7 @@ class WriterTests(unittest.TestCase):
                 execute_approved_transaction("transaction-1")
         self.assertEqual(session.executed, [])
         self.assertEqual(repository.loads, 0)
-        self.assertEqual(self.state.transaction["state"], "failed")
+        self.assertEqual(self.state.transaction["state"], "failed_no_write")
 
     def test_multiple_affected_rows_abort_before_next_statement(self):
         session = FakeSession(affected_rows=2)
@@ -218,8 +223,22 @@ class WriterTests(unittest.TestCase):
             with self.assertRaisesRegex(WriteExecutionError, "grants changed"):
                 execute_approved_transaction("transaction-1")
         self.assertEqual(session.executed, [])
-        self.assertEqual(self.state.transaction["state"], "failed")
+        self.assertEqual(self.state.transaction["state"], "failed_no_write")
         self.assertTrue(load_artifact(self.path)["execution_started"])
+
+    def test_confirmed_rollback_releases_session_but_uncertain_failure_does_not(self):
+        for confirmed in (True, False):
+            with self.subTest(rollback_confirmed=confirmed):
+                save_artifact(self.path, self.artifact)
+                self.state = FakeState(str(self.path))
+                session = FakeSession(affected_rows=0)
+                session.rollback_confirmed = confirmed
+                repository = FakeRepository(baseline(), self.saved_row())
+                with self.patches(repository, session):
+                    with self.assertRaisesRegex(WriteExecutionError, "affected 0 rows"):
+                        execute_approved_transaction("transaction-1")
+                self.assertEqual(self.state.transaction["state"], "rolled_back" if confirmed else "failed")
+                self.assertEqual(self.state.session_state, "rolled_back" if confirmed else "awaiting_approval")
 
     def test_successful_write_does_not_require_a_backend_finalizer(self):
         session = FakeSession(affected_rows=1)

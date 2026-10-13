@@ -51,10 +51,12 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
                 "Database account mode or grants changed after approval planning"
             )
     except Exception as exc:
-        state.update_transaction(transaction_id, "failed", str(exc))
+        state.release_failed_transaction(transaction_id, "failed_no_write", str(exc))
         raise
 
     database_saved = False
+    write_attempted = False
+    session = None
     try:
         with database.write_transaction() as session:
             repository.check_statement_targets(artifact["statements"], session)
@@ -66,6 +68,7 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
             if str(current["last_modification_time"]) != artifact["baseline_last_modification_time"]:
                 raise WriteExecutionError("The draft modification timestamp changed after planning")
             for statement in artifact["statements"]:
+                write_attempted = True
                 affected = session.execute(statement["sql"], statement["params"])
                 if affected != int(statement["expected_rows"]):
                     raise WriteExecutionError(
@@ -92,7 +95,12 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
             )
             state.update_session(transaction["session_id"], "saved_state_pending")
         else:
-            state.update_transaction(transaction_id, "failed", str(exc))
+            if not write_attempted:
+                state.release_failed_transaction(transaction_id, "failed_no_write", str(exc))
+            elif getattr(session, "rollback_confirmed", False):
+                state.release_failed_transaction(transaction_id, "rolled_back", str(exc))
+            else:
+                state.update_transaction(transaction_id, "failed", str(exc))
         raise
     return {
         "state": "saved",

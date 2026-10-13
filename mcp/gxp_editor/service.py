@@ -598,6 +598,8 @@ class EditorService:
             "statement_count": len(artifact.get("statements") or []),
             "approved_count": len(artifact.get("approvals") or {}),
             "executed": bool(artifact.get("executed")),
+            "session_released": transaction["state"] in {"failed_no_write", "rolled_back", "cancelled"},
+            "retry_requires_new_plan": transaction["state"] in {"failed_no_write", "rolled_back"},
             "old_content_hash": artifact.get("old_content_hash"),
             "new_content_hash": artifact.get("new_content_hash"),
         }

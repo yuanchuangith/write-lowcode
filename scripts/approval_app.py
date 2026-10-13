@@ -321,8 +321,16 @@ class ApprovalWindow:
             messagebox.showinfo("执行结果", execution_result_message(result))
             self.root.destroy()
         except Exception as exc:
-            messagebox.showerror("事务未完成", str(exc))
             self.transaction = self.state.get_transaction(self.transaction_id)
+            if self.transaction["state"] in {"failed_no_write", "rolled_back"}:
+                messagebox.showerror(
+                    "保存未完成，已释放会话占用",
+                    f"{exc}\n\n本次未写入或已经回滚，会话占用已释放。请重新生成计划和审批。",
+                    parent=self.root,
+                )
+                self.root.destroy()
+                return
+            messagebox.showerror("事务未完成", str(exc))
             self.artifact = load_artifact(self.path)
             self.render()
 

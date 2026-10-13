@@ -239,16 +239,46 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError("Only an unexecuted edit session can be aborted")
             transactions = db.execute("SELECT * FROM transactions WHERE session_id=?", (session_id,)).fetchall()
             for transaction in transactions:
+                if transaction["state"] in {"cancelled", "failed_no_write", "rolled_back"}:
+                    continue
+                # Older writers classified this pre-write concurrency rejection as
+                # generic failed. This exact branch runs before any business SQL.
+                if transaction["state"] == "failed" and transaction["message"] in {
+                    "The draft content changed after planning; transaction was not executed",
+                    "The draft modification timestamp changed after planning",
+                    "Database account mode or grants changed after approval planning",
+                }:
+                    artifact = load_artifact(transaction["artifact_path"])
+                    if not artifact.get("executed"):
+                        db.execute("UPDATE transactions SET state='failed_no_write' WHERE id=?", (transaction["id"],))
+                        continue
                 if transaction["state"] != "awaiting_approval":
                     raise StateError("Execution has been attempted or its result is uncertain; verify before releasing the session")
                 artifact = load_artifact(transaction["artifact_path"])
                 if artifact.get("execution_started") or artifact.get("executed"):
                     raise StateError("Execution has already started; the session cannot be aborted")
             now = datetime.now().isoformat(timespec="seconds")
-            db.execute("UPDATE transactions SET state='cancelled', message=?, updated_at=? WHERE session_id=?",
+            db.execute("UPDATE transactions SET state='cancelled', message=?, updated_at=? WHERE session_id=? AND state='awaiting_approval'",
                        ("User manually aborted the edit session", now, session_id))
             db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status='ready'", (session_id,))
             db.execute("UPDATE sessions SET state='aborted', updated_at=? WHERE id=?", (now, session_id))
+
+    def release_failed_transaction(self, transaction_id: str, outcome: str, message: str) -> None:
+        """Release only failures proven not written or rolled back; retain the audit."""
+        if outcome not in {"failed_no_write", "rolled_back"}:
+            raise StateError("A confirmed no-write or rollback outcome is required")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            transaction = db.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+            if not transaction or transaction["state"] != "executing":
+                raise StateError("Only the executing transaction can record its confirmed failure")
+            now = datetime.now().isoformat(timespec="seconds")
+            db.execute("UPDATE transactions SET state=?, message=?, updated_at=? WHERE id=?",
+                       (outcome, message, now, transaction_id))
+            db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status='ready'",
+                       (transaction["session_id"],))
+            db.execute("UPDATE sessions SET state=?, updated_at=? WHERE id=? AND transaction_id=?",
+                       (outcome, now, transaction["session_id"], transaction_id))
 
     def get_transaction(self, transaction_id: str) -> dict[str, Any]:
         with self._connection() as db:

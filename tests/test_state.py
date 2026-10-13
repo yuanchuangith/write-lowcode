@@ -107,6 +107,35 @@ class StateTests(unittest.TestCase):
                 self.store.abort_session(session)
         self.assertEqual(self.store.active_session()["id"], session)
 
+    def test_legacy_pre_write_rejection_can_be_aborted_without_deleting_history(self):
+        session, plan, tx = self.pending_transaction(execution_started=True)
+        message = "The draft content changed after planning; transaction was not executed"
+        self.store.update_transaction(tx, "failed", message)
+        self.store.abort_session(session)
+        self.assertIsNone(self.store.active_session())
+        self.assertEqual(self.store.get_transaction(tx)["state"], "failed_no_write")
+        self.assertEqual(self.store.get_transaction(tx)["message"], message)
+        self.assertEqual(self.store.get_plan(plan)["status"], "cancelled")
+
+    def test_confirmed_failures_release_lock_and_cannot_be_reexecuted(self):
+        for outcome in ("failed_no_write", "rolled_back"):
+            with self.subTest(outcome=outcome):
+                session, plan, tx = self.pending_transaction(execution_started=True)
+                self.store.claim_transaction(tx)
+                self.store.release_failed_transaction(tx, outcome, "confirmed failure")
+                self.assertIsNone(self.store.active_session())
+                self.assertEqual(self.store.get_plan(plan)["status"], "cancelled")
+                self.assertEqual(self.store.get_session(session)["state"], outcome)
+                with self.assertRaises(StateError):
+                    self.store.claim_transaction(tx)
+
+    def test_unknown_failure_cannot_be_reported_as_confirmed(self):
+        session, _, tx = self.pending_transaction()
+        self.store.claim_transaction(tx)
+        with self.assertRaises(StateError):
+            self.store.release_failed_transaction(tx, "failed", "unknown")
+        self.assertEqual(self.store.active_session()["id"], session)
+
     def test_aborted_session_cannot_create_plan_or_approval(self):
         session = self.store.create_session(baseline(), "backup", "compiler")
         plan = self.store.create_plan(session["id"], "plan.json", "old", "new", "compiler")
