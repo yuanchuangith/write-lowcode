@@ -11,7 +11,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 
 from gxp_editor.approval import approve_statement, load_artifact, save_artifact
-from gxp_editor.approval_display import canvas_change_summary, execution_result_message, parameter_details, render_full_sql, statement_scope
+from gxp_editor.approval_display import canvas_change_summary, execution_result_message, parameter_details, reference_repair_summary, render_full_sql, statement_scope
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.code_review_ui import CodeReview
 from gxp_editor.component_review_ui import ComponentReview
@@ -47,6 +47,20 @@ class ApprovalWindow:
         style.configure("TLabel", font=("Microsoft YaHei UI", 10))
         style.configure("TButton", padding=(10, 5))
         style.configure("TNotebook.Tab", padding=(14, 6))
+        # Reserve the action bar before the preview claims the remaining space.
+        # Tk packs in order; packing this last can hide it on smaller/high-DPI windows.
+        buttons = ttk.Frame(self.root)
+        buttons.pack(side="bottom", fill="x", padx=12, pady=12)
+        self.approve_button = ttk.Button(buttons, text="批准当前语句", command=self.approve_current)
+        self.approve_button.pack(side="left")
+        self.execute_button = ttk.Button(
+            buttons,
+            text="执行并保存草稿",
+            command=self.execute,
+            state="disabled",
+        )
+        self.execute_button.pack(side="right")
+        ttk.Button(buttons, text="关闭（不执行）", command=self.root.destroy).pack(side="right", padx=8)
         self.header = ttk.Label(self.root, font=("Microsoft YaHei UI", 14, "bold"))
         self.header.pack(fill="x", padx=12, pady=(12, 6))
         ttk.Label(
@@ -75,22 +89,14 @@ class ApprovalWindow:
         self.component_review = ComponentReview(self.notebook, preview_registry, registry_note)
         self.code_review = CodeReview(self.notebook)
         self.changes_text = self.add_text_tab("本次改动", wrap="word")
+        repairs = (self.artifact.get("compiler_evidence") or {}).get("reference_repairs") or []
+        if repairs:
+            repair_text = self.add_text_tab("引用修复来源", wrap="word")
+            self.set_text(repair_text, reference_repair_summary(repairs))
         self.text = self.add_text_tab("完整 SQL", wrap="none")
         self.raw_changes_text = self.add_text_tab("原始节点详情", wrap="word")
         self.params_text = self.add_text_tab("模板与完整参数", wrap="none")
         self.validation_text = self.add_text_tab("校验与指纹", wrap="word")
-        buttons = ttk.Frame(self.root)
-        buttons.pack(fill="x", padx=12, pady=12)
-        self.approve_button = ttk.Button(buttons, text="批准当前语句", command=self.approve_current)
-        self.approve_button.pack(side="left")
-        self.execute_button = ttk.Button(
-            buttons,
-            text="执行并保存草稿",
-            command=self.execute,
-            state="disabled",
-        )
-        self.execute_button.pack(side="right")
-        ttk.Button(buttons, text="关闭（不执行）", command=self.root.destroy).pack(side="right", padx=8)
         self.render()
 
     def load_preview_registry(self) -> tuple[dict[str, Any], str]:
@@ -203,6 +209,8 @@ class ApprovalWindow:
         database_safety = self.artifact["database_safety"]
         runtime_reference = runtime.get("reference_manifest_sha256") or "not available (advisory only)"
         runtime_warning = runtime.get("warning") or "none"
+        reference_warnings = ((self.artifact.get("compiler_evidence") or {}).get("validation") or {}).get("warnings") or []
+        reference_warning_text = "\n".join(str(warning) for warning in reference_warnings) or "无"
         content = (
             f"事务 ID：{self.transaction_id}\n"
             f"Statement SHA-256: {statement['statement_hash']}\n"
@@ -216,6 +224,7 @@ class ApprovalWindow:
             f"source_mode={runtime.get('source_mode', 'unknown')}\n"
             f"Runtime reference manifest: {runtime_reference}\n"
             f"Runtime warning: {runtime_warning}\n"
+            f"变量/动作引用提示（不阻止保存）：\n{reference_warning_text}\n"
             "Manual publication is required to generate the runtime DLL.\n\n"
             f"Database account mode: {database_safety['account_mode']}\n"
             f"SHOW GRANTS fingerprint: {database_safety['grants_sha256']}\n\n"

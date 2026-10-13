@@ -31,6 +31,21 @@ The working tree may be dirty, but its exact fingerprint is bound. Any binding c
 6. Require nonblank `js_code` when a JS action group exists and nonblank `csharp_code` when a C# action group exists.
 7. Bind data, JS, C#, and relation hashes into the plan.
 
+Static variable/action reference checks are advisory. The native bridge returns
+their diagnostics in `validation.warnings` while leaving `validation.valid` true
+when structural checks pass. Report warnings and continue ordinary edits; an
+obsolete parameter key or unresolved action target alone does not prove runtime
+failure. Native generation failures still block planning. Session entry returns
+the baseline validation, and candidate warnings are preserved in the plan and
+signed approval evidence.
+
+For older installed bundles, run `python scripts/relax_compiler_references.py
+<frontend_repo>/dist/action-design-compiler/bridge.js` before starting a session.
+The updater changes only the five static reference diagnostics, retains all
+structural and native generation checks, and rejects unrecognized bundle shapes.
+Reapply it after rebuilding an older bridge. The resulting bridge SHA-256 remains
+part of the compiler binding; existing sessions cannot silently adopt the change.
+
 ## Canvas visibility and re-editing
 
 The canvas parameters are the source of truth. The platform regenerates JS/C# on
@@ -71,3 +86,25 @@ artifacts, SQL, approval requirements, or executable code.
 `prepare_write` parses and revalidates the stored candidate, recomputes every hash, compares the complete compiler binding, and binds the resulting evidence into the approval transaction. Failure occurs before transaction creation and before the approval application is launched.
 
 Runtime-reference C# compilation remains a separate advisory check. It cannot replace or weaken these frontend compiler gates.
+
+## Legacy reference repair adapter
+
+The Python repair adapter exposes a dedicated session and report. Ordinary
+`compile_patch` treats static references as advisory; explicit repair requests
+still require resolving the reported bindings. Its scope catalog follows the configured frontend's
+`Components/ParamInput.tsx` (`addLocalVariable` and `handleParamTypeChange`):
+same-group input/output keys and titles, global declarations, and preceding
+custom output variables visible in the consumer node's depth. `SetVariable`
+output types come from `variableType`, as in its `generateActionData` contract.
+Other declared output types are used without coercion or fuzzy name matching.
+Native registry `level_marker` flags determine block visibility.
+
+The inspection projection changes only diagnosed structured variable records
+into inert custom records for a structural validation call; it is never passed
+to code generation or stored as a plan. The original snapshot is immutable.
+After all candidates resolve, the adapter updates those binding fields on a copy
+and calls native `validate_design`, `compile_patch` with native `replace_params`,
+and the normal compiled-result verification. It rechecks structured bindings
+after native regeneration and before approval. Raw generated code is never an
+input. Native generation may refresh node descriptions and declared output types;
+the signed approval compares the actual original and actual complete candidate.

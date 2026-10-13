@@ -1,0 +1,17 @@
+{
+  "fixture": "30 invalid references, including oldSource local output",
+  "reference_summary": {
+    "total": 30,
+    "automatic": 30,
+    "ambiguous": 0,
+    "unresolved": 0
+  },
+  "whole_canvas_valid": true,
+  "code_generation_complete": true,
+  "approval_preparation_passed": true,
+  "signed_reference_repairs": 30,
+  "statement_count": 1,
+  "human_approval_not_granted": true,
+  "database_write_executed": false,
+  "approval_window_mocked": true
+}

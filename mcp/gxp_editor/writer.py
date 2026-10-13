@@ -30,13 +30,13 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     validate_transaction_artifact(artifact)
     verify_approvals(config, artifact)
 
-    artifact["execution_started"] = True
-    artifact["execution_started_at"] = datetime.now().isoformat(timespec="seconds")
-    save_artifact(transaction["artifact_path"], artifact)
-
-    database = EditorDatabase(config.database)
-    repository = EditorRepository(database)
+    state.claim_transaction(transaction_id)
     try:
+        artifact["execution_started"] = True
+        artifact["execution_started_at"] = datetime.now().isoformat(timespec="seconds")
+        save_artifact(transaction["artifact_path"], artifact)
+        database = EditorDatabase(config.database)
+        repository = EditorRepository(database)
         grants = repository.grant_status(
             account_mode=config.database.account_mode,
             expected_grants_sha256=config.database.expected_grants_sha256,
@@ -54,7 +54,6 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
         state.update_transaction(transaction_id, "failed", str(exc))
         raise
 
-    state.update_transaction(transaction_id, "executing")
     database_saved = False
     try:
         with database.write_transaction() as session:

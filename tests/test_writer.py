@@ -35,6 +35,11 @@ class FakeState:
     def update_session(self, session_id, state, **fields):
         self.session_state = state
 
+    def claim_transaction(self, transaction_id):
+        if self.transaction["state"] != "awaiting_approval":
+            raise WriteExecutionError("Transaction cannot be executed")
+        self.update_transaction(transaction_id, "executing")
+
 
 class FakeSession:
     def __init__(self, affected_rows: int):
@@ -123,6 +128,27 @@ class WriterTests(unittest.TestCase):
                 execute_approved_transaction("transaction-1")
         self.assertEqual(session.executed, [])
         self.assertTrue(load_artifact(self.path)["execution_started"])
+
+    def test_cancelled_transaction_cannot_write(self):
+        self.state.transaction["state"] = "cancelled"
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session):
+            with self.assertRaisesRegex(WriteExecutionError, "cannot be executed"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(session.executed, [])
+
+    def test_cancellation_during_approval_verification_blocks_claim(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session), patch(
+            "gxp_editor.writer.verify_approvals",
+            side_effect=lambda *args: self.state.update_transaction("transaction-1", "cancelled"),
+        ):
+            with self.assertRaisesRegex(WriteExecutionError, "cannot be executed"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(session.executed, [])
+        self.assertFalse(load_artifact(self.path).get("execution_started", False))
 
     def test_target_preflight_failure_blocks_all_writes(self):
         from gxp_editor.repository import RepositoryError

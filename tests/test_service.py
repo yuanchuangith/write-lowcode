@@ -120,6 +120,33 @@ class BlockingPrepareCompiler(FakeCompiler):
 
 
 class ServiceStatusTests(unittest.TestCase):
+    def test_begin_with_existing_session_offers_manual_abort_before_any_work(self):
+        service = object.__new__(EditorService)
+        from unittest.mock import Mock
+        service.state = Mock()
+        service.state.active_session.return_value = {"id": "old-session", "state": "awaiting_approval"}
+        with patch.object(service, "_components") as components, patch.object(
+            service, "abort_edit_session", return_value={"confirmation_window_opened": True, "aborted": False}
+        ) as abort:
+            result = service.begin_edit_session("new-action")
+        components.assert_not_called()
+        abort.assert_called_once_with("old-session")
+        self.assertTrue(result["blocked"])
+        self.assertFalse(result["aborted"])
+
+    def test_abort_tool_opens_window_without_releasing_session(self):
+        service = object.__new__(EditorService)
+        from unittest.mock import Mock
+        service.state = Mock()
+        service.state.get_session.return_value = {"state": "awaiting_approval"}
+        with patch("gxp_editor.service.subprocess.Popen") as launch:
+            result = service.abort_edit_session("old-session")
+        self.assertTrue(result["confirmation_window_opened"])
+        self.assertFalse(result["aborted"])
+        launch.assert_called_once()
+        self.assertIn("abort_session_app.py", launch.call_args.args[0][1])
+        service.state.update_session.assert_not_called()
+
     def test_runtime_validation_failure_is_advisory_for_database_writes(self):
         config = editor_config()
         service = object.__new__(EditorService)

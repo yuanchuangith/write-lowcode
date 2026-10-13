@@ -84,6 +84,9 @@ CREATE TABLE IF NOT EXISTS transactions (
 );
 """
             )
+            columns = {row["name"] for row in db.execute("PRAGMA table_info(sessions)")}
+            if "session_mode" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN session_mode TEXT NOT NULL DEFAULT 'edit'")
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -94,7 +97,9 @@ CREATE TABLE IF NOT EXISTS transactions (
         with self._connection() as db:
             return self._row(db.execute(f"SELECT * FROM sessions WHERE state IN ({placeholders}) ORDER BY created_at LIMIT 1", ACTIVE_STATES).fetchone())
 
-    def create_session(self, draft: dict[str, Any], backup_id: str, compiler_hash: str) -> dict[str, Any]:
+    def create_session(self, draft: dict[str, Any], backup_id: str, compiler_hash: str, *, session_mode: str = "edit") -> dict[str, Any]:
+        if session_mode not in {"edit", "reference_repair"}:
+            raise StateError("Unsupported session mode")
         now = datetime.now().isoformat(timespec="seconds")
         session_id = uuid.uuid4().hex
         with self._connection() as db:
@@ -108,8 +113,8 @@ CREATE TABLE IF NOT EXISTS transactions (
                 """
 INSERT INTO sessions
 (id,ref_id,design_id,action_code,action_name,state,baseline_json,backup_id,
- compiler_hash,plan_id,transaction_id,created_at,updated_at)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
+ compiler_hash,plan_id,transaction_id,created_at,updated_at,session_mode)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 """,
                 (
                     session_id,
@@ -125,6 +130,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
                     None,
                     now,
                     now,
+                    session_mode,
                 ),
             )
         return self.get_session(session_id)
@@ -153,12 +159,17 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
     def create_plan(self, session_id: str, artifact_path: str, base_hash: str, new_hash: str, compiler_hash: str) -> str:
         plan_id = uuid.uuid4().hex
         with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            session = db.execute("SELECT state FROM sessions WHERE id=?", (session_id,)).fetchone()
+            if not session or session["state"] not in {"locked", "planned"}:
+                raise StateError("Session can no longer be planned")
             db.execute("UPDATE plans SET status='superseded' WHERE session_id=? AND status='ready'", (session_id,))
             db.execute(
                 "INSERT INTO plans VALUES (?,?,?,?,?,?,?,?)",
                 (plan_id, session_id, "ready", artifact_path, base_hash, new_hash, compiler_hash, datetime.now().isoformat(timespec="seconds")),
             )
-        self.update_session(session_id, "planned", plan_id=plan_id)
+            db.execute("UPDATE sessions SET state='planned', plan_id=?, updated_at=? WHERE id=?",
+                       (plan_id, datetime.now().isoformat(timespec="seconds"), session_id))
         return plan_id
 
     def get_plan(self, plan_id: str) -> dict[str, Any]:
@@ -186,18 +197,58 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)
         transaction_id = transaction_id or uuid.uuid4().hex
         now = datetime.now().isoformat(timespec="seconds")
         with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
             active = db.execute(
                 "SELECT id FROM transactions WHERE session_id=? AND state IN ('awaiting_approval','executing') LIMIT 1",
                 (session_id,),
             ).fetchone()
             if active:
                 raise StateError(f"Session already has an active approval transaction: {active['id']}")
+            session = db.execute("SELECT state, plan_id FROM sessions WHERE id=?", (session_id,)).fetchone()
+            allowed = {"planned"} if kind == "write" else {"saved", "saved_state_pending", "verified"}
+            if not session or session["state"] not in allowed or (kind == "write" and session["plan_id"] != plan_id):
+                raise StateError("Session can no longer enter approval")
             db.execute(
                 "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)",
                 (transaction_id, session_id, plan_id, kind, "awaiting_approval", artifact_path, "", now, now),
             )
-        self.update_session(session_id, "awaiting_approval" if kind == "write" else "restore_pending", transaction_id=transaction_id)
+            db.execute("UPDATE sessions SET state=?, transaction_id=?, updated_at=? WHERE id=?",
+                       ("awaiting_approval" if kind == "write" else "restore_pending", transaction_id, now, session_id))
         return transaction_id
+
+    def claim_transaction(self, transaction_id: str) -> None:
+        """Serialize execution against manual cancellation across processes."""
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            affected = db.execute(
+                "UPDATE transactions SET state='executing', updated_at=? WHERE id=? AND state='awaiting_approval' "
+                "AND session_id IN (SELECT id FROM sessions WHERE state IN ('awaiting_approval','restore_pending'))",
+                (datetime.now().isoformat(timespec="seconds"), transaction_id),
+            ).rowcount
+            if affected != 1:
+                raise StateError("Transaction is no longer awaiting approval; execution was blocked")
+
+    def abort_session(self, session_id: str) -> None:
+        """Called only by the local confirmation UI; retain backups and audit records."""
+        from .approval import load_artifact
+
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            session = db.execute("SELECT state FROM sessions WHERE id=?", (session_id,)).fetchone()
+            if not session or session["state"] not in {"locked", "planned", "awaiting_approval"}:
+                raise StateError("Only an unexecuted edit session can be aborted")
+            transactions = db.execute("SELECT * FROM transactions WHERE session_id=?", (session_id,)).fetchall()
+            for transaction in transactions:
+                if transaction["state"] != "awaiting_approval":
+                    raise StateError("Execution has been attempted or its result is uncertain; verify before releasing the session")
+                artifact = load_artifact(transaction["artifact_path"])
+                if artifact.get("execution_started") or artifact.get("executed"):
+                    raise StateError("Execution has already started; the session cannot be aborted")
+            now = datetime.now().isoformat(timespec="seconds")
+            db.execute("UPDATE transactions SET state='cancelled', message=?, updated_at=? WHERE session_id=?",
+                       ("User manually aborted the edit session", now, session_id))
+            db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status='ready'", (session_id,))
+            db.execute("UPDATE sessions SET state='aborted', updated_at=? WHERE id=?", (now, session_id))
 
     def get_transaction(self, transaction_id: str) -> dict[str, Any]:
         with self._connection() as db:

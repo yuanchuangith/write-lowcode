@@ -230,6 +230,18 @@ class ApprovalWindowTests(unittest.TestCase):
             self.assertEqual(window.text.cget("state"), "disabled")
             self.assertEqual(window.text.get("1.0", "end-1c"), render_full_sql(artifact["statements"][0]))
             self.assertEqual(str(window.execute_button.cget("state")), "disabled")
+            # Exercise real Tk sizing without exposing an approval window onscreen.
+            for size in ("850x620", "1180x860"):
+                window.root.geometry(size + "+10000+10000")
+                window.root.deiconify()
+                window.root.update()
+                for button in (window.approve_button, window.execute_button):
+                    with self.subTest(size=size, button=button.cget("text")):
+                        self.assertTrue(button.winfo_ismapped())
+                        top = button.winfo_rooty() - window.root.winfo_rooty()
+                        self.assertGreaterEqual(top, 0)
+                        self.assertLessEqual(top + button.winfo_height(), window.root.winfo_height())
+            window.root.withdraw()
             self.assertIn("design-1", window.summary.cget("text"))
             window.copy_sql()
             self.assertEqual(window.root.clipboard_get(), render_full_sql(artifact["statements"][0]))

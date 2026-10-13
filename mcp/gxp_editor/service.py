@@ -17,6 +17,7 @@ from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
 from .state import StateError, StateStore
 from .transaction import build_transaction_artifact
+from .reference_repair import build_repair, inspection_projection, scan_references
 
 
 class EditorServiceError(RuntimeError):
@@ -273,6 +274,23 @@ class EditorService:
         return isinstance(expected, dict) and expected == actual
 
     def begin_edit_session(self, identifier: str) -> dict[str, Any]:
+        return self._begin_session(identifier, repair=False)
+
+    def begin_reference_repair_session(self, identifier: str) -> dict[str, Any]:
+        return self._begin_session(identifier, repair=True)
+
+    def _begin_session(self, identifier: str, *, repair: bool) -> dict[str, Any]:
+        active = self.state.active_session()
+        if active:
+            result = self.abort_edit_session(active["id"]) if active["state"] in {"locked", "planned", "awaiting_approval"} else {}
+            return {
+                **result,
+                "blocked": True,
+                "active_session_id": active["id"],
+                "active_session_state": active["state"],
+                "message": "An edit session is active. Keep it or manually abort it in the local window. "
+                           "Retry begin_edit_session only after it is finished or safely aborted.",
+            }
         config, _, repository, compiler, runtime_validator = self._components()
         registry = compiler.describe_registry()
         draft = repository.load_draft_by_identifier(identifier)
@@ -282,7 +300,7 @@ class EditorService:
         if unknown:
             raise EditorServiceError("Compiler coverage is incomplete for elementKey: " + ", ".join(unknown))
         compiler_design = self._compiler_design(draft)
-        validation = compiler.validate_design(compiler_design)
+        validation = {} if repair else compiler.validate_design(compiler_design)
         try:
             runtime_artifacts = runtime_validator.status()
         except Exception as exc:
@@ -297,14 +315,21 @@ class EditorService:
                 "frontend_version": registry.get("frontend_version"),
                 "elements": sorted(used),
                 "validation": validation.get("validation"),
+                "session_mode": "reference_repair" if repair else "edit",
             },
             runtime_artifacts,
         )
+        report = None
+        if repair:
+            # Backup the original bytes before inspecting or projecting any binding.
+            report = scan_references(compiler_design, registry)
+            compiler.validate_design(inspection_projection(compiler_design, report))
         binding = compiler.compiler_binding()
         session = self.state.create_session(
             draft,
             backup["backup_id"],
             binding["compiler_binding_sha256"],
+            session_mode="reference_repair" if repair else "edit",
         )
         status = self.editor_status()
         return {
@@ -319,13 +344,53 @@ class EditorService:
             "compiler_hash": binding["compiler_binding_sha256"],
             "compiler_binding": binding,
             "element_keys": sorted(used),
+            "validation": validation.get("validation"),
             "planning_ready": status["planning_ready"],
             "write_ready": status["write_ready"],
             "production_ready": status["production_ready"],
             "failed_gates": {name: gate for name, gate in status["gates"].items() if not gate.get("ready")},
+            "session_mode": session.get("session_mode", "edit"),
+            **({"reference_summary": report["summary"], "original_canvas_validated": False,
+                "structure_validated": True, "candidate_validation_required": True} if report is not None else {}),
         }
 
     def plan_canvas_patch(self, session_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
+        session = self.state.get_session(session_id)
+        if session.get("session_mode", "edit") != "edit":
+            raise EditorServiceError("Reference repair sessions require plan_reference_repairs")
+        return self._plan_patch(session_id, operations)
+
+    def inspect_reference_repairs(self, session_id: str, *, offset: int = 0, limit: int = 30) -> dict[str, Any]:
+        if offset < 0 or not 1 <= limit <= 100:
+            raise EditorServiceError("Use offset >= 0 and limit between 1 and 100")
+        _, report, _ = self._reference_report(session_id)
+        return {"session_id": session_id, "summary": report["summary"],
+                "issues": report["issues"][offset:offset + limit], "offset": offset,
+                "next_offset": offset + limit if offset + limit < len(report["issues"]) else None,
+                "write_executed": False}
+
+    def _reference_report(self, session_id: str):
+        session = self.state.get_session(session_id)
+        if session.get("session_mode") != "reference_repair" or session["state"] not in {"locked", "planned"}:
+            raise EditorServiceError("A locked or planned reference repair session is required")
+        _, _, repository, compiler, _ = self._components()
+        current = repository.load_draft_by_id(session["design_id"])
+        if current["content_hash"] != session["baseline"]["content_hash"]:
+            raise EditorServiceError("Draft changed after the repair session began")
+        if compiler.compiler_binding()["compiler_binding_sha256"] != session["compiler_hash"]:
+            raise EditorServiceError("Frontend compiler binding changed after the repair session began")
+        design = self._compiler_design(session["baseline"])
+        return design, scan_references(design, compiler.describe_registry()), compiler
+
+    def plan_reference_repairs(self, session_id: str, choices: list[dict[str, str]] | None = None) -> dict[str, Any]:
+        design, report, _ = self._reference_report(session_id)
+        repaired = build_repair(design, report, [] if choices is None else choices)
+        if repaired["blocked"]:
+            return {"session_id": session_id, "blocked": True, "summary": report["summary"],
+                    "unresolved": repaired["unresolved"], "plan_created": False, "write_executed": False}
+        return self._plan_patch(session_id, repaired["operations"], repaired=repaired)
+
+    def _plan_patch(self, session_id: str, operations: list[dict[str, Any]], *, repaired=None) -> dict[str, Any]:
         _, _, repository, compiler, runtime_validator = self._components()
         session = self.state.get_session(session_id)
         if session["state"] not in {"locked", "planned"}:
@@ -337,7 +402,8 @@ class EditorService:
         binding = compiler.compiler_binding()
         if binding["compiler_binding_sha256"] != session["compiler_hash"]:
             raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
-        result = compiler.compile_patch(self._compiler_design(session["baseline"]), operations)
+        result = (compiler.compile_reference_repair(repaired) if repaired is not None else
+                  compiler.compile_patch(self._compiler_design(session["baseline"]), operations))
         compiler_evidence = compiler.verify_compiled_result(result)
         if not self._compiler_binding_matches(binding, compiler_evidence["compiler_binding"]):
             raise EditorServiceError("Compiler binding changed while the canvas patch was being generated")
@@ -376,6 +442,7 @@ class EditorService:
             "runtime_validation": runtime_validation,
             "diff": result.get("diff") or [],
             "hashes": self._desired_hashes(desired),
+            "reference_repairs": result.get("reference_repairs") or [],
         }
         new_hash = sha256_json(plan_artifact["hashes"])
         plan_dir = runtime_root() / "plans"
@@ -400,6 +467,7 @@ class EditorService:
             "code_generation_complete": True,
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
+            "reference_repairs": plan_artifact["reference_repairs"],
         }
 
     def _launch_approval(self, transaction_id: str) -> None:
@@ -442,6 +510,32 @@ class EditorService:
         if artifact.get("hashes") != hashes or plan.get("new_hash") != sha256_json(hashes):
             raise EditorServiceError("Candidate design or generated-code hashes changed after planning")
         candidate_design = self._candidate_design(session["baseline"], desired)
+        if session.get("session_mode") == "reference_repair":
+            if scan_references(candidate_design, compiler.describe_registry())["summary"]["total"]:
+                raise EditorServiceError("Candidate still contains invalid structured variable references")
+            repair_report = scan_references(self._compiler_design(session["baseline"]), compiler.describe_registry())
+            repairs = artifact.get("reference_repairs") or []
+            rebuilt = build_repair(self._compiler_design(session["baseline"]), repair_report, [
+                {"repair_id": item["repair_id"], "candidate_id": item["candidate_id"]}
+                for item in repairs if item.get("selection") == "confirmed"
+            ])
+            if rebuilt["blocked"] or rebuilt["repairs"] != repairs:
+                raise EditorServiceError("Reference repair provenance changed after planning")
+            expected_nodes = {(g["key"], n["key"]): n for g in rebuilt["design"]["actionData"] for n in g["data"]}
+            actual_nodes = {(g["key"], n["key"]): n for g in candidate_design["actionData"] for n in g["data"]}
+            affected = {(item["group_key"], item["node_key"]) for item in repairs}
+            for key in affected:
+                node = expected_nodes[key]
+                params = node["paramsValue"]
+                output = (params.get("outputParams") or {}).get("variableName")
+                if node["elementKey"] == "SetVariable" and isinstance(output, dict) and output.get("paramTypes") == "custom":
+                    # Native generateActionData synchronizes this declared output type.
+                    output["dataType"] = params["inputParams"]["variableType"]
+            if set(expected_nodes) != set(actual_nodes) or any(
+                expected_nodes[key]["paramsValue"] != actual_nodes[key]["paramsValue"]
+                for key in expected_nodes
+            ):
+                raise EditorServiceError("Candidate parameters differ from the recorded reference repairs")
         compiler_evidence = compiler.verify_candidate_artifact(candidate_design, desired)
         if (
             compiler_evidence.get("validation") != artifact.get("validation")
@@ -472,6 +566,7 @@ class EditorService:
                 "validation": compiler_evidence["validation"],
                 "code_generation_complete": True,
                 "hashes": hashes,
+                "reference_repairs": artifact.get("reference_repairs") or [],
             },
         )
         tx_dir = runtime_root() / "transactions"
@@ -630,7 +725,15 @@ class EditorService:
 
     def abort_edit_session(self, session_id: str) -> dict[str, Any]:
         session = self.state.get_session(session_id)
-        if session["state"] not in {"locked", "planned"}:
-            raise EditorServiceError("A session can only be aborted before write approval begins")
-        self.state.update_session(session_id, "aborted")
-        return {"aborted": True, "session_id": session_id}
+        if session["state"] not in {"locked", "planned", "awaiting_approval"}:
+            raise EditorServiceError("Only an unexecuted session can request manual abort")
+        plugin_root = Path(__file__).resolve().parents[2]
+        python = Path(sys.executable)
+        pythonw = python.with_name("pythonw.exe")
+        subprocess.Popen(
+            [str(pythonw if pythonw.exists() else python), str(plugin_root / "scripts" / "abort_session_app.py"), session_id],
+            cwd=plugin_root,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+        )
+        return {"aborted": False, "session_id": session_id, "confirmation_window_opened": True,
+                "message": "The user must choose whether to keep or safely abort the old session. Recheck session state before retrying."}

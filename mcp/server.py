@@ -35,8 +35,26 @@ def editor_status() -> dict[str, Any]:
 
 @mcp.tool()
 def begin_edit_session(identifier: str) -> dict[str, Any]:
-    """Back up and lock exactly one existing active unpublished draft by action code or RefId."""
+    """Back up and lock one draft; an existing session blocks entry and offers manual cancellation."""
     return service().begin_edit_session(identifier)
+
+
+@mcp.tool()
+def begin_reference_repair_session(identifier: str) -> dict[str, Any]:
+    """Back up one draft, diagnose invalid parameter bindings, and validate its non-reference structure."""
+    return service().begin_reference_repair_session(identifier)
+
+
+@mcp.tool()
+def inspect_reference_repairs(session_id: str, offset: int = 0, limit: int = 30) -> dict[str, Any]:
+    """List invalid bindings and candidates matched by group, exact name, type and visible variable source."""
+    return service().inspect_reference_repairs(session_id, offset=offset, limit=limit)
+
+
+@mcp.tool()
+def plan_reference_repairs(session_id: str, choices: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    """Batch repair unique bindings; supply repair_id/candidate_id only for confirmed ambiguities. Compile the whole candidate before creating a plan."""
+    return service().plan_reference_repairs(session_id, choices)
 
 
 @mcp.tool()
@@ -77,7 +95,7 @@ def finish_edit_session(session_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 def abort_edit_session(session_id: str) -> dict[str, Any]:
-    """Abort only before any write approval transaction begins."""
+    """Open a manual keep/abort window. Cancellation is allowed only before execution starts."""
     return service().abort_edit_session(session_id)
 
 

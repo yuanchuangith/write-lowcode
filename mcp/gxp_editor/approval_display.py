@@ -205,3 +205,19 @@ def execution_result_message(result: dict[str, Any]) -> str:
             "保存完成后还需由编辑工具核对草稿。"
         )
     return "事务结果：\n" + json.dumps(result, ensure_ascii=False, indent=2, default=str)
+
+
+def reference_repair_summary(repairs: list[dict[str, Any]]) -> str:
+    chunks = [f"本次修复 {len(repairs)} 处旧参数引用。整份编排已通过编译校验，仍需逐条审批后才能保存。"]
+    for index, repair in enumerate(repairs, 1):
+        source = repair["source"]
+        kind = {"inputParam": "本分组输入参数", "outputParam": "本分组输出参数",
+                "localVariable": "当前作用域局部变量", "globalVariable": "全局变量"}.get(source["kind"], source["kind"])
+        origin = source.get("node_key") or source.get("parameter_key") or source.get("name")
+        path = ".".join(str(part) for part in repair["path"])
+        chunks.append(f"{index}. 分组 {repair['group_key']} · 第 {repair['row']} 行 · 节点 {repair['node_key']}\n"
+                      f"配置字段：{path}\n来源：{kind} · {origin}\n"
+                      f"选择方式：{'唯一匹配' if repair['selection'] == 'automatic' else '已确认歧义'}\n"
+                      f"修改前：{json.dumps(repair['before'], ensure_ascii=False)}\n"
+                      f"修改后：{json.dumps(repair['after'], ensure_ascii=False)}")
+    return "\n\n".join(chunks)

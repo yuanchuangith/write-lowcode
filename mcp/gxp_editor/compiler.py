@@ -10,6 +10,7 @@ from typing import Any
 
 from .config import EditorConfig
 from .hashing import sha256_json, sha256_text
+from .reference_repair import scan_references
 
 
 class CompilerError(RuntimeError):
@@ -302,3 +303,15 @@ class CompilerBridge:
                 raise CompilerError("Canvas operations contain forbidden fields: " + ", ".join(sorted(overlap)))
         result = self._call({"command": "compile_patch", "design": design, "operations": operations})
         return self._bind_registry_hash(result)
+
+    def compile_reference_repair(self, repaired: dict[str, Any]) -> dict[str, Any]:
+        """Compile only a completely resolved structured candidate, never the diagnostic projection."""
+        design = repaired["design"]
+        if scan_references(design, self.describe_registry())["summary"]["total"]:
+            raise CompilerError("Repaired candidate still contains invalid variable bindings")
+        self.validate_design(design)
+        result = self.compile_patch(design, repaired["operations"])
+        if scan_references(result["design"], self.describe_registry())["summary"]["total"]:
+            raise CompilerError("Native parameter generation reintroduced invalid variable bindings")
+        result["reference_repairs"] = deepcopy(repaired["repairs"])
+        return result
