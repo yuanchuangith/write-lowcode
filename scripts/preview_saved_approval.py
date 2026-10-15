@@ -1,4 +1,4 @@
-"""Read-only viewer for an already saved local approval; never reopens execution."""
+"""Read-only Qt viewer for an already saved local approval; never executes SQL."""
 from __future__ import annotations
 
 import argparse
@@ -7,20 +7,15 @@ import os
 from pathlib import Path
 import sqlite3
 import sys
-import tkinter as tk
-from tkinter import ttk
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 sys.path.insert(0, str(PLUGIN_ROOT / "scripts"))
 
-from gxp_editor.approval_display import canvas_change_summary, render_full_sql, statement_scope
-from gxp_editor.code_review_ui import CodeReview
-from gxp_editor.component_preview import component_changes
-from gxp_editor.component_review_ui import ComponentReview
+from PySide6.QtCore import QObject, QTimer
+from approval_app import ApprovalShell, ApprovalWindow
+from gxp_editor.qt_theme import application
 from gxp_editor.transaction import validate_transaction_artifact
-from preview_component_canvas import capture_full_review
-
 
 def load_snapshot(transaction_id, state_path):
     # URI read-only mode neither initializes nor migrates the local state store.
@@ -40,72 +35,47 @@ def load_snapshot(transaction_id, state_path):
     return dict(row), artifact, json.loads(row["baseline_json"])
 
 
-def add_text_tab(notebook, title, text):
-    frame = ttk.Frame(notebook)
-    notebook.add(frame, text=title)
-    box = tk.Text(frame, wrap="word", font=("Microsoft YaHei UI", 10), padx=12, pady=10)
-    scroll = ttk.Scrollbar(frame, command=box.yview)
-    box.configure(yscrollcommand=scroll.set)
-    scroll.pack(side="right", fill="y")
-    box.pack(fill="both", expand=True)
-    box.insert("1.0", text)
-    box.configure(state="disabled")
-
-
-class SavedApprovalPreview:
+class SavedApprovalPreview(ApprovalWindow):
+    """Reuse the review layout without initializing any editor or executor."""
     def __init__(self, record, artifact, baseline):
-        self.root = tk.Tk()
-        self.root.title("GXP 真实历史审批 · 只读展示")
-        self.root.geometry("1380x760+0+0")
-        self.root.minsize(1000, 680)
-        style = ttk.Style(self.root)
-        style.theme_use("clam")
-        style.configure("TLabel", font=("Microsoft YaHei UI", 9))
-        style.configure("TButton", padding=(10, 6))
-        style.configure("TNotebook.Tab", padding=(14, 6))
-        footer = ttk.Frame(self.root, padding=10)
-        footer.pack(side="bottom", fill="x")
-        ttk.Button(footer, text="历史已批准并保存", state="disabled").pack(side="left")
-        ttk.Button(footer, text="保存已完成（只读）", state="disabled").pack(side="right")
-        ttk.Button(footer, text="关闭展示", command=self.root.destroy).pack(side="right", padx=8)
-        header = ttk.Frame(self.root, padding=(16, 12))
-        header.pack(fill="x")
-        ttk.Label(header, text=f"{record['action_name']}（{record['action_code']}）", font=("Microsoft YaHei UI", 16, "bold"), foreground="#253c59").pack(side="left")
-        ttk.Label(header, text="真实历史审批 · 已保存 · 只读", foreground="#18714c").pack(side="right")
-        scope = ttk.LabelFrame(self.root, text="当时的审批范围", padding=10)
-        scope.pack(fill="x", padx=14, pady=(0, 8))
-        ttk.Label(scope, text=statement_scope(artifact["statements"][0]), justify="left").pack(anchor="w")
-        evidence = artifact.get("compiler_evidence") or {}
-        validations = evidence.get("validation") or {}
-        valid = validations.get("valid") is True
-        complete = evidence.get("code_generation_complete") is True
-        ttk.Label(self.root, text=f"画布编译校验：{'通过' if valid else '未通过'}   |   代码生成：{'完整' if complete else '未确认'}   |   历史语句：{len(artifact['statements'])} 条   |   批准记录：{len(artifact.get('approvals') or {})} 条",
-                  foreground="#18714c").pack(fill="x", padx=16, pady=(0, 8))
-        self.notebook = ttk.Notebook(self.root)
-        self.notebook.pack(fill="both", expand=True, padx=14, pady=(0, 6))
-        self.review = ComponentReview(self.notebook, {}, "来源：真实草稿备份与已保存审批快照。参数配置按原始字段展示。")
-        before, after = json.loads(baseline["data"]), json.loads(artifact["desired_design"]["data"])
-        changes = component_changes(before, after)
-        self.review.render(before, after, changes=changes)
-        code = CodeReview(self.notebook)
-        code.set_canvas_context(before, after, changes=changes)
-        code.update_sources(baseline, artifact["desired_design"])
-        add_text_tab(self.notebook, "本次改动", canvas_change_summary(before, after, changes=changes))
-        add_text_tab(self.notebook, "当时的完整 SQL", "\n\n".join(render_full_sql(statement) for statement in artifact["statements"]))
-        runtime = artifact.get("runtime_validation") or {}
-        add_text_tab(self.notebook, "历史校验记录", json.dumps({
-            "transaction_id": record["id"], "历史状态": record["state"], "会话状态": record["session_state"],
-            "画布编译校验": valid, "代码生成完整": complete,
-            "本地运行引用校验成功": runtime.get("success", False),
-            "运行引用提示": runtime.get("warning"),
-            "说明": "本窗口仅查看历史审批快照；不重新批准、执行或验证当前数据库及运行状态。",
-        }, ensure_ascii=False, indent=2))
-        self.root.update()
-        if changes:
-            first = changes[0]
-            side = first["after"] or first["before"]
-            self.review.select_canvas_node(side.get("group_key", "globalVariables"), side["node"].get("key", "globalVariables"))
-        self.root.update()
+        QObject.__init__(self)
+        self.transaction_id = record["id"]
+        self.transaction = {"state": "saved"}
+        self.artifact = artifact
+        self.session = {
+            "id": record["session_id"], "action_name": record["action_name"], "baseline": baseline,
+        }
+        self.index = 0
+        self._window_lock = None
+        self._executing = False
+        self._review_blocked = True
+        self.qt_app = application()
+        self.root = ApprovalShell(self)
+        self.timer = QTimer(self.root)
+        self.root.setWindowTitle("GXP 历史审批 · 只读预览")
+        self._build_ui({}, "来源：真实草稿备份与已保存审批快照。参数名称按原始 Key 展示。")
+        self.close_button.setText("关闭预览")
+        self.close_button.setToolTip("关闭只读历史预览。")
+        self.approve_button.setText("历史已批准")
+        self.execute_button.setText("已保存 · 只读")
+        self.render()
+        self.root.fit_to_screen()
+
+    def render(self):
+        super().render()
+        self.badge.setText("历史审批 · 只读")
+        count = len(self.artifact.get("approvals") or {})
+        self.approved_metric.setText(f"{count} / {len(self.artifact['statements'])}")
+        self.progress.setText(f"已保存 · 当前第 {self.index + 1} 条 · 仅查看历史快照")
+        self.progress_bar.setValue(count)
+        self.approve_button.setEnabled(False)
+        self.execute_button.setEnabled(False)
+
+    def approve_current(self):
+        return  # A saved snapshot can never create another approval.
+
+    def execute(self):
+        return  # No executor is initialized or reachable from this viewer.
 
 
 def main():
@@ -120,14 +90,16 @@ def main():
         def capture():
             try:
                 args.screenshot.parent.mkdir(parents=True, exist_ok=True)
-                capture_full_review(window.root, window.review, args.screenshot)
+                if not window.root.grab().save(str(args.screenshot)):
+                    raise OSError("无法保存界面截图")
                 print(f"Saved: {args.screenshot}", flush=True)
             finally:
                 if args.close_after_capture:
-                    window.root.destroy()
-        window.root.after(500, capture)
-    window.root.mainloop()
+                    window.close()
+        QTimer.singleShot(500, capture)
+    window.run()
 
 
 if __name__ == "__main__":
     main()
+

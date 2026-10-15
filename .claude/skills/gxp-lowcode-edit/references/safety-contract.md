@@ -1,5 +1,10 @@
 # Safety contract
 
+Open the local Qt approval window directly once the requested plan passes its
+write-readiness checks. Do not require a separate chat confirmation to open it.
+Opening, previewing, navigating or reopening never approves or executes SQL;
+per-statement human approval and final execution confirmation remain in the app.
+
 The local approval application defaults to a read-only component preview derived
 from the session baseline and signed desired canvas. Clicking expands a component;
 the configuration detail window compares input/output parameters before and after

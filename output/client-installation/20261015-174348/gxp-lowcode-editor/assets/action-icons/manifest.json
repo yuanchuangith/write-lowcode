@@ -1,0 +1,422 @@
+{
+  "source": "ActionDesign element.image (static SVG)",
+  "icons": {
+    "AddChangeData": {
+      "source": "src/core/common/ActionDesign/Element/Audit/AddChangeData.tsx",
+      "sha256": "b8f1b90ac1b6e4af6aa5da5e54342629ae977545478c1ebc6bcf4b107bc25335"
+    },
+    "AddMetaData": {
+      "source": "src/core/common/ActionDesign/Element/Audit/AddMetaData.tsx",
+      "sha256": "b8f1b90ac1b6e4af6aa5da5e54342629ae977545478c1ebc6bcf4b107bc25335"
+    },
+    "DoubleSingUser": {
+      "source": "src/core/common/ActionDesign/Element/Audit/DoubleSingUser.tsx",
+      "sha256": "b8f1b90ac1b6e4af6aa5da5e54342629ae977545478c1ebc6bcf4b107bc25335"
+    },
+    "ComponentEvent": {
+      "source": "src/core/common/ActionDesign/Element/Components/ComponentEvent.tsx",
+      "sha256": "1cb9feabcd6eaf5d9f52cbab2f954efc889842f9b0f7c2c2c3ec0c308626fd93"
+    },
+    "ComponentMethod": {
+      "source": "src/core/common/ActionDesign/Element/Components/ComponentMethod.tsx",
+      "sha256": "1cb9feabcd6eaf5d9f52cbab2f954efc889842f9b0f7c2c2c3ec0c308626fd93"
+    },
+    "ComponentProperties": {
+      "source": "src/core/common/ActionDesign/Element/Components/ComponentProperties.tsx",
+      "sha256": "1cb9feabcd6eaf5d9f52cbab2f954efc889842f9b0f7c2c2c3ec0c308626fd93"
+    },
+    "SetComponentStatus": {
+      "source": "src/core/common/ActionDesign/Element/Components/ComponentStatus.tsx",
+      "sha256": "441e6a8bf89905b4ca271d8d756f5f21ee7d8b844fd8ccc95868a7476a095df3"
+    },
+    "DataFilter": {
+      "source": "src/core/common/ActionDesign/Element/Components/DataFilter.tsx",
+      "sha256": "ae438c95179413041d581c3e96ac137c667887a38eff0d1c362c572efc443168"
+    },
+    "DetailDataFilter": {
+      "source": "src/core/common/ActionDesign/Element/Components/DetailDataFilter.tsx",
+      "sha256": "ae438c95179413041d581c3e96ac137c667887a38eff0d1c362c572efc443168"
+    },
+    "SetUploadButtonStatus": {
+      "source": "src/core/common/ActionDesign/Element/Components/SetUploadButtonStatus.tsx",
+      "sha256": "86465d9b09ca8dc69183b6b9771b679b31c076a03d8b5491a3d0d2f01f6ed067"
+    },
+    "TableButtonEvent": {
+      "source": "src/core/common/ActionDesign/Element/Components/TableButtonEvent.tsx",
+      "sha256": "1cb9feabcd6eaf5d9f52cbab2f954efc889842f9b0f7c2c2c3ec0c308626fd93"
+    },
+    "CurrentTaskIsComplate": {
+      "source": "src/core/common/ActionDesign/Element/Condition/CurrentTaskIsComplate.tsx",
+      "sha256": "2b4b058351f3aeb0c8036d4218c631cb14c4d845bfaf470748e75010efbfe865"
+    },
+    "Else": {
+      "source": "src/core/common/ActionDesign/Element/Condition/Else.tsx",
+      "sha256": "d9a534221e60448293bbc14e51f394cd700d0dbc760c88eb0802358ef25f5fb2"
+    },
+    "ElseIfCondition": {
+      "source": "src/core/common/ActionDesign/Element/Condition/ElseIf.tsx",
+      "sha256": "e44592d2d88ccb736aaa15b0326a5896be134b33eabef204687d2f1759d6b5cc"
+    },
+    "FlowIsComplate": {
+      "source": "src/core/common/ActionDesign/Element/Condition/FlowIsComplate.tsx",
+      "sha256": "2b4b058351f3aeb0c8036d4218c631cb14c4d845bfaf470748e75010efbfe865"
+    },
+    "FlowTaskIsComplate": {
+      "source": "src/core/common/ActionDesign/Element/Condition/FlowTaskIsComplate.tsx",
+      "sha256": "2b4b058351f3aeb0c8036d4218c631cb14c4d845bfaf470748e75010efbfe865"
+    },
+    "IfCondition": {
+      "source": "src/core/common/ActionDesign/Element/Condition/IfCondition.tsx",
+      "sha256": "2b4b058351f3aeb0c8036d4218c631cb14c4d845bfaf470748e75010efbfe865"
+    },
+    "IfEnd": {
+      "source": "src/core/common/ActionDesign/Element/Condition/IfEnd.tsx",
+      "sha256": "36d576c5877fcc83a17a2450c90405f6d20ea1e4ca705a7759532cd847ce8573"
+    },
+    "NullCondition": {
+      "source": "src/core/common/ActionDesign/Element/Condition/NullCondition.tsx",
+      "sha256": "c0dec06048b4a90cb26f976f22157ea00104c93b9732662eb87a58616138429e"
+    },
+    "CallAction": {
+      "source": "src/core/common/ActionDesign/Element/Control/CallAction.tsx",
+      "sha256": "05a1be3d40a8b0ebe161877633738c0948d7340ae252bbb96d95e1cb4d2cc06a"
+    },
+    "CallEvents": {
+      "source": "src/core/common/ActionDesign/Element/Control/CallEvents.tsx",
+      "sha256": "cce4601084c55d350d32817763ad21f3f49366a214ed262ee759fdee984ebb0c"
+    },
+    "CallPublicAction": {
+      "source": "src/core/common/ActionDesign/Element/Control/CallPublicAction.tsx",
+      "sha256": "4792ea0ce365dbfaab327bd47ce5bb57fa0f740488f3f5708909778daac8b0a2"
+    },
+    "ClearInterval": {
+      "source": "src/core/common/ActionDesign/Element/Control/ClearInterval.tsx",
+      "sha256": "cd1cbfb69f247facee2ee22caa5e29175214dad41805c45808d7c2e5f635a553"
+    },
+    "ExitAction": {
+      "source": "src/core/common/ActionDesign/Element/Control/ExitAction.tsx",
+      "sha256": "3586f843900aa8cd4444dbae846864bd8b5582a07a5cbecae647d1f81eef5170"
+    },
+    "SetFormReadOnly": {
+      "source": "src/core/common/ActionDesign/Element/Control/SetFormReadOnly.tsx",
+      "sha256": "680cb4c47b88ac796c02d2b61119759dd10b98d0db050617919805452ce41da7"
+    },
+    "SetInterval": {
+      "source": "src/core/common/ActionDesign/Element/Control/SetInterval.tsx",
+      "sha256": "ab14351084002b8265f34ff281ba0ab1e0182d8d868d1749162ff5342b1ffcfb"
+    },
+    "SetTimeout": {
+      "source": "src/core/common/ActionDesign/Element/Control/SetTimeout.tsx",
+      "sha256": "4e906636024caafa86f8bd0ecd4153461fedf739437a86e305395fefeeedf812"
+    },
+    "SyncLock": {
+      "source": "src/core/common/ActionDesign/Element/Control/SyncLock.tsx",
+      "sha256": "9781e82bbc55847c6777ab471e40640ef378d86d8b2d14e96b10200ec985ff5c"
+    },
+    "SyncLockEnd": {
+      "source": "src/core/common/ActionDesign/Element/Control/SyncLockEnd.tsx",
+      "sha256": "584aba5ad753d4fb3c78d58fea165ef0f88bcb3c8dab725d9b68b6412a8988b3"
+    },
+    "Wait": {
+      "source": "src/core/common/ActionDesign/Element/Control/Wait.tsx",
+      "sha256": "74df1c0df82b3575df69226dc010e46119a55271ec940c74057dbfee0a8fd784"
+    },
+    "AddNewData": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/AddNewData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "AddNewDataByDict": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/AddNewDataByDict.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "DeleteData": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/DeleteData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "SelectData": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/SelectData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "UpdateData": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/UpdateData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "UpdateDataByDict": {
+      "source": "src/core/common/ActionDesign/Element/Database/Model/UpdateDataByDict.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "SelectModelData": {
+      "source": "src/core/common/ActionDesign/Element/Database/SelectModelData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "SelectOrgData": {
+      "source": "src/core/common/ActionDesign/Element/Database/SelectOrgData.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "SelectProcessFinalApprover": {
+      "source": "src/core/common/ActionDesign/Element/Database/SelectProcessFinalApprover.tsx",
+      "sha256": "d5ffb83c9be4e31f08d4d2813184aa10846c8d75ca9d08e9c4e7fbb37c97be54"
+    },
+    "AddDateTime": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/DateTime/AddDateTime.tsx",
+      "sha256": "b816c176964fa3dac03cddf5f4b1cea026c80b9a55938519c04615b0ce5b67e4"
+    },
+    "FormatDate": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/DateTime/FormatDate.tsx",
+      "sha256": "39ba48d896f4168bc2b16bb7d634817e8afedb77157c8779ed2e0ebd11f30d1f"
+    },
+    "timeInterval": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/DateTime/TimeInterval.tsx",
+      "sha256": "5a1c3f096b48e59d04e5e7532481c67b864537201f3f4db0a5918d83d888a456"
+    },
+    "DocumentDataImport": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/DocumentDataImport.tsx",
+      "sha256": "562abe17b7e87ab6962abf8f809552b44f2a3d4cc7c0346dcb7bec55cec65198"
+    },
+    "DynamicCalculation": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/DynamicCalculation.tsx",
+      "sha256": "16aa858b7060234864c984fda6b3584d88e16b463e029dd529c154c4fddedb8b"
+    },
+    "GenerateReport": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/GenerateReport.tsx",
+      "sha256": "562abe17b7e87ab6962abf8f809552b44f2a3d4cc7c0346dcb7bec55cec65198"
+    },
+    "GenerateStrategyCode": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/GenerateStrategyCode.tsx",
+      "sha256": "fef0d55ac1c0ab4dc7e7632d4b019567e05c75f59e0b7d988ee059c47ceb777c"
+    },
+    "GetStrategyFixedCode": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/GetStrategyFixedCode.tsx",
+      "sha256": "39d90864772521b87c52cfd16cd414ef0f204ca17fee8f74de2844efb269d399"
+    },
+    "JsonToString": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/Json/JsonToString.tsx",
+      "sha256": "8e9975934db22e5c9def999d2ca7d3bc67906f7a592e2eab7386cf231325a88a"
+    },
+    "StringToJson": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/Json/StringToJson.tsx",
+      "sha256": "8e9975934db22e5c9def999d2ca7d3bc67906f7a592e2eab7386cf231325a88a"
+    },
+    "MathCalculation": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/MathCalculation.tsx",
+      "sha256": "074c104259a6d90dd2ecf38d9d9d84516240cee25244de1cd686f22a3e3265c5"
+    },
+    "RandomNumbers": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/RandomNumbers.tsx",
+      "sha256": "b38036ef12ebc213c3149e53cf692d8690876b39ee48b639bfb8bc80549f5654"
+    },
+    "SetVariable": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/SetVariable.tsx",
+      "sha256": "a02b5d8c69a155e03d374405b288f65e6b7a818da6578dd301a6b22536a4af19"
+    },
+    "SetVariableValue": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/SetVariableValue.tsx",
+      "sha256": "a02b5d8c69a155e03d374405b288f65e6b7a818da6578dd301a6b22536a4af19"
+    },
+    "ExtractText": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/ExtractText.tsx",
+      "sha256": "3fbc1ee24c4b4efbb73aa671630995c79da300875e43b8d7d193b3b9a39de2bc"
+    },
+    "SplitText": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/SplitText.tsx",
+      "sha256": "52f22e97286cab95ccf837277dc46b8c25feac92a2539eb5c1de47b53dc5d326"
+    },
+    "StringCaseConvert": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/StringCaseConvert.tsx",
+      "sha256": "bd43703f096b6aac6ccb10fc5ec168d1e40c08c242f63dc541b80eca8936e312"
+    },
+    "StringConcat": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/StringConcat.tsx",
+      "sha256": "91d87ca5e38e2b4336f36992de8fcd42b02f0b10de4f15b7e0ce0de57a56cd9b"
+    },
+    "TextLength": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/StringLength.tsx",
+      "sha256": "7d60255e298066d68e40ddd0a719f3004170e85205ba3175c663bd956c334a91"
+    },
+    "StringPad": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/StringPad.tsx",
+      "sha256": "6688ad8dbb1ca20154178c606aad25d99b94d8b496e72780356783d495cb4c42"
+    },
+    "StringReplace": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/String/StringReplace.tsx",
+      "sha256": "d6abab65f6be9ee51e6f8113bc816a2f2c7f81ff124757bf4ecc2ffa18c27108"
+    },
+    "VersionFormat": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/VersionFormat.tsx",
+      "sha256": "93aee72baf6274a28558d2f0f4a9c25df8ebe1ba2b91bc168a7376904bfc3ffc"
+    },
+    "WatermarkConvert": {
+      "source": "src/core/common/ActionDesign/Element/DataProcessing/WatermarkConvert.tsx",
+      "sha256": "9a8b223f5d171caa987de0a8567c9fb32ac8ea00786a0be79c9df8e295b7233d"
+    },
+    "breakpoint": {
+      "source": "src/core/common/ActionDesign/Element/Debug/Breakpoint.tsx",
+      "sha256": "18d267fa52c42df18d897c9e8c90b783aeb824d9863f5313cbfbfcf3dcb86e46"
+    },
+    "CustomExt": {
+      "source": "src/core/common/ActionDesign/Element/Debug/CustomExt.tsx",
+      "sha256": "4f1b418492784263cf0f3e8e4711e2b717dd8346ef738c59b01dc23197b0c7f6"
+    },
+    "OutputLog": {
+      "source": "src/core/common/ActionDesign/Element/Debug/OutputLog.tsx",
+      "sha256": "c5707c1e66e0aa17211140e70bbb5280605dc4e5184b3d09a0ebfd5985052e05"
+    },
+    "DocumentPreviewConfig": {
+      "source": "src/core/common/ActionDesign/Element/Document/DocumentPreviewConfig.tsx",
+      "sha256": "ae4ebb0405552947fda738d4f9e276836c6b94e1178cb3e8102644b62400104a"
+    },
+    "DocumentPrint": {
+      "source": "src/core/common/ActionDesign/Element/Document/DocumentPrint.tsx",
+      "sha256": "a9070d5b9c5167ea09ca77ddbb3eaf2ec8b52a89005d6e551f4f7417f2d70e2b"
+    },
+    "DocumentPrintCsharp": {
+      "source": "src/core/common/ActionDesign/Element/Document/DocumentPrintCsharp.tsx",
+      "sha256": "a9070d5b9c5167ea09ca77ddbb3eaf2ec8b52a89005d6e551f4f7417f2d70e2b"
+    },
+    "FileCopyVersion": {
+      "source": "src/core/common/ActionDesign/Element/Document/FileCopyVersion.tsx",
+      "sha256": "a9070d5b9c5167ea09ca77ddbb3eaf2ec8b52a89005d6e551f4f7417f2d70e2b"
+    },
+    "FileDownload": {
+      "source": "src/core/common/ActionDesign/Element/Document/FileDownload.tsx",
+      "sha256": "206ad46f9cf1add819cee0bd2836c480da144fb9bf147b0e00cfb5255f71c5ce"
+    },
+    "FileEditingCheck": {
+      "source": "src/core/common/ActionDesign/Element/Document/FileEditingCheck.tsx",
+      "sha256": "0fbc9b434e786b6f4bcd52d37870365f64ffea16576ad399b8c489365e933eb1"
+    },
+    "FileRelease": {
+      "source": "src/core/common/ActionDesign/Element/Document/FileRelease.tsx",
+      "sha256": "a9070d5b9c5167ea09ca77ddbb3eaf2ec8b52a89005d6e551f4f7417f2d70e2b"
+    },
+    "ContinueLoop": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ContinueLoop.tsx",
+      "sha256": "9df7b549b52c4e16feffe687c53954220474221bf4e9618077fb70ae445dbfbc"
+    },
+    "ExitLoop": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ExitLoop.tsx",
+      "sha256": "214af07a57fb46167b0f65bc70952f95a0d65e24bc089c9292c082a047921eb8"
+    },
+    "ForEachArray": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ForEachArray.tsx",
+      "sha256": "e575f845d0ba57411828ae2cfdfe79beb06874da9b485c69224d99e11a23000a"
+    },
+    "ForEachDynamicArray": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ForEachDynamicArray.tsx",
+      "sha256": "e575f845d0ba57411828ae2cfdfe79beb06874da9b485c69224d99e11a23000a"
+    },
+    "ForEachObject": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ForEachObject.tsx",
+      "sha256": "e89b2d75f09088c54974ceb8d12f25dae27265ed1d71b218d1cf1507972d7baa"
+    },
+    "ForLoop": {
+      "source": "src/core/common/ActionDesign/Element/Loop/ForLoop.tsx",
+      "sha256": "4505e6219006cb42f7f86d090f3324a2a62830304722da3f017aca45bdf1fb8f"
+    },
+    "LoopEnd": {
+      "source": "src/core/common/ActionDesign/Element/Loop/LoopEnd.tsx",
+      "sha256": "03b04797401d1932d0f3d301992df1e7883c757a25253ccead61eaf4b5bcaf7e"
+    },
+    "WhileLoop": {
+      "source": "src/core/common/ActionDesign/Element/Loop/WhileLoop.tsx",
+      "sha256": "3ce968c573b69672dd281514aa5738eaba5dfd3a25a2dacebd9917ffffc5fd7a"
+    },
+    "OpenConfirmDialog": {
+      "source": "src/core/common/ActionDesign/Element/Message/OpenConfirmDialog.tsx",
+      "sha256": "b3ccb0f49c1561da75a6789d316762d4e211def52e6cd7d7553f58ba605c7e6d"
+    },
+    "OpenInputDialog": {
+      "source": "src/core/common/ActionDesign/Element/Message/OpenInputDialog.tsx",
+      "sha256": "17e143991438cc7d0f932b1ec2667c5f0368de19b69f641b35e5dd350fb089ee"
+    },
+    "OpenMessageDialog": {
+      "source": "src/core/common/ActionDesign/Element/Message/OpenMessageDialog.tsx",
+      "sha256": "95af8ea54555185d841292d1463b1e646a61de9e315fb228c20d6aff2c76b4b7"
+    },
+    "CallInterface": {
+      "source": "src/core/common/ActionDesign/Element/Network/CallInterface.tsx",
+      "sha256": "1208cc370ef5c54bd37efa9f3d066d0f1df3d5c74a751c200835556a7746cd1a"
+    },
+    "PushMessage": {
+      "source": "src/core/common/ActionDesign/Element/Network/PushMessage.tsx",
+      "sha256": "2ff717c5bd792e63f7df1ccfff91622e6622c8bcb8f063e0c39f27ae2e72febb"
+    },
+    "SendPageBroadcast": {
+      "source": "src/core/common/ActionDesign/Element/Notice/SendPageBroadcast.tsx",
+      "sha256": "2bcb77e56b19d789c1e2a54b658d8dceb5e2fada04d1852708144513e6aadf17"
+    },
+    "SendToDoNotice": {
+      "source": "src/core/common/ActionDesign/Element/Notice/SendToDoNotice.tsx",
+      "sha256": "35956b8f731087e78a36a0ba63d835cc0ee57d8f51d30bb817b77b2f8c20c4b3"
+    },
+    "SetToDoStatus": {
+      "source": "src/core/common/ActionDesign/Element/Notice/SetToDoStatus.tsx",
+      "sha256": "a5f74fe4cbd1404aec9ad96ae325d2790b2f5daf8b2f3cf0162c2950637308d5"
+    },
+    "SubscriptionPageBroadcast": {
+      "source": "src/core/common/ActionDesign/Element/Notice/SubscriptionPageBroadcast.tsx",
+      "sha256": "ea2f5692a95445275b78d23353baec2f0abcbb31aa5cb47ef42b68983e44338d"
+    },
+    "AfterSave": {
+      "source": "src/core/common/ActionDesign/Element/Page/AfterSave.tsx",
+      "sha256": "1ec8f62a375fe02cc7dc6d307229d3757b1a1dc993fc96fd83ead88d432b9b8f"
+    },
+    "AfterSubmitBackend": {
+      "source": "src/core/common/ActionDesign/Element/Page/AfterSubmitBackend.tsx",
+      "sha256": "1ec8f62a375fe02cc7dc6d307229d3757b1a1dc993fc96fd83ead88d432b9b8f"
+    },
+    "BeforeAuditConfirm": {
+      "source": "src/core/common/ActionDesign/Element/Page/BeforeAuditConfirm.tsx",
+      "sha256": "9eb376a3b0cbb28c6100f0bac2e29fea75bd3ec97e075bf74fd7c69f19961aad"
+    },
+    "BeforeSubmit": {
+      "source": "src/core/common/ActionDesign/Element/Page/BeforeSubmit.tsx",
+      "sha256": "860e58c2342bef9234512e491b1764b0a26256d21293f708bdf64a1f5af0ec3b"
+    },
+    "AfterSubmit": {
+      "source": "src/core/common/ActionDesign/Element/Page/BeforeSubmitBackend.tsx",
+      "sha256": "1ec8f62a375fe02cc7dc6d307229d3757b1a1dc993fc96fd83ead88d432b9b8f"
+    },
+    "OpenPage": {
+      "source": "src/core/common/ActionDesign/Element/Page/OpenPage.tsx",
+      "sha256": "1e1e61b4615326dcf9704f01a977e4e08744c55b14c34916fc5647d4dc5b8c49"
+    },
+    "QueryData": {
+      "source": "src/core/common/ActionDesign/Element/Page/QueryData.tsx",
+      "sha256": "8bc8953a4dff29a7892b2cc1fd7c15241565dde1abea0c8b2790ab00cff0beb9"
+    },
+    "SetProcessVariables": {
+      "source": "src/core/common/ActionDesign/Element/Page/SetProcessVariables.tsx",
+      "sha256": "34d872aa2712f7796701f0693930716ab4b646c4a6c3eff87010b155b9073538"
+    },
+    "SetQueryData": {
+      "source": "src/core/common/ActionDesign/Element/Page/SetQueryData.tsx",
+      "sha256": "c1367b97e3f1359c145a586cf090f9f62a8bd088e731d0e5726c860e316433e8"
+    },
+    "SetSummaryInfo": {
+      "source": "src/core/common/ActionDesign/Element/Page/SetSummaryInfo.tsx",
+      "sha256": "bda3de35d1175846a309c2bcbb97ba69ebcd445f99a6c446eb4a8da0b62549e5"
+    },
+    "Catch": {
+      "source": "src/core/common/ActionDesign/Element/TryCatch/Catch.tsx",
+      "sha256": "16a4eac02c19c1ec22a9a5605d13e512ee12672dcda8683018f85010b7510e1b"
+    },
+    "EndTry": {
+      "source": "src/core/common/ActionDesign/Element/TryCatch/EndTry.tsx",
+      "sha256": "ddfa3a1a0b5704b2d0d79a8a3ecc7c625b7a1ce6a259a9bfd988fd481b13e9ab"
+    },
+    "Finally": {
+      "source": "src/core/common/ActionDesign/Element/TryCatch/Finally.tsx",
+      "sha256": "211a89a2ed5a246c4e7ea60df1588b083b4d4e95d053526b5d8b2e3babef32b0"
+    },
+    "ThrowError": {
+      "source": "src/core/common/ActionDesign/Element/TryCatch/ThrowError.tsx",
+      "sha256": "0feb5a230c9be7fc8ab222b936b7921c6e0ba3cff8140b6da67f2792f79d604b"
+    },
+    "Try": {
+      "source": "src/core/common/ActionDesign/Element/TryCatch/Try.tsx",
+      "sha256": "471393734b953c7ef9c9df3628b3f5d0df7cfb6813b9f40c2174a9c4b7364cd7"
+    }
+  },
+  "skipped": []
+}

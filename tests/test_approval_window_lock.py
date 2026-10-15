@@ -8,7 +8,6 @@ import subprocess
 import sys
 import tempfile
 import time
-import tkinter as tk
 import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
@@ -81,6 +80,8 @@ class ApprovalWindowLifecycleTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("approval_window_lifecycle", PLUGIN_ROOT / "scripts" / "approval_app.py")
         self.app = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.app)
+        self.qt_app = self.app.application()
+        self.qt_app.setQuitOnLastWindowClosed(False)
         self.artifact = transaction()
         self.original = copy.deepcopy(self.artifact)
         self.state = Mock()
@@ -93,56 +94,35 @@ class ApprovalWindowLifecycleTests(unittest.TestCase):
             return {"artifact_path": str(self.directory / f"{tx}.json"), "state": "awaiting_approval"}
         self.state.get_transaction.side_effect = get_transaction
         for target, options in (
-            ("load_config", {}),
-            ("StateStore", {"return_value": self.state}),
+            ("load_config", {}), ("StateStore", {"return_value": self.state}),
             ("load_artifact", {"return_value": self.artifact}),
-            ("approve_statement", {}),
-            ("save_artifact", {}),
-            ("execute_approved_transaction", {}),
+            ("approve_statement", {}), ("save_artifact", {}), ("execute_approved_transaction", {}),
         ):
             patcher = patch.object(self.app, target, **options)
-            mocked = patcher.start()
-            setattr(self, target, mocked)
+            setattr(self, target, patcher.start())
             self.addCleanup(patcher.stop)
 
-    def hidden_root(self):
-        root = self.root_factory()
-        root.withdraw()
-        self.addCleanup(self.destroy_root, root)
-        return root
-
-    @staticmethod
-    def destroy_root(root):
-        try:
-            root.destroy()
-        except tk.TclError:
-            pass
+    def window(self, tx):
+        window = self.app.ApprovalWindow(tx, "对话一", 2)
+        self.addCleanup(window.close)
+        return window
 
     def test_duplicate_main_has_clear_message_and_distinct_windows_can_open(self):
-        self.root_factory = tk.Tk
-        with patch.object(self.app.tk, "Tk", side_effect=self.hidden_root) as create_root:
-            try:
-                first = self.app.ApprovalWindow("first", "对话一", 2)
-            except tk.TclError as exc:
-                self.skipTest(f"Tk display unavailable: {exc}")
-            first.root.update_idletasks()
-            self.assertIn("对话 对话一", first.root.title())
-            self.assertIn("session-", first.root.title())
-            self.assertIn("审批 first", first.header.cget("text"))
-            with patch.object(self.app.sys, "argv", ["approval_app.py", "first", "对话一", "2"]), \
-                 patch.object(self.app.messagebox, "showinfo") as alert:
-                self.assertEqual(self.app.main(), 2)
-                self.assertIn("已有窗口打开", alert.call_args.args[1])
-            self.assertEqual(create_root.call_count, 1)
-            second = self.app.ApprovalWindow("second", "对话一", 2)
-            self.assertEqual(create_root.call_count, 2)
-            first.root.destroy()
-            reopened = self.app.ApprovalWindow("first", "对话一", 2)
-            reopened.close()
-            with self.assertRaises(ApprovalWindowBusyError):
-                with approval_window_lock(self.directory / "second.json"):
-                    self.fail("Closing the first window released the second window")
-            second.close()
+        first = self.window("first")
+        self.assertIn("对话 对话一", first.root.windowTitle())
+        self.assertIn("session-", first.root.windowTitle())
+        with patch.object(self.app.sys, "argv", ["approval_app.py", "first", "对话一", "2"]), \
+             patch.object(self.app.messagebox, "showinfo") as alert:
+            self.assertEqual(self.app.main(), 2)
+            self.assertIn("已有窗口打开", alert.call_args.args[1])
+        second = self.window("second")
+        first.root.close()
+        reopened = self.window("first")
+        reopened.close()
+        with self.assertRaises(ApprovalWindowBusyError):
+            with approval_window_lock(self.directory / "second.json"):
+                self.fail("Closing the first window released the second window")
+        second.close()
         self.assertEqual(self.artifact, self.original)
         self.approve_statement.assert_not_called()
         self.save_artifact.assert_not_called()
@@ -150,19 +130,19 @@ class ApprovalWindowLifecycleTests(unittest.TestCase):
 
     def test_initialization_error_releases_window_lock(self):
         with patch.object(self.app, "validate_transaction_artifact", side_effect=TransactionPlanError("invalid")), \
-             patch.object(self.app.tk, "Tk") as create_root:
+             patch.object(self.app, "ApprovalShell") as shell:
             with self.assertRaisesRegex(TransactionPlanError, "invalid"):
-                self.app.ApprovalWindow("first", "对话一", 2)
-            create_root.assert_not_called()
+                self.window("first")
+            shell.assert_not_called()
         with approval_window_lock(self.directory / "first.json"):
             pass
 
     def test_stale_owner_and_transfer_round_trip_are_rejected_before_ui(self):
         for conversation, revision in (("旧对话", 2), ("对话一", 1), ("", None)):
-            with self.subTest(conversation=conversation, revision=revision), patch.object(self.app.tk, "Tk") as create_root:
+            with self.subTest(conversation=conversation, revision=revision), patch.object(self.app, "ApprovalShell") as shell:
                 with self.assertRaisesRegex(StateError, "已转交"):
                     self.app.ApprovalWindow("first", conversation, revision)
-                create_root.assert_not_called()
+                shell.assert_not_called()
             with approval_window_lock(self.directory / "first.json"):
                 pass
         self.save_artifact.assert_not_called()
@@ -170,10 +150,10 @@ class ApprovalWindowLifecycleTests(unittest.TestCase):
     def test_closed_transaction_does_not_open_a_dead_approval_window(self):
         self.state.get_transaction.side_effect = None
         self.state.get_transaction.return_value = {"artifact_path": str(self.directory / "closed.json"), "state": "closed_unverified"}
-        with patch.object(self.app.tk, "Tk") as create_root:
+        with patch.object(self.app, "ApprovalShell") as shell:
             with self.assertRaises(StateError):
-                self.app.ApprovalWindow("closed", "对话一", 2)
-            create_root.assert_not_called()
+                self.window("closed")
+            shell.assert_not_called()
         with approval_window_lock(self.directory / "closed.json"):
             pass
 
@@ -183,6 +163,7 @@ class ApprovalWindowLifecycleTests(unittest.TestCase):
              patch.object(self.app.messagebox, "showerror") as error:
             self.assertEqual(self.app.main(), 1)
             self.assertIn("abort_edit_session", error.call_args.args[1])
+
 
 
 if __name__ == "__main__":

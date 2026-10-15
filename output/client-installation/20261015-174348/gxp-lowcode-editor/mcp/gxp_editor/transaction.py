@@ -1,0 +1,428 @@
+from __future__ import annotations
+
+import json
+import re
+import uuid
+from datetime import datetime
+from typing import Any
+
+from .approval import statement_hash, transaction_binding_hash
+from .hashing import design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
+from .single_row_checker import SingleRowCheckError, check_statement_list
+
+
+class TransactionPlanError(RuntimeError):
+    pass
+
+
+UPDATE_DESIGN_SQL = (
+    "UPDATE cpm_bizflows_design SET data=%s, js_code=%s, csharp_code=%s, "
+    "lastModificationTime=%s WHERE id=%s AND is_publish=0 AND isDeleted=0 "
+    "AND lastModificationTime=%s"
+)
+DELETE_RELATION_SQL = "DELETE FROM cpm_bizflows_design_relation_data WHERE id=%s AND design_Id=%s"
+UPDATE_RELATION_SQL = (
+    "UPDATE cpm_bizflows_design_relation_data SET data=%s, lastModifierId=%s, "
+    "lastModificationTime=%s, isDeleted=0 WHERE id=%s AND design_Id=%s"
+)
+RESTORE_RELATION_SQL = (
+    "UPDATE cpm_bizflows_design_relation_data SET isDeleted=%s, creatorId=%s, creationTime=%s, "
+    "department=%s, lastModifierId=%s, lastModificationTime=%s, org_id=%s, org_name=%s, "
+    "action_data_Id=%s, data=%s WHERE id=%s AND design_Id=%s"
+)
+INSERT_RELATION_SQL = (
+    "INSERT INTO cpm_bizflows_design_relation_data "
+    "(id,isDeleted,creatorId,creationTime,department,lastModifierId,lastModificationTime,"
+    "org_id,org_name,action_data_Id,design_Id,data) VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)"
+)
+
+
+def _now() -> str:
+    return datetime.now().strftime("%Y-%m-%d %H:%M:%S.%f")[:-3]
+
+
+def _statement(
+    *,
+    kind: str,
+    sql: str,
+    params: list[Any],
+    expected_rows: int,
+    summary: str,
+    design_id: str,
+    old_hash: str,
+    new_hash: str,
+) -> dict[str, Any]:
+    value = {
+        "id": uuid.uuid4().hex,
+        "kind": kind,
+        "sql": sql,
+        "params": params,
+        "expected_rows": expected_rows,
+        "summary": summary,
+        "design_id": design_id,
+        "old_hash": old_hash,
+        "new_hash": new_hash,
+    }
+    value["sql_sha256"] = sha256_text(sql)
+    value["statement_hash"] = statement_hash(value)
+    return value
+
+
+def _desired_relation_rows(
+    desired: dict[str, Any] | list[dict[str, Any]],
+    baseline: dict[str, Any],
+    current: list[dict[str, Any]],
+    *,
+    restore: bool,
+) -> list[dict[str, Any]]:
+    if restore:
+        if not isinstance(desired, list):
+            raise TransactionPlanError("Restore relations must be a list")
+        return desired
+    if not isinstance(desired, dict):
+        raise TransactionPlanError("Compiler relation_data must be an object")
+    current_by_action = {str(row.get("action_data_id") or ""): row for row in current}
+    metadata_template = next((row for row in current if row.get("creatorId") and row.get("lastModifierId")), {})
+    now = _now()
+    rows: list[dict[str, Any]] = []
+    for action_data_id, data in desired.items():
+        existing = current_by_action.get(str(action_data_id))
+        if existing:
+            row = dict(existing)
+            row["data"] = data
+            row["isDeleted"] = 0
+            row["lastModificationTime"] = now
+        else:
+            modifier = str(
+                metadata_template.get("lastModifierId")
+                or baseline.get("lastModifierId")
+                or baseline.get("creatorId")
+                or ""
+            )
+            creator = str(metadata_template.get("creatorId") or baseline.get("creatorId") or modifier)
+            if not creator or not modifier:
+                raise TransactionPlanError("Cannot create relation data without creator/modifier identity")
+            row = {
+                "id": uuid.uuid4().hex,
+                "isDeleted": 0,
+                "creatorId": creator,
+                "creationTime": now,
+                "department": metadata_template.get("department") or baseline.get("department"),
+                "lastModifierId": modifier,
+                "lastModificationTime": now,
+                "org_id": metadata_template.get("org_id"),
+                "org_name": metadata_template.get("org_name"),
+                "action_data_id": str(action_data_id),
+                "design_id": str(baseline["id"]),
+                "data": data,
+            }
+        rows.append(row)
+    return rows
+
+
+def build_transaction_artifact(
+    *,
+    transaction_id: str,
+    session_id: str,
+    plan_id: str | None,
+    kind: str,
+    baseline: dict[str, Any],
+    desired_design: dict[str, Any],
+    current_relations: list[dict[str, Any]],
+    desired_relations: dict[str, Any] | list[dict[str, Any]],
+    database_safety: dict[str, Any],
+    runtime_validation: dict[str, Any],
+    compiler_evidence: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    restore = kind == "restore"
+    design_id = str(baseline["id"])
+    old_hash = str(baseline["content_hash"])
+    modified_time = str(desired_design.get("last_modification_time") or (_now() if not restore else ""))
+    if not modified_time:
+        raise TransactionPlanError("Desired last modification time is missing")
+    desired_row = dict(baseline)
+    desired_row.update(
+        {
+            "data": str(desired_design.get("data") or ""),
+            "js_code": str(desired_design.get("js_code") or ""),
+            "csharp_code": str(desired_design.get("csharp_code") or ""),
+            "last_modification_time": modified_time,
+        }
+    )
+    new_hash = design_content_hash(desired_row)
+    statements = [
+        _statement(
+            kind="update_design",
+            sql=UPDATE_DESIGN_SQL,
+            params=[
+                desired_row["data"],
+                desired_row["js_code"],
+                desired_row["csharp_code"],
+                modified_time,
+                design_id,
+                str(baseline["last_modification_time"]),
+            ],
+            expected_rows=1,
+            summary="Update exactly one unpublished draft row by primary key and optimistic timestamp",
+            design_id=design_id,
+            old_hash=old_hash,
+            new_hash=new_hash,
+        )
+    ]
+
+    wanted = _desired_relation_rows(desired_relations, baseline, current_relations, restore=restore)
+    current_by_id = {str(row["id"]): row for row in current_relations}
+    wanted_by_id = {str(row["id"]): row for row in wanted}
+    for relation_id, row in current_by_id.items():
+        if relation_id not in wanted_by_id:
+            statements.append(
+                _statement(
+                    kind="delete_relation",
+                    sql=DELETE_RELATION_SQL,
+                    params=[relation_id, design_id],
+                    expected_rows=1,
+                    summary=f"Delete one explicit relation row for action node {row.get('action_data_id')}",
+                    design_id=design_id,
+                    old_hash=old_hash,
+                    new_hash=new_hash,
+                )
+            )
+    for relation_id, row in wanted_by_id.items():
+        existing = current_by_id.get(relation_id)
+        if existing:
+            if str(existing.get("data") or "") == str(row.get("data") or "") and not restore:
+                continue
+            restore_existing = restore
+            statements.append(
+                _statement(
+                    kind="restore_relation" if restore_existing else "update_relation",
+                    sql=RESTORE_RELATION_SQL if restore_existing else UPDATE_RELATION_SQL,
+                    params=(
+                        [
+                            int(bool(row.get("isDeleted"))),
+                            row.get("creatorId"),
+                            row.get("creationTime"),
+                            row.get("department"),
+                            row.get("lastModifierId"),
+                            row.get("lastModificationTime"),
+                            row.get("org_id"),
+                            row.get("org_name"),
+                            row.get("action_data_id"),
+                            row.get("data"),
+                            relation_id,
+                            design_id,
+                        ]
+                        if restore_existing
+                        else [
+                            row.get("data"),
+                            row.get("lastModifierId"),
+                            row.get("lastModificationTime"),
+                            relation_id,
+                            design_id,
+                        ]
+                    ),
+                    expected_rows=1,
+                    summary=f"Update one explicit relation row for action node {row.get('action_data_id')}",
+                    design_id=design_id,
+                    old_hash=old_hash,
+                    new_hash=new_hash,
+                )
+            )
+        else:
+            statements.append(
+                _statement(
+                    kind="insert_relation",
+                    sql=INSERT_RELATION_SQL,
+                    params=[
+                        relation_id,
+                        int(bool(row.get("isDeleted"))),
+                        row.get("creatorId"),
+                        row.get("creationTime"),
+                        row.get("department"),
+                        row.get("lastModifierId"),
+                        row.get("lastModificationTime"),
+                        row.get("org_id"),
+                        row.get("org_name"),
+                        row.get("action_data_id"),
+                        design_id,
+                        row.get("data"),
+                    ],
+                    expected_rows=1,
+                    summary=f"Insert one relation row for action node {row.get('action_data_id')}",
+                    design_id=design_id,
+                    old_hash=old_hash,
+                    new_hash=new_hash,
+                )
+            )
+    artifact = {
+        "transaction_id": transaction_id,
+        "session_id": session_id,
+        "plan_id": plan_id,
+        "kind": kind,
+        "design_id": design_id,
+        "ref_id": str(baseline["ref_id"]),
+        "action_code": str(baseline.get("code") or ""),
+        "old_content_hash": old_hash,
+        "old_relation_hash": relation_snapshot_hash(current_relations),
+        "new_content_hash": new_hash,
+        "baseline_last_modification_time": str(baseline["last_modification_time"]),
+        "desired_last_modification_time": modified_time,
+        "desired_design": {
+            "data": desired_row["data"],
+            "js_code": desired_row["js_code"],
+            "csharp_code": desired_row["csharp_code"],
+        },
+        "expected_relation_rows": normalized_relation_rows(wanted),
+        "expected_relation_hash": relation_snapshot_hash(wanted),
+        "database_safety": {
+            "account_mode": str(database_safety.get("account_mode") or ""),
+            "grants_sha256": str(database_safety.get("grants_sha256") or ""),
+            "shared_account": bool(database_safety.get("shared_account")),
+            "privileged_shared_override": bool(database_safety.get("privileged_shared_override")),
+        },
+        "runtime_validation": runtime_validation,
+        "compiler_evidence": compiler_evidence,
+        "statements": statements,
+        "approvals": {},
+        "execution_started": False,
+        "executed": False,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    artifact["transaction_hash"] = transaction_binding_hash(artifact)
+    validate_transaction_artifact(artifact)
+    return artifact
+
+
+def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
+    transaction_id = str(artifact.get("transaction_id") or "")
+    design_id = str(artifact.get("design_id") or "")
+    if not transaction_id or not design_id:
+        raise TransactionPlanError("Transaction artifact is missing its identity")
+    if not isinstance(artifact.get("execution_started", False), bool) or not isinstance(artifact.get("executed", False), bool):
+        raise TransactionPlanError("Transaction execution state is invalid")
+    if artifact.get("transaction_hash") != transaction_binding_hash(artifact):
+        raise TransactionPlanError("Transaction metadata hash is invalid")
+    database_safety = artifact.get("database_safety")
+    if not isinstance(database_safety, dict):
+        raise TransactionPlanError("Transaction database safety binding is missing")
+    account_mode = str(database_safety.get("account_mode") or "")
+    if account_mode not in {"dedicated", "shared_restricted", "shared_unrestricted"}:
+        raise TransactionPlanError("Transaction database account mode is invalid")
+    if not re.fullmatch(r"[0-9a-f]{64}", str(database_safety.get("grants_sha256") or "")):
+        raise TransactionPlanError("Transaction database grants fingerprint is invalid")
+    if bool(database_safety.get("shared_account")) != (account_mode != "dedicated"):
+        raise TransactionPlanError("Transaction shared account binding is inconsistent")
+    if bool(database_safety.get("privileged_shared_override")) != (account_mode == "shared_unrestricted"):
+        raise TransactionPlanError("Transaction privileged shared-account binding is inconsistent")
+    statements = artifact.get("statements")
+    if not isinstance(statements, list) or not statements:
+        raise TransactionPlanError("Transaction artifact has no statements")
+    try:
+        check_statement_list(statements)
+    except SingleRowCheckError as exc:
+        raise TransactionPlanError(str(exc)) from exc
+    expected_sql = {
+        "update_design": (UPDATE_DESIGN_SQL, 6),
+        "delete_relation": (DELETE_RELATION_SQL, 2),
+        "update_relation": (UPDATE_RELATION_SQL, 5),
+        "restore_relation": (RESTORE_RELATION_SQL, 12),
+        "insert_relation": (INSERT_RELATION_SQL, 12),
+    }
+    seen_ids: set[str] = set()
+    for statement in statements:
+        statement_id = str(statement.get("id") or "")
+        if not statement_id or statement_id in seen_ids:
+            raise TransactionPlanError("Transaction contains a missing or duplicate statement id")
+        seen_ids.add(statement_id)
+        kind = str(statement.get("kind") or "")
+        if kind not in expected_sql:
+            raise TransactionPlanError(f"Unsupported transaction statement kind: {kind}")
+        sql, param_count = expected_sql[kind]
+        if statement.get("sql") != sql or ";" in str(statement.get("sql") or ""):
+            raise TransactionPlanError(f"Statement {statement_id} does not match its approved SQL template")
+        params = statement.get("params")
+        if not isinstance(params, list) or len(params) != param_count:
+            raise TransactionPlanError(f"Statement {statement_id} has an invalid parameter count")
+        if int(statement.get("expected_rows") or 0) != 1:
+            raise TransactionPlanError(f"Statement {statement_id} must affect exactly one row")
+        if str(statement.get("design_id") or "") != design_id:
+            raise TransactionPlanError(f"Statement {statement_id} targets another design")
+        if statement.get("old_hash") != artifact.get("old_content_hash") or statement.get("new_hash") != artifact.get("new_content_hash"):
+            raise TransactionPlanError(f"Statement {statement_id} hash binding is invalid")
+        if statement.get("sql_sha256") != sha256_text(sql) or statement.get("statement_hash") != statement_hash(statement):
+            raise TransactionPlanError(f"Statement {statement_id} content hash is invalid")
+        if kind == "update_design" and (str(params[4]) != design_id or str(params[5]) != str(artifact.get("baseline_last_modification_time"))):
+            raise TransactionPlanError("Draft update optimistic-lock parameters are invalid")
+        if kind in {"delete_relation", "update_relation", "restore_relation"} and str(params[-1]) != design_id:
+            raise TransactionPlanError(f"Statement {statement_id} relation ownership guard is invalid")
+        if kind == "insert_relation" and str(params[10]) != design_id:
+            raise TransactionPlanError(f"Statement {statement_id} relation ownership is invalid")
+    relation_rows = artifact.get("expected_relation_rows")
+    if not isinstance(relation_rows, list) or relation_snapshot_hash(relation_rows) != artifact.get("expected_relation_hash"):
+        raise TransactionPlanError("Expected relation snapshot hash is invalid")
+    runtime_validation = artifact.get("runtime_validation")
+    if not isinstance(runtime_validation, dict):
+        raise TransactionPlanError("Runtime validation evidence is missing")
+    for field in ("available", "success", "production_compatible", "zero_backend_mode"):
+        if not isinstance(runtime_validation.get(field), bool):
+            raise TransactionPlanError(f"Runtime validation field {field} is invalid")
+    if runtime_validation.get("source_mode") not in {"development_build", "deployment_snapshot"}:
+        raise TransactionPlanError("Runtime validation mode is invalid")
+    if not runtime_validation.get("zero_backend_mode"):
+        raise TransactionPlanError("Runtime validation must remain local and read-only")
+    reference_hash = str(runtime_validation.get("reference_manifest_sha256") or "")
+    if reference_hash and (
+        len(reference_hash) != 64
+        or any(ch not in "0123456789abcdef" for ch in reference_hash.lower())
+    ):
+        raise TransactionPlanError("Runtime reference manifest hash is invalid")
+    if runtime_validation.get("csharp_sha256") != sha256_text(
+        str((artifact.get("desired_design") or {}).get("csharp_code") or "")
+    ):
+        raise TransactionPlanError("Runtime C# validation hash does not match the desired design")
+    compiler_evidence = artifact.get("compiler_evidence")
+    if artifact.get("kind") == "write":
+        if not isinstance(compiler_evidence, dict):
+            raise TransactionPlanError("Blocking compiler evidence is missing")
+        binding = compiler_evidence.get("compiler_binding")
+        validation = compiler_evidence.get("validation")
+        hashes = compiler_evidence.get("hashes")
+        if not isinstance(binding, dict) or not isinstance(validation, dict) or not isinstance(hashes, dict):
+            raise TransactionPlanError("Blocking compiler evidence is incomplete")
+        binding_payload = {
+            "bridge_sha256": binding.get("bridge_sha256"),
+            "registry_hash": binding.get("registry_hash"),
+            "rule_source_sha256": binding.get("rule_source_sha256"),
+            "frontend_version": binding.get("frontend_version"),
+            "source_provenance": binding.get("source_provenance"),
+        }
+        for field in ("bridge_sha256", "registry_hash", "rule_source_sha256"):
+            if not re.fullmatch(r"[0-9a-f]{64}", str(binding.get(field) or "").lower()):
+                raise TransactionPlanError(f"Compiler binding field {field} is invalid")
+        if binding.get("compiler_binding_sha256") != sha256_json(binding_payload):
+            raise TransactionPlanError("Compiler binding hash is invalid")
+        provenance = binding.get("source_provenance")
+        if not isinstance(provenance, dict) or provenance.get("ready") is not True:
+            raise TransactionPlanError("Frontend source provenance is not verified")
+        if not re.fullmatch(r"[0-9a-f]{40,64}", str(provenance.get("commit") or "").lower()):
+            raise TransactionPlanError("Frontend source commit is invalid")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(provenance.get("workspace_sha256") or "").lower()):
+            raise TransactionPlanError("Frontend source workspace hash is invalid")
+        if validation.get("valid") is not True or compiler_evidence.get("code_generation_complete") is not True:
+            raise TransactionPlanError("Candidate canvas or generated-code validation is not complete")
+        if validation.get("registry_hash") != binding.get("registry_hash"):
+            raise TransactionPlanError("Candidate validation registry hash does not match the compiler binding")
+        if validation.get("rule_source_sha256") != binding.get("rule_source_sha256"):
+            raise TransactionPlanError("Candidate validation rule hash does not match the compiler binding")
+        desired = artifact.get("desired_design") or {}
+        expected_hashes = {
+            "data_sha256": sha256_text(str(desired.get("data") or "")),
+            "js_sha256": sha256_text(str(desired.get("js_code") or "")),
+            "csharp_sha256": sha256_text(str(desired.get("csharp_code") or "")),
+        }
+        if any(hashes.get(field) != value for field, value in expected_hashes.items()):
+            raise TransactionPlanError("Compiler evidence does not match the desired generated code")
+        if not re.fullmatch(r"[0-9a-f]{64}", str(hashes.get("relation_sha256") or "").lower()):
+            raise TransactionPlanError("Compiler relation hash is invalid")
+    elif compiler_evidence is not None:
+        raise TransactionPlanError("Restore transactions must not claim new compiler evidence")

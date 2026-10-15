@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import copy
 import importlib.util
-import tkinter as tk
 import unittest
 import tempfile
 from dataclasses import replace
@@ -141,7 +140,7 @@ class ApprovalWindowTests(unittest.TestCase):
         spec = importlib.util.spec_from_file_location("approval_raw_test", PLUGIN_ROOT / "scripts" / "approval_app.py")
         app = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(app)
-        window = object.__new__(app.ApprovalWindow)
+        window = app.ApprovalWindow.__new__(app.ApprovalWindow)
         before = ApprovalDisplayTests().canvas()
         after = copy.deepcopy(before)
         after["actionData"][0]["data"].reverse()
@@ -165,7 +164,7 @@ class ApprovalWindowTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as directory:
             bridge_path = Path(directory) / "bridge.js"
             bridge_path.write_text("// bound registry", encoding="utf-8")
-            window = object.__new__(app.ApprovalWindow)
+            window = app.ApprovalWindow.__new__(app.ApprovalWindow)
             window.config = replace(editor_config(), frontend_repo=directory)
             binding = {"bridge_sha256": sha256_text(bridge_path.read_text(encoding="utf-8")),
                        "registry_hash": CompilerBridge._stable_registry_hash(registry),
@@ -195,7 +194,7 @@ class ApprovalWindowTests(unittest.TestCase):
         state.get_transaction.return_value = {"artifact_path": "unused.json", "state": "awaiting_approval"}
         with patch.object(app, "load_config"), patch.object(app, "StateStore", return_value=state), \
              patch.object(app, "load_artifact", return_value=artifact), patch.object(app.sys, "argv", ["approval_app.py", "transaction-1"]), \
-             patch.object(app.messagebox, "showerror") as alert, patch.object(app.tk, "Tk") as root:
+             patch.object(app.messagebox, "showerror") as alert, patch.object(app, "ApprovalShell") as root:
             self.assertEqual(app.main(), 1)
             self.assertIn("只能影响 1 行", alert.call_args.args[1])
             root.assert_not_called()
@@ -207,66 +206,55 @@ class ApprovalWindowTests(unittest.TestCase):
         artifact = transaction()
         original = copy.deepcopy(artifact)
         state = Mock()
-        state.get_transaction.return_value = {"artifact_path": "unused.json", "state": "awaiting_approval"}
         state.get_session.return_value = {"action_name": "测试动作", "baseline": baseline(), "transaction_id": "transaction-1", "state": "awaiting_approval"}
-        original_tk = tk.Tk
-
-        def hidden_root():
-            root = original_tk()
-            root.withdraw()
-            return root
-
-        with patch.object(app, "load_config"), patch.object(app, "StateStore", return_value=state), \
-             patch.object(app, "load_artifact", return_value=artifact), patch.object(app.tk, "Tk", side_effect=hidden_root), \
-             patch.object(app, "approve_statement") as approve, patch.object(app, "execute_approved_transaction") as execute:
+        with tempfile.TemporaryDirectory() as folder, \
+             patch.object(app, "load_config", return_value=editor_config()), patch.object(app, "StateStore", return_value=state), \
+             patch.object(app, "load_artifact", return_value=artifact), patch.object(app, "approve_statement") as approve, \
+             patch.object(app, "execute_approved_transaction") as execute:
+            state.get_transaction.return_value = {"artifact_path": str(Path(folder) / "approval.json"), "state": "awaiting_approval"}
+            window = app.ApprovalWindow("transaction-1")
             try:
-                window = app.ApprovalWindow("transaction-1")
-            except tk.TclError as exc:
-                self.skipTest(f"Tk display unavailable: {exc}")
-            self.addCleanup(window.root.destroy)
-            window.root.update_idletasks()
-            self.assertEqual(len(window.notebook.tabs()), 7)
-            self.assertEqual(window.notebook.tab(window.notebook.select(), "text"), "元件预览")
-            self.assertEqual(window.text.cget("state"), "disabled")
-            self.assertEqual(window.text.get("1.0", "end-1c"), render_full_sql(artifact["statements"][0]))
-            self.assertEqual(str(window.execute_button.cget("state")), "disabled")
-            # Exercise real Tk sizing without exposing an approval window onscreen.
-            for size in ("850x620", "1180x860"):
-                window.root.geometry(size + "+10000+10000")
-                window.root.deiconify()
-                window.root.update()
-                for button in (window.approve_button, window.execute_button):
-                    with self.subTest(size=size, button=button.cget("text")):
-                        self.assertTrue(button.winfo_ismapped())
-                        top = button.winfo_rooty() - window.root.winfo_rooty()
-                        self.assertGreaterEqual(top, 0)
-                        self.assertLessEqual(top + button.winfo_height(), window.root.winfo_height())
-            window.root.withdraw()
-            self.assertIn("design-1", window.summary.cget("text"))
-            window.copy_sql()
-            self.assertEqual(window.root.clipboard_get(), render_full_sql(artifact["statements"][0]))
-            window.wrap_sql.set(True)
-            window.toggle_wrap()
-            self.assertEqual(window.text.cget("wrap"), "word")
-            self.assertEqual(artifact, original)
-            with patch.object(app, "component_changes", wraps=app.component_changes) as model, \
-                 patch.object(window.component_review, "render") as preview:
-                window.render()
-                model.assert_not_called()
-                preview.assert_not_called()
-            approve.assert_not_called()
-            execute.assert_not_called()
-            from gxp_editor.approval import approve_statement
-            statement = artifact['statements'][0]
-            window.config = editor_config()
-            with patch('gxp_editor.approval.approval_secret', return_value='test-secret'):
-                approve_statement(window.config, artifact, statement['id'])
-                window.render()
-                self.assertEqual(str(window.approve_button.cget('state')), 'disabled')
-                artifact['approvals'][statement['id']]['expires_at'] = (datetime.now() - timedelta(seconds=1)).isoformat()
-                window.refresh_approval_state()
-                self.assertEqual(str(window.approve_button.cget('state')), 'normal')
-                self.assertEqual(str(window.execute_button.cget('state')), 'disabled')
+                self.assertEqual(window.notebook.count(), 4)
+                self.assertEqual(window.notebook.tabText(window.notebook.currentIndex()), "元件预览")
+                self.assertTrue(window.text.isReadOnly())
+                self.assertEqual(window.text.toPlainText(), render_full_sql(artifact["statements"][0]))
+                self.assertFalse(window.execute_button.isEnabled())
+                for width, height in ((850, 620), (1240, 880)):
+                    window.root.resize(width, height)
+                    window.root.show()
+                    window.qt_app.processEvents()
+                    for button in (window.approve_button, window.execute_button):
+                        point = button.mapTo(window.root, button.rect().topLeft())
+                        self.assertTrue(button.isVisible())
+                        self.assertGreaterEqual(point.y(), 0)
+                        self.assertLessEqual(point.y() + button.height(), window.root.height())
+                window.root.hide()
+                self.assertIn("design-1", window.summary.toPlainText())
+                window.copy_sql()
+                self.assertEqual(app.QApplication.clipboard().text(), render_full_sql(artifact["statements"][0]))
+                window.wrap_sql.setChecked(True)
+                self.assertEqual(window.text.lineWrapMode(), app.QPlainTextEdit.LineWrapMode.WidgetWidth)
+                self.assertEqual(artifact, original)
+                with patch.object(app, "component_changes", wraps=app.component_changes) as model, patch.object(window.component_review, "render") as preview:
+                    window.render()
+                    model.assert_not_called()
+                    preview.assert_not_called()
+                approve.assert_not_called()
+                execute.assert_not_called()
+                from gxp_editor.approval import approve_statement
+                statement = artifact["statements"][0]
+                with patch("gxp_editor.approval.approval_secret", return_value="test-secret"):
+                    approve_statement(window.config, artifact, statement["id"])
+                    window.render()
+                    self.assertFalse(window.approve_button.isEnabled())
+                    self.assertTrue(window.execute_button.isEnabled())
+                    artifact["approvals"][statement["id"]]["expires_at"] = (datetime.now() - timedelta(seconds=1)).isoformat()
+                    window.refresh_approval_state()
+                    self.assertTrue(window.approve_button.isEnabled())
+                    self.assertFalse(window.execute_button.isEnabled())
+            finally:
+                window.close()
+
 
 
 if __name__ == "__main__":

@@ -12,7 +12,7 @@ Use the gxp-lowcode-editor MCP in the exact order below. Treat every stop condit
 - Enter this skill only when the current user message explicitly invokes `$gxp-lowcode-edit` or its plugin-qualified form. `agents/openai.yaml` must keep `policy.allow_implicit_invocation: false`.
 - A plan produced by `gxp-lowcode-debug`, a readonly skill suggesting this editor, or a later message that only says “继续”, “按方案改”, or “实施前面的方案” is not an invocation. Do not call `editor_status` or any editor MCP tool; ask the user to invoke `$gxp-lowcode-edit` explicitly and stop.
 - After explicit invocation, the readonly plan is only an input candidate. Re-read the current draft and independently pass every compiler, safety, backup, concurrency, and approval gate before using it.
-- Explicit skill invocation authorizes entry into guarded planning only. It does not authorize `prepare_write`, statement approval, publication, or any other mutation; retain the separate confirmations below.
+- Explicit skill invocation authorizes guarded planning and opening the local approval application for a validated plan. Once approval content is ready, open it directly without asking for a separate chat confirmation. Opening or reopening the window never approves SQL, executes a transaction, or publishes a design; retain per-statement human approval and final execution confirmation inside the application.
 
 ## Fixed workflow
 
@@ -23,7 +23,7 @@ Before constructing any operations, read [references/targeting-and-source.md](re
 3. Confirm the returned draft is unpublished, active, backed up, fully covered by the compiler registry, and bound to the configured frontend commit/workspace, bridge hash, rule hash, and stable registry hash. Compare editor_status source paths with gxp-lowcode-readonly source_repository_status when both are available; resolve different repository selections before planning.
 4. Express the requested change only as structured canvas operations. Never supply js_code, csharp_code, SQL, node keys for new nodes, or published design identifiers.
 5. Call plan_canvas_patch. A plan exists only if the frontend compiler accepts the resulting canvas, a second validation returns the same result, and each action type has its required generated code. Report group, anchor, elementKey, generated nodes, canvas positions, parameters, compiler binding, generated-code hashes, relation changes, and canvas validation. If this call fails, state that no plan artifact, approval transaction, or database write was created.
-6. Ask the user whether to open the local approval application. Call prepare_write only after explicit user authorization. It must recheck the current draft, frontend source/bridge/rule/registry binding, candidate JSON, validation result, code completeness, and all candidate hashes before creating any transaction or opening approval.
+6. Once the requested plan is validated and `write_ready` is true, call `prepare_write` immediately to open the local Qt approval application. Do not ask the user to type “open”, “打开”, or give another chat confirmation. Briefly report that the review window is opening. The tool must recheck the current draft, frontend source/bridge/rule/registry binding, candidate JSON, validation result, code completeness, and all candidate hashes before creating any transaction or opening approval. Leave statement approval and final execution to the human inside the application.
 7. The local approval application, not the model, approves each SQL statement and executes the transaction. Poll only with get_write_status.
 8. When the database transaction is saved, call verify_saved_draft. Do not claim success from the approval window alone.
 9. Call finish_edit_session only after verification. State explicitly that the editor did not call a backend editor endpoint, clear Redis, write DLL/PDB, or publish. The database draft save happens before publication. Tell the user to inspect the ActionDesign canvas and publish manually so the normal backend path can generate the dynamic DLL; do not claim runtime completion before that manual step.
@@ -62,7 +62,7 @@ does not imply that the original canvas is valid.
    native nodes and all JS/C#/relations, and revalidates the whole result. Failure
    creates no plan, approval transaction or database write. Ordinary
    `plan_canvas_patch` cannot operate on a repair session.
-6. Continue with the normal `prepare_write` authorization, per-statement human
+6. Open the validated repair approval directly with `prepare_write`, then retain per-statement human
    approval, saved-draft verification and finish steps. `prepare_write` rechecks
    reference provenance and the complete candidate; the approval window includes
    a signed, read-only “引用修复来源” tab. The bindings explicitly selected for repair
@@ -78,8 +78,8 @@ does not imply that the original canvas is valid.
 
 ## Session recovery
 
-- If the approval window fails to launch or is closed, use `reopen_approval` with
-  the returned transaction ID. Reopening neither approves nor executes statements.
+- If the approval window fails to launch, retry once with `reopen_approval` and the returned transaction ID without another opening confirmation; report a repeated launch failure instead of looping.
+- If the user intentionally closes the window, reopen that pending review only after a continuation request, without asking for another opening confirmation. Reopening neither approves nor executes statements. Do not repeatedly reopen a dismissed window.
 - Expired approvals can be renewed by the user in the same window; execution
   continues to verify every signature and expiry.
 - An unexecuted restore can be cancelled in the session handling window. It
