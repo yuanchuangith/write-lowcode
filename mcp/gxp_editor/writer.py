@@ -10,6 +10,7 @@ from .hashing import relation_snapshot_hash
 from .repository import EditorRepository, _flag
 from .state import StateStore
 from .transaction import validate_transaction_artifact
+from .execution_lock import execution_lock
 
 
 class WriteExecutionError(RuntimeError):
@@ -17,6 +18,12 @@ class WriteExecutionError(RuntimeError):
 
 
 def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
+    transaction = StateStore().get_transaction(transaction_id)
+    with execution_lock(transaction["artifact_path"]):
+        return _execute_approved_transaction(transaction_id)
+
+
+def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     config = load_config()
     state = StateStore()
     transaction = state.get_transaction(transaction_id)
@@ -30,6 +37,10 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     validate_transaction_artifact(artifact)
     verify_approvals(config, artifact)
 
+    # Persist protocol identity before claiming execution, so a process crash
+    # after the claim can be recovered under the same OS lock.
+    artifact["execution_lock_version"] = 1
+    save_artifact(transaction["artifact_path"], artifact)
     state.claim_transaction(transaction_id)
     try:
         artifact["execution_started"] = True
@@ -85,7 +96,7 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
         artifact["executed_statement_hashes"] = [item["statement_hash"] for item in artifact["statements"]]
         save_artifact(transaction["artifact_path"], artifact)
         state.update_transaction(transaction_id, "saved")
-        state.update_session(transaction["session_id"], "saved")
+        state.update_session(transaction["session_id"], "saved", conversation_id=None)
     except Exception as exc:
         if database_saved:
             state.update_transaction(
@@ -93,7 +104,7 @@ def execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
                 "saved_state_pending",
                 f"Database committed but local state update failed: {exc}",
             )
-            state.update_session(transaction["session_id"], "saved_state_pending")
+            state.update_session(transaction["session_id"], "saved_state_pending", conversation_id=None)
         else:
             if not write_attempted:
                 state.release_failed_transaction(transaction_id, "failed_no_write", str(exc))

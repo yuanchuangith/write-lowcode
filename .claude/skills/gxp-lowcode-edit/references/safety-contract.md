@@ -13,7 +13,18 @@ an inferred per-node source map; node expressions remain in the component detail
 Copy buttons retain the exact original code, including line endings. Full SQL and
 raw nodes remain available.
 
-- The editor handles one existing active draft identified by its design primary key.
+- Each dialogue uses its own registered `conversation_id` and owns at most one
+  existing active draft. Different dialogues may edit different drafts concurrently;
+  the same design primary key or RefId remains exclusive. Every tool checks the
+  owner, and local mutations also check ownership and revision atomically.
+- Each approval transaction has one OS window lock held for the window's lifetime.
+  Different transactions may open simultaneously. Handoff uses the shared
+  `session_marker` (session ID) and a new dialogue's own marker after the original
+  approval window closes and execution is idle. It preserves the flow, changes
+  ownership and increments its revision. Old dialogue requests and handling windows
+  lose access. Lock order is window, executor, then SQLite; the transaction pointer
+  is checked in the same atomic transfer. Legacy omitted markers mean legacy
+  ownership only. Status never returns another dialogue's draft payload.
 - Static variable/action reference diagnostics are advisory and remain visible in `validation.warnings`. Ordinary edits do not require repairing existing bindings when structural validation and native code generation succeed. Dedicated reference repair sessions still back up originals before scanning structured variable bindings. Only reported variable references are neutralized in a non-executable inspection projection; structural failures still block entry. Automatic matches require exact names/expressions, compatible types, a unique source and the native ParamInput visibility rules. Ambiguities require explicit candidate choices; custom expressions, property selections and unmapped references are never guessed. Explicitly requested repairs must resolve and the full candidate must be regenerated and twice structurally validated by the real frontend compiler before any plan exists. The original backup, resolved binding provenance, candidate hashes and ordinary per-statement human approval remain mandatory.
 - When an old session blocks entry, a local window lets the user keep it or safely abort it. Closing the window retains it. No new session begins automatically. Manual abort atomically cancels unexecuted approval transactions and ready plans and releases the session without deleting its backups or history. Execution must atomically claim a pending transaction before any artifact or database write; cancellation and execution therefore cannot both win. Confirmed no-write failures and confirmed rollbacks release the session automatically while retaining consumed approvals, backups and audit records. Legacy failures with exact pre-write concurrency/grant rejection messages may also be safely aborted. Failed COMMIT acknowledgement is uncertain even if a subsequent rollback succeeds; executing, uncertain, saved or restore sessions cannot be aborted.
 - The published version, publish flag, design ID, RefId, version, creator fields, and unrelated business tables are immutable.
@@ -40,4 +51,27 @@ raw nodes remain available.
 - Database verification proves only the unpublished draft and relation rows. It never proves server-side DLL generation, cache invalidation, publication, or runtime execution.
 - The existing manual publication path remains outside the plugin and happens after the database draft save. It is responsible for generating the dynamic DLL and its normal cache handling; the existing runtime may also lazily compile C# on first use.
 - Restore uses the same approval and verification path as forward changes.
+- Execution holds an OS lock that is released on process exit. Recovery acquires
+  the same lock, waits for the design row lock to settle, and compares design and
+  relations in one transaction without executing business updates. Candidate
+  matches become verified; signed original matches release failed execution.
+  Differences can be archived only through an explicit human keep-current-data
+  choice. Old executing records without the lock protocol are not assumed dead.
+- Cancelling an unexecuted restore or recording a confirmed restore failure
+  returns to the previous saved transaction. Approval reopening never approves
+  or executes statements. Missing/corrupt unexecuted artifacts can still be
+  cancelled under the same atomic claim/cancel rules.
 - No publish tool or generic write_sql tool may be added.
+- When verification itself is unavailable, the human session window offers a
+  separate keep-current-data and release-local-flow choice. This reads no business
+  database and requires no valid approval file or baseline payload. It checks owner
+  and revision, acquires all relevant window locks before executor locks, checks
+  legacy approval processes, and atomically validates the confirmation snapshot.
+  It archives prior states, retains backups and history, closes unverified flow
+  records and invalidates ready/frozen plans. It cannot approve, retry, restore or
+  assert verified success. The MCP exposes only the handling window, never a direct
+  closure tool. Old `executing` records can transfer only after the same idle checks.
+- A missing artifact directory can be recreated for OS lock files; a damaged
+  baseline is not parsed when opening the handling window or archiving local state.
+  Cancelling/failing a restore from `saved_state_pending` preserves the original
+  pending save and its recovery path.

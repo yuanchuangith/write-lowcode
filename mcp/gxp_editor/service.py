@@ -16,8 +16,9 @@ from .hashing import relation_snapshot_hash, sha256_json, sha256_text
 from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
 from .state import StateError, StateStore
-from .transaction import build_transaction_artifact
+from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
+from .recovery import recover_session
 
 
 class EditorServiceError(RuntimeError):
@@ -25,8 +26,55 @@ class EditorServiceError(RuntimeError):
 
 
 class EditorService:
-    def __init__(self):
+    def __init__(self, conversation_id: str = ""):
+        if not isinstance(conversation_id, str) or len(conversation_id) > 128:
+            raise EditorServiceError("对话标记无效。")
+        self._conversation_id = conversation_id
         self.state = StateStore()
+
+    @property
+    def conversation_id(self) -> str:
+        return getattr(self, "_conversation_id", "")
+
+    def _owned_session(self, session_id: str, *, include_baseline: bool = True) -> dict[str, Any]:
+        session = self.state.get_session(session_id) if include_baseline else self.state.get_session(session_id, include_baseline=False)
+        if session.get("conversation_id", "") != self.conversation_id:
+            raise EditorServiceError("此流程已归其他对话，当前对话不能操作。请使用会话标记接手。")
+        return session
+
+    @staticmethod
+    def _session_summary(session: dict[str, Any] | None) -> dict[str, Any] | None:
+        if session is None:
+            return None
+        return {key: session.get(key) for key in ("id", "state", "action_code", "action_name", "design_id", "ref_id", "transaction_id", "conversation_id", "owner_revision")}
+
+    def create_conversation(self, label: str = "") -> dict[str, str]:
+        return self.state.create_conversation(label)
+
+    def attach_edit_session(self, session_id: str) -> dict[str, Any]:
+        from contextlib import ExitStack
+        from .execution_lock import approval_window_lock, execution_lock
+        from .process_check import assert_approval_process_stopped
+        if not self.conversation_id:
+            raise EditorServiceError("接手前请创建当前对话的 conversation_id。")
+        session = self.state.get_session(session_id, include_baseline=False)
+        with ExitStack() as locks:
+            if session.get("transaction_id"):
+                transactions = self.state.session_transactions(session_id)
+                transaction = next((row for row in transactions if row["id"] == session["transaction_id"]), None)
+                lock_path = transaction["artifact_path"] if transaction else runtime_root() / "transactions" / f"{session['transaction_id']}.json"
+                locks.enter_context(approval_window_lock(lock_path))
+                locks.enter_context(execution_lock(lock_path))
+                assert_approval_process_stopped(session["transaction_id"])
+            current = self.state.get_session(session_id, include_baseline=False)
+            if current.get("transaction_id") != session.get("transaction_id"):
+                raise EditorServiceError("审批流程已变化，请重新接手。")
+            attached = self.state.transfer_session(session_id, self.conversation_id,
+                expected_owner=session.get("conversation_id", ""), expected_revision=session.get("owner_revision", 0),
+                expected_transaction_id=session.get("transaction_id"), executor_idle=True)
+        return {"attached": True, "session_id": session_id, "conversation_id": self.conversation_id,
+                "owner_revision": attached["owner_revision"], "transaction_id": attached.get("transaction_id"),
+                "session": self._session_summary(attached), "write_executed": False}
 
     def _components(self):
         config = load_config()
@@ -77,7 +125,8 @@ class EditorService:
             "write_ready": False,
             "production_ready": False,
             "runtime_compatibility_verified": False,
-            "active_session": self.state.active_session(),
+            "conversation_id": self.conversation_id,
+            "active_session": self._session_summary(self.state.active_session(self.conversation_id)),
             "gates": {},
         }
         try:
@@ -280,9 +329,9 @@ class EditorService:
         return self._begin_session(identifier, repair=True)
 
     def _begin_session(self, identifier: str, *, repair: bool) -> dict[str, Any]:
-        active = self.state.active_session()
+        active = self.state.active_session(self.conversation_id)
         if active:
-            result = self.abort_edit_session(active["id"]) if active["state"] in {"locked", "planned", "awaiting_approval"} else {}
+            result = self.abort_edit_session(active["id"])
             return {
                 **result,
                 "blocked": True,
@@ -294,6 +343,10 @@ class EditorService:
         config, _, repository, compiler, runtime_validator = self._components()
         registry = compiler.describe_registry()
         draft = repository.load_draft_by_identifier(identifier)
+        occupied = self.state.target_session(str(draft["id"]), str(draft["ref_id"]))
+        if occupied:
+            return {"blocked": True, "active_session_id": occupied["id"],
+                    "message": "这份草稿已有独立编辑流程。请关闭原审批窗口后，用会话标记显式接手；其他草稿可并行编辑。"}
         supported = {str(item["key"]) for item in registry.get("elements") or [] if item.get("supported", True)}
         used = self._element_keys(draft["data_json"])
         unknown = sorted(used - supported)
@@ -330,10 +383,14 @@ class EditorService:
             backup["backup_id"],
             binding["compiler_binding_sha256"],
             session_mode="reference_repair" if repair else "edit",
+            conversation_id=self.conversation_id,
         )
         status = self.editor_status()
         return {
             "session_id": session["id"],
+            "session_marker": session["id"],
+            "conversation_id": self.conversation_id,
+            "owner_revision": session.get("owner_revision", 0),
             "ref_id": session["ref_id"],
             "design_id": session["design_id"],
             "action_code": session["action_code"],
@@ -355,7 +412,7 @@ class EditorService:
         }
 
     def plan_canvas_patch(self, session_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
-        session = self.state.get_session(session_id)
+        session = self._owned_session(session_id)
         if session.get("session_mode", "edit") != "edit":
             raise EditorServiceError("Reference repair sessions require plan_reference_repairs")
         return self._plan_patch(session_id, operations)
@@ -370,7 +427,7 @@ class EditorService:
                 "write_executed": False}
 
     def _reference_report(self, session_id: str):
-        session = self.state.get_session(session_id)
+        session = self._owned_session(session_id)
         if session.get("session_mode") != "reference_repair" or session["state"] not in {"locked", "planned"}:
             raise EditorServiceError("A locked or planned reference repair session is required")
         _, _, repository, compiler, _ = self._components()
@@ -392,7 +449,7 @@ class EditorService:
 
     def _plan_patch(self, session_id: str, operations: list[dict[str, Any]], *, repaired=None) -> dict[str, Any]:
         _, _, repository, compiler, runtime_validator = self._components()
-        session = self.state.get_session(session_id)
+        session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned"}:
             raise StateError(f"Session state {session['state']!r} cannot be planned")
         current = repository.load_draft_by_id(session["design_id"])
@@ -455,6 +512,8 @@ class EditorService:
             current["content_hash"],
             new_hash,
             binding["compiler_binding_sha256"],
+            conversation_id=self.conversation_id,
+            owner_revision=session.get("owner_revision", 0),
         )
         return {
             "plan_id": plan_id,
@@ -470,22 +529,42 @@ class EditorService:
             "reference_repairs": plan_artifact["reference_repairs"],
         }
 
-    def _launch_approval(self, transaction_id: str) -> None:
+    def _launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> None:
+        from .execution_lock import approval_window_lock
+        transaction = self.state.get_transaction(transaction_id)
+        session = self._owned_session(transaction["session_id"])
+        revision = session.get("owner_revision", 0)
+        if owner_revision is not None and owner_revision != revision:
+            raise EditorServiceError("会话归属已变化，原请求不能打开审批。")
+        with approval_window_lock(transaction["artifact_path"]):
+            if transaction["state"] != "awaiting_approval":
+                raise EditorServiceError("只有尚未执行的审批可以打开。")
         plugin_root = Path(__file__).resolve().parents[2]
         script = plugin_root / "scripts" / "approval_app.py"
         python = Path(sys.executable)
         pythonw = python.with_name("pythonw.exe")
         executable = pythonw if pythonw.exists() else python
-        subprocess.Popen([str(executable), str(script), transaction_id], cwd=plugin_root)
+        subprocess.Popen([str(executable), str(script), transaction_id, self.conversation_id, str(revision)], cwd=plugin_root)
+
+    def _try_launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
+        from .execution_lock import ApprovalWindowBusyError
+        try:
+            self._launch_approval(transaction_id, owner_revision=owner_revision)
+            return {"approval_window_opened": True}
+        except ApprovalWindowBusyError as exc:
+            return {"approval_window_opened": True, "already_open": True, "message": str(exc)}
+        except OSError as exc:
+            return {"approval_window_opened": False, "approval_window_error": str(exc),
+                    "message": "审批记录已创建，窗口未能启动；可调用 reopen_approval 重开或取消未执行审批。"}
 
     def prepare_write(self, plan_id: str) -> dict[str, Any]:
+        plan = self.state.get_plan(plan_id)
+        session = self._owned_session(plan["session_id"])
         status = self.editor_status()
         if not status["write_ready"]:
             raise EditorServiceError("Database write safety gates are not ready: " + json.dumps(status["gates"], ensure_ascii=False))
         config, _, repository, compiler, runtime_validator = self._components()
         database_safety = self._database_safety_binding(config, repository)
-        plan = self.state.get_plan(plan_id)
-        session = self.state.get_session(plan["session_id"])
         if plan["status"] != "ready" or session["state"] != "planned" or session.get("plan_id") != plan_id:
             raise EditorServiceError("Only the current ready plan can enter approval")
         artifact = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
@@ -573,14 +652,14 @@ class EditorService:
         tx_dir.mkdir(parents=True, exist_ok=True)
         tx_path = tx_dir / f"{transaction_id}.json"
         save_artifact(tx_path, transaction_artifact)
-        self.state.create_transaction(session["id"], plan_id, "write", str(tx_path), transaction_id=transaction_id)
-        self.state.update_plan_status(plan_id, "frozen")
-        self._launch_approval(transaction_id)
+        self.state.create_transaction(session["id"], plan_id, "write", str(tx_path), transaction_id=transaction_id,
+                                      conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0))
+        approval_window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
         return {
             "transaction_id": transaction_id,
             "state": "awaiting_approval",
             "statement_count": len(transaction_artifact["statements"]),
-            "approval_window_opened": True,
+            **approval_window,
             "write_executed": False,
             "runtime_validation": runtime_validation,
             "compiler_evidence": compiler_evidence,
@@ -589,28 +668,58 @@ class EditorService:
 
     def get_write_status(self, transaction_id: str) -> dict[str, Any]:
         transaction = self.state.get_transaction(transaction_id)
-        artifact = load_artifact(transaction["artifact_path"])
+        session = self._owned_session(transaction["session_id"], include_baseline=False)
+        artifact_error = None
+        try:
+            artifact = load_artifact(transaction["artifact_path"])
+            if not isinstance(artifact, dict):
+                raise ValueError("审批文件不是有效对象")
+        except (OSError, ValueError) as exc:
+            artifact = {}
+            artifact_error = str(exc)
         return {
             "transaction_id": transaction_id,
             "kind": transaction["kind"],
             "state": transaction["state"],
             "message": transaction["message"],
+            "artifact_available": artifact_error is None,
+            "artifact_error": artifact_error,
+            "handling_available": True,
             "statement_count": len(artifact.get("statements") or []),
             "approved_count": len(artifact.get("approvals") or {}),
-            "executed": bool(artifact.get("executed")),
-            "session_released": transaction["state"] in {"failed_no_write", "rolled_back", "cancelled"},
-            "retry_requires_new_plan": transaction["state"] in {"failed_no_write", "rolled_back"},
+            "executed": bool(artifact.get("executed")) or transaction["state"] == "saved",
+            "session_released": session["state"] not in {"locked", "planned", "awaiting_approval", "saved", "saved_state_pending", "verified", "restore_pending"},
+            "conversation_id": self.conversation_id,
+            "session_marker": transaction["session_id"],
+            "retry_requires_new_plan": transaction["state"] in {"failed_no_write", "rolled_back", "closed_unverified"} or session["state"] == "closed_unverified",
             "old_content_hash": artifact.get("old_content_hash"),
             "new_content_hash": artifact.get("new_content_hash"),
         }
 
+    def reopen_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
+        transaction = self.state.get_transaction(transaction_id)
+        session = self._owned_session(transaction["session_id"])
+        if owner_revision is not None and session.get("owner_revision", 0) != owner_revision:
+            raise EditorServiceError("会话归属已变化，原窗口不能重新打开审批。")
+        artifact = load_artifact(transaction["artifact_path"])
+        validate_transaction_artifact(artifact)
+        if transaction["state"] != "awaiting_approval" or artifact.get("execution_started"):
+            raise EditorServiceError("只有尚未执行的审批可以重新打开。")
+        window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
+        return {"transaction_id": transaction_id, **window, "write_executed": False}
+
+    def recover_edit_session(self, session_id: str) -> dict[str, Any]:
+        session = self._owned_session(session_id)
+        return recover_session(session_id, state=self.state, conversation_id=self.conversation_id,
+                               owner_revision=session.get("owner_revision", 0))
+
     def prepare_restore(self, session_id: str, backup_id: str) -> dict[str, Any]:
+        session = self._owned_session(session_id)
         status = self.editor_status()
         if not status["write_ready"]:
             raise EditorServiceError("Database restore safety gates are not ready")
         config, _, repository, _, runtime_validator = self._components()
         database_safety = self._database_safety_binding(config, repository)
-        session = self.state.get_session(session_id)
         if session["state"] not in {"saved", "saved_state_pending", "verified"}:
             raise EditorServiceError(f"Session state {session['state']!r} cannot start a restore")
         if backup_id != session["backup_id"]:
@@ -649,41 +758,28 @@ class EditorService:
         tx_dir.mkdir(parents=True, exist_ok=True)
         tx_path = tx_dir / f"{transaction_id}.json"
         save_artifact(tx_path, transaction_artifact)
-        self.state.create_transaction(session_id, None, "restore", str(tx_path), transaction_id=transaction_id)
-        self._launch_approval(transaction_id)
+        self.state.create_transaction(session_id, None, "restore", str(tx_path), transaction_id=transaction_id,
+                                      conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0))
+        approval_window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
         return {
             "transaction_id": transaction_id,
             "state": "awaiting_approval",
             "statement_count": len(transaction_artifact["statements"]),
-            "approval_window_opened": True,
+            **approval_window,
             "runtime_validation": runtime_validation,
             "manual_publication_required": True,
         }
 
     def verify_saved_draft(self, session_id: str) -> dict[str, Any]:
+        session = self._owned_session(session_id)
         _, _, repository, _, _ = self._components()
-        session = self.state.get_session(session_id)
         if not session.get("transaction_id"):
             raise EditorServiceError("Session has no write or restore transaction")
         transaction = self.state.get_transaction(session["transaction_id"])
-        if transaction["state"] == "saved_state_pending":
-            pending_artifact = load_artifact(transaction["artifact_path"])
-            pending_current = repository.load_draft_by_id(session["design_id"])
-            pending_relations = repository.load_relations(session["design_id"])
-            if (
-                pending_current["content_hash"] != pending_artifact["new_content_hash"]
-                or relation_snapshot_hash(pending_relations)
-                != pending_artifact["expected_relation_hash"]
-            ):
-                raise EditorServiceError(
-                    "Database commit state is uncertain and does not match the approved transaction; prepare an approved restore"
-                )
-            pending_artifact["executed"] = True
-            save_artifact(transaction["artifact_path"], pending_artifact)
-            self.state.update_transaction(
-                transaction["id"], "saved", "Recovered committed transaction state by read-only hash verification"
-            )
-            self.state.update_session(session_id, "saved")
+        if transaction["state"] in {"executing", "failed", "saved_state_pending"}:
+            result = self.recover_edit_session(session_id)
+            if result["outcome"] != "saved":
+                return result
             transaction = self.state.get_transaction(transaction["id"])
         if transaction["state"] != "saved":
             raise EditorServiceError(f"Transaction is not fully saved: {transaction['state']}")
@@ -695,7 +791,9 @@ class EditorService:
         relation_hash = relation_snapshot_hash(relations)
         if relation_hash != artifact["expected_relation_hash"]:
             raise EditorServiceError("Saved relation snapshot does not match the approved transaction")
-        self.state.update_session(session_id, "verified")
+        self.state.update_session(session_id, "verified", conversation_id=self.conversation_id,
+                                  owner_revision=session.get("owner_revision", 0), expected_states=("saved", "verified"),
+                                  expected_transaction_id=transaction["id"])
         return {
             "verified": True,
             "design_id": session["design_id"],
@@ -709,10 +807,12 @@ class EditorService:
         }
 
     def finish_edit_session(self, session_id: str) -> dict[str, Any]:
-        session = self.state.get_session(session_id)
+        session = self._owned_session(session_id)
         if session["state"] != "verified":
             raise EditorServiceError("Session must be verified before it can be finished")
-        self.state.update_session(session_id, "finished")
+        self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
+                                  owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
+                                  expected_transaction_id=session.get("transaction_id"))
         return {
             "finished": True,
             "action_code": session["action_code"],
@@ -726,14 +826,14 @@ class EditorService:
         }
 
     def abort_edit_session(self, session_id: str) -> dict[str, Any]:
-        session = self.state.get_session(session_id)
-        if session["state"] not in {"locked", "planned", "awaiting_approval"}:
-            raise EditorServiceError("Only an unexecuted session can request manual abort")
+        session = self._owned_session(session_id, include_baseline=False)
+        if session["state"] not in {"locked", "planned", "awaiting_approval", "restore_pending", "saved", "saved_state_pending", "verified"}:
+            raise EditorServiceError("会话已经结束，无需释放占用。")
         plugin_root = Path(__file__).resolve().parents[2]
         python = Path(sys.executable)
         pythonw = python.with_name("pythonw.exe")
         subprocess.Popen(
-            [str(pythonw if pythonw.exists() else python), str(plugin_root / "scripts" / "abort_session_app.py"), session_id],
+            [str(pythonw if pythonw.exists() else python), str(plugin_root / "scripts" / "abort_session_app.py"), session_id, self.conversation_id, str(session.get("owner_revision", 0))],
             cwd=plugin_root,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )

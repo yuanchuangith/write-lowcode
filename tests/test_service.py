@@ -13,7 +13,7 @@ from gxp_editor.service import EditorService
 
 
 class FakeState:
-    def active_session(self):
+    def active_session(self, conversation_id=""):
         return None
 
 
@@ -120,6 +120,38 @@ class BlockingPrepareCompiler(FakeCompiler):
 
 
 class ServiceStatusTests(unittest.TestCase):
+    def test_saved_session_also_offers_recovery_window(self):
+        from unittest.mock import Mock
+        service = object.__new__(EditorService)
+        service.state = Mock()
+        service.state.active_session.return_value = {"id": "saved-session", "state": "saved"}
+        with patch.object(service, "abort_edit_session", return_value={"confirmation_window_opened": True}) as window:
+            result = service.begin_edit_session("another-action")
+        self.assertTrue(result["blocked"])
+        window.assert_called_once_with("saved-session")
+
+    def test_approval_launch_failure_has_a_reopenable_transaction(self):
+        service = object.__new__(EditorService)
+        with patch.object(service, "_launch_approval", side_effect=OSError("launcher unavailable")):
+            result = service._try_launch_approval("transaction-1")
+        self.assertFalse(result["approval_window_opened"])
+        self.assertIn("reopen_approval", result["message"])
+
+    def test_reopen_approval_does_not_create_or_execute_another_transaction(self):
+        from unittest.mock import Mock
+        from tests.helpers import transaction
+        from gxp_editor.service import EditorServiceError
+        service = object.__new__(EditorService)
+        service.state = Mock()
+        service.state.get_transaction.return_value = {"state": "awaiting_approval", "artifact_path": "unused.json", "session_id": "session-1"}
+        service.state.get_session.return_value = {"conversation_id": "", "owner_revision": 0}
+        with patch("gxp_editor.service.load_artifact", return_value=transaction()), patch.object(service, "_launch_approval") as launch:
+            self.assertTrue(service.reopen_approval("transaction-1")["approval_window_opened"])
+            launch.assert_called_once_with("transaction-1", owner_revision=0)
+            service.state.create_transaction.assert_not_called()
+            service.state.get_transaction.return_value["state"] = "executing"
+            with self.assertRaises(EditorServiceError):
+                service.reopen_approval("transaction-1")
     def test_begin_with_existing_session_offers_manual_abort_before_any_work(self):
         service = object.__new__(EditorService)
         from unittest.mock import Mock

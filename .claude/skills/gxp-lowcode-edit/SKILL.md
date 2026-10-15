@@ -18,8 +18,8 @@ Use the gxp-lowcode-editor MCP in the exact order below. Treat every stop condit
 
 Before constructing any operations, read [references/targeting-and-source.md](references/targeting-and-source.md). Locate the target using current ActionDesign evidence and verify its parameter contract against the real element registry/source when needed. Repository paths support source inspection; they do not identify which business node is faulty.
 
-1. Call editor_status. `planning_ready` requires a verified compiler bridge and frontend Git provenance; `write_ready` is required before opening approval. Treat the compiler gate as blocking. Local runtime/DLL compatibility remains advisory and is reported separately through `runtime_compatibility_verified`. Prefer a dedicated least-privilege account. A shared application account may use `account_mode=shared_restricted` when it has no global/server-level privileges. A user may explicitly opt into `account_mode=shared_unrestricted` for a privileged shared account only through the local configuration confirmation. Both shared modes require a pinned, matching `SHOW GRANTS` fingerprint and a ready account-safety gate.
-2. Call begin_edit_session for exactly one action code or RefId. Do not start another session until the first session is finished or safely aborted. If an old unexecuted session exists, the tool returns `blocked=true` and opens a local keep/abort window before any backup or compiler work. The user must manually choose whether to retain or abort it; closing the window retains it. `abort_edit_session` only opens that window and returns `aborted=false`, not a completed abort. Recheck `editor_status.active_session` before retrying. Cancellation invalidates its ready plans and pending transactions atomically while retaining backups and audit records. Confirmed `failed_no_write` and `rolled_back` outcomes release the session automatically and cannot reuse approvals. The abort window may also recover legacy pre-write failures recognized by their exact concurrency/grant rejection messages. Executing, uncertain, saved and restore sessions must not be forcibly cleared; verified sessions use finish_edit_session.
+1. On first use in this dialogue, call `create_conversation(label)` and retain its returned `conversation_id`. Reuse that marker for this dialogue; pass it on every subsequent editor tool call, including `editor_status`, planning, approval status, recovery and finish. Never reuse another dialogue's marker. `planning_ready` requires a verified compiler bridge and frontend Git provenance; `write_ready` is required before opening approval. Treat the compiler gate as blocking. Local runtime/DLL compatibility remains advisory and is reported separately through `runtime_compatibility_verified`. Prefer a dedicated least-privilege account. A shared application account may use `account_mode=shared_restricted` when it has no global/server-level privileges. A user may explicitly opt into `account_mode=shared_unrestricted` for a privileged shared account only through the local configuration confirmation. Both shared modes require a pinned, matching `SHOW GRANTS` fingerprint and a ready account-safety gate.
+2. Call begin_edit_session for exactly one action code or RefId. This dialogue may own one active session; other dialogues may independently edit different drafts and open their own approval windows. The same design ID or RefId remains exclusive. If this dialogue already has a session, the tool returns `blocked=true` and opens a local session handling window before any backup or compiler work. If another dialogue owns the target, entry reports the conflict without opening its handling window. To take over an existing flow, follow Dialogue handoff below. The user may retain a local session, cancel unexecuted approval, reopen approval, or reconcile completed/interrupted execution. Closing the window retains it. `abort_edit_session` opens this window and returns `aborted=false`, not a completed abort. Recheck `editor_status.active_session` before retrying. Cancellation invalidates its ready plans and pending transactions atomically while retaining backups and audit records. Confirmed no-write failures and rollbacks release ordinary edit sessions automatically; restore failures return to the preceding save. The window may also recover legacy pre-write failures recognized by their exact concurrency/grant rejection messages. Do not forcibly clear live execution or uncertain data; follow Session recovery below. Verified sessions use finish_edit_session.
 3. Confirm the returned draft is unpublished, active, backed up, fully covered by the compiler registry, and bound to the configured frontend commit/workspace, bridge hash, rule hash, and stable registry hash. Compare editor_status source paths with gxp-lowcode-readonly source_repository_status when both are available; resolve different repository selections before planning.
 4. Express the requested change only as structured canvas operations. Never supply js_code, csharp_code, SQL, node keys for new nodes, or published design identifiers.
 5. Call plan_canvas_patch. A plan exists only if the frontend compiler accepts the resulting canvas, a second validation returns the same result, and each action type has its required generated code. Report group, anchor, elementKey, generated nodes, canvas positions, parameters, compiler binding, generated-code hashes, relation changes, and canvas validation. If this call fails, state that no plan artifact, approval transaction, or database write was created.
@@ -41,7 +41,8 @@ never compiled to executable code, planned, approved or saved. A repair session
 does not imply that the original canvas is valid.
 
 1. Check the immutable backup, compiler binding, draft identity and exclusive
-   session lock as usual. No second session may start while this one is active.
+   draft ownership as usual. This dialogue cannot own a second active session;
+   other dialogues may work on other drafts.
 2. Call `inspect_reference_repairs(session_id, offset, limit)` to review all
    invalid bindings. Reports include group, row, node, field path, neighboring
    nodes, before value, compatible candidates and exact variable provenance.
@@ -74,6 +75,56 @@ does not imply that the original canvas is valid.
 - Restoration is a new approval transaction; never describe it as automatic rollback.
 - Poll get_write_status, then call verify_saved_draft.
 - Finish only when the restored hashes match the immutable backup.
+
+## Session recovery
+
+- If the approval window fails to launch or is closed, use `reopen_approval` with
+  the returned transaction ID. Reopening neither approves nor executes statements.
+- Expired approvals can be renewed by the user in the same window; execution
+  continues to verify every signature and expiry.
+- An unexecuted restore can be cancelled in the session handling window. It
+  returns to the original saved transaction so verification or restore can retry.
+- For `failed`, `saved_state_pending`, or an interrupted `executing` transaction,
+  use `recover_edit_session` to compare the current design and relations with the
+  approved candidate and signed pre-write relation hash. Recovery never modifies
+  business data. A match to the candidate becomes verified; call
+  `finish_edit_session`. A match to the original releases the failed session.
+- The executor and recovery share an OS lock. Recovery cannot release a live
+  executor. Old executing records without this protocol cannot be assumed dead.
+- If neither snapshot matches, the session window offers an explicit human choice
+  to keep current database data and close the session. This archives the mismatch,
+  does not restore or overwrite data, and does not assert successful execution.
+- If configuration, database access, a missing/corrupt approval file, a damaged
+  local baseline, or a legacy execution record prevents verification, open
+  `abort_edit_session` with this dialogue's marker. Its separate “保留数据并释放本地流程”
+  button lets the user explicitly archive an unverified flow and retain current
+  database data without depending on configuration, compilers or database reads.
+  The user must close all approval programs first. Window/executor locks and a
+  legacy process check block release while the workflow is still running. Closure
+  retains backups and an audit snapshot, invalidates remaining plans/approvals,
+  and never reports successful verification. Never call the local closure helper
+  from the model or treat opening this window as completed release.
+- When entry is blocked, the session handling window is also available for saved,
+  verified, pending restore, and uncertain sessions; do not repeatedly retry entry.
+
+## Dialogue handoff
+
+- `session_marker` is the returned `session_id`, which the user may give to another
+  dialogue. Keep `conversation_id` local to its original dialogue.
+- The receiving dialogue creates its own conversation marker once, then calls
+  `attach_edit_session(session_id, conversation_id)` when the user requests takeover.
+  The original approval window must be closed and its executor must be idle.
+  A busy window or executor blocks handoff; close it before retrying.
+- A stale `executing` record can be handed off for recovery when the actual window,
+  executor locks and legacy approval process check confirm it has stopped. Handoff
+  does not change that transaction's execution result.
+- Successful handoff retains the same backup, plan and transaction, changes the
+  owner, and invalidates the old dialogue's access and in-flight mutations. It
+  does not approve or execute statements. Use the returned transaction ID with
+  `reopen_approval` and the new marker to open the flow in the receiving dialogue.
+- An old session handling window cannot cancel, recover, reopen or finish a flow
+  after handoff. Status is scoped to the calling dialogue. Omitting a marker
+  accesses only legacy sessions, never all dialogues.
 
 ## Hard stop conditions
 

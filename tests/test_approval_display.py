@@ -6,7 +6,7 @@ import tkinter as tk
 import unittest
 import tempfile
 from dataclasses import replace
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -192,7 +192,7 @@ class ApprovalWindowTests(unittest.TestCase):
         artifact["statements"][0]["statement_hash"] = statement_hash(artifact["statements"][0])
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
         state = Mock()
-        state.get_transaction.return_value = {"artifact_path": "unused.json"}
+        state.get_transaction.return_value = {"artifact_path": "unused.json", "state": "awaiting_approval"}
         with patch.object(app, "load_config"), patch.object(app, "StateStore", return_value=state), \
              patch.object(app, "load_artifact", return_value=artifact), patch.object(app.sys, "argv", ["approval_app.py", "transaction-1"]), \
              patch.object(app.messagebox, "showerror") as alert, patch.object(app.tk, "Tk") as root:
@@ -208,7 +208,7 @@ class ApprovalWindowTests(unittest.TestCase):
         original = copy.deepcopy(artifact)
         state = Mock()
         state.get_transaction.return_value = {"artifact_path": "unused.json", "state": "awaiting_approval"}
-        state.get_session.return_value = {"action_name": "测试动作", "baseline": baseline()}
+        state.get_session.return_value = {"action_name": "测试动作", "baseline": baseline(), "transaction_id": "transaction-1", "state": "awaiting_approval"}
         original_tk = tk.Tk
 
         def hidden_root():
@@ -256,6 +256,17 @@ class ApprovalWindowTests(unittest.TestCase):
                 preview.assert_not_called()
             approve.assert_not_called()
             execute.assert_not_called()
+            from gxp_editor.approval import approve_statement
+            statement = artifact['statements'][0]
+            window.config = editor_config()
+            with patch('gxp_editor.approval.approval_secret', return_value='test-secret'):
+                approve_statement(window.config, artifact, statement['id'])
+                window.render()
+                self.assertEqual(str(window.approve_button.cget('state')), 'disabled')
+                artifact['approvals'][statement['id']]['expires_at'] = (datetime.now() - timedelta(seconds=1)).isoformat()
+                window.refresh_approval_state()
+                self.assertEqual(str(window.approve_button.cget('state')), 'normal')
+                self.assertEqual(str(window.execute_button.cget('state')), 'disabled')
 
 
 if __name__ == "__main__":

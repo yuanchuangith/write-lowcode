@@ -6,10 +6,21 @@ from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from tests.helpers import editor_config, transaction
-from gxp_editor.approval import ApprovalError, approve_statement, verify_approvals
+from gxp_editor.approval import ApprovalError, approval_is_current, approve_statement, verify_approvals
 
 
 class ApprovalTests(unittest.TestCase):
+    def test_expired_approval_can_be_refreshed(self):
+        artifact = transaction()
+        config = editor_config()
+        statement = artifact['statements'][0]
+        with patch('gxp_editor.approval.approval_secret', return_value='test-secret'):
+            approve_statement(config, artifact, statement['id'])
+            self.assertTrue(approval_is_current(artifact, statement))
+            artifact['approvals'][statement['id']]['expires_at'] = (datetime.now() - timedelta(seconds=1)).isoformat()
+            self.assertFalse(approval_is_current(artifact, statement))
+            approve_statement(config, artifact, statement['id'])
+            verify_approvals(config, artifact)
     def setUp(self):
         self.config = editor_config()
         self.secret = patch("gxp_editor.approval.approval_secret", return_value="test-secret")

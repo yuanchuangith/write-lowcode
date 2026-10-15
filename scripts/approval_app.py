@@ -10,38 +10,61 @@ from typing import Any
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 
-from gxp_editor.approval import approve_statement, load_artifact, save_artifact
+from gxp_editor.approval import approval_is_current, approve_statement, load_artifact, save_artifact
 from gxp_editor.approval_display import canvas_change_summary, execution_result_message, parameter_details, reference_repair_summary, render_full_sql, statement_scope
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.code_review_ui import CodeReview
 from gxp_editor.component_review_ui import ComponentReview
 from gxp_editor.component_preview import component_changes
 from gxp_editor.config import load_config
+from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_window_lock
 from gxp_editor.hashing import sha256_text
-from gxp_editor.state import StateStore
+from gxp_editor.state import StateError, StateStore
 from gxp_editor.transaction import TransactionPlanError, validate_transaction_artifact
 from gxp_editor.single_row_checker import SingleRowCheckError
 from gxp_editor.writer import execute_approved_transaction
 
 
 class ApprovalWindow:
-    def __init__(self, transaction_id: str):
+    def __init__(self, transaction_id: str, conversation_id: str | None = None, owner_revision: int | None = None):
         self.transaction_id = transaction_id
+        self.conversation_id = conversation_id
+        self.owner_revision = owner_revision
         self.config = load_config()
         self.state = StateStore()
         self.transaction = self.state.get_transaction(transaction_id)
         self.path = Path(self.transaction["artifact_path"])
+        self._window_lock = approval_window_lock(self.path)
+        self._window_lock.__enter__()
+        try:
+            self._initialize()
+        except BaseException:
+            self.close()
+            raise
+
+    def _initialize(self) -> None:
+        self.transaction = self.state.get_transaction(self.transaction_id)
+        if self.transaction["state"] != "awaiting_approval":
+            raise StateError("该审批已执行或已关闭，请从当前对话核对结果或重新生成计划。")
         self.artifact = load_artifact(self.path)
         validate_transaction_artifact(self.artifact)
         self.session = self.state.get_session(self.artifact["session_id"])
+        if self.session.get("transaction_id") != self.transaction_id or self.session["state"] not in {"awaiting_approval", "restore_pending"}:
+            raise StateError("该会话已结束或已有其他审批，原审批窗口不能继续打开。")
+        if (
+            self.conversation_id is not None and (self.session.get("conversation_id") or "") != self.conversation_id
+            or self.owner_revision is not None and self.session.get("owner_revision", 0) != self.owner_revision
+        ):
+            raise StateError("该审批流程已转交给其他对话。原对话不能再打开或操作，请使用当前归属对话打开。")
         self.index = 0
         preview_registry, registry_note = self.load_preview_registry()
 
         self.root = tk.Tk()
-        self.root.title("GXP 草稿保存审批")
+        self.root.bind("<Destroy>", self._on_destroy, add="+")
+        self.root.title(f"GXP 草稿保存审批 · {self.session_marker()}")
         self.root.geometry("1180x860")
         self.root.minsize(850, 620)
-        self.root.protocol("WM_DELETE_WINDOW", self.root.destroy)
+        self.root.protocol("WM_DELETE_WINDOW", self.close)
 
         style = ttk.Style(self.root)
         style.configure("TLabel", font=("Microsoft YaHei UI", 10))
@@ -60,7 +83,7 @@ class ApprovalWindow:
             state="disabled",
         )
         self.execute_button.pack(side="right")
-        ttk.Button(buttons, text="关闭（不执行）", command=self.root.destroy).pack(side="right", padx=8)
+        ttk.Button(buttons, text="关闭（不执行）", command=self.close).pack(side="right", padx=8)
         self.header = ttk.Label(self.root, font=("Microsoft YaHei UI", 14, "bold"))
         self.header.pack(fill="x", padx=12, pady=(12, 6))
         ttk.Label(
@@ -98,6 +121,41 @@ class ApprovalWindow:
         self.params_text = self.add_text_tab("模板与完整参数", wrap="none")
         self.validation_text = self.add_text_tab("校验与指纹", wrap="word")
         self.render()
+        self.root.after(1000, self.refresh_approval_state)
+
+    def session_marker(self) -> str:
+        parts = []
+        if self.session.get("conversation_id"):
+            parts.append(f"对话 {self.session['conversation_id']}")
+        if self.session.get("id"):
+            parts.append(f"会话 {self.session['id'][:8]}")
+        parts.append(f"审批 {self.transaction_id[:8]}")
+        return " · ".join(parts)
+
+    def _release_window_lock(self) -> None:
+        lock = self._window_lock
+        self._window_lock = None
+        if lock is not None:
+            lock.__exit__(None, None, None)
+
+    def _on_destroy(self, event) -> None:
+        if event.widget is self.root:
+            self._release_window_lock()
+
+    def close(self) -> None:
+        root = getattr(self, "root", None)
+        if root is not None:
+            try:
+                root.destroy()
+            except tk.TclError:
+                pass
+        self._release_window_lock()
+
+    def refresh_approval_state(self) -> None:
+        current = tuple(approval_is_current(self.artifact, item) for item in self.artifact["statements"])
+        if current != self._last_approval_state:
+            self.render()
+        self.root.after(1000, self.refresh_approval_state)
 
     def load_preview_registry(self) -> tuple[dict[str, Any], str]:
         """Read display titles from the exact bridge bound to this approval.
@@ -197,11 +255,11 @@ class ApprovalWindow:
     def render(self) -> None:
         statements = self.artifact["statements"]
         statement = self.current()
-        approved = statement["id"] in (self.artifact.get("approvals") or {})
+        approved = approval_is_current(self.artifact, statement)
         self.header.configure(
             text=(
                 f"{self.session['action_name']}（{self.artifact['action_code']}） · 语句 {self.index + 1}/{len(statements)} · "
-                f"{'已批准' if approved else '等待人工批准'}"
+                f"{'已批准' if approved else '等待人工批准'}\n{self.session_marker()}"
             )
         )
         self.summary.configure(text=statement_scope(statement))
@@ -257,8 +315,10 @@ class ApprovalWindow:
             elif value.startswith("修改后："):
                 self.changes_text.tag_add("after", f"{line}.0", f"{line}.end")
         approvals = self.artifact.get("approvals") or {}
-        all_approved = all(item["id"] in approvals for item in statements)
-        self.progress.configure(text=f"已批准 {sum(item['id'] in approvals for item in statements)}/{len(statements)} 条")
+        self._last_approval_state = tuple(approval_is_current(self.artifact, item) for item in statements)
+        all_approved = all(approval_is_current(self.artifact, item) for item in statements)
+        approved_count = sum(approval_is_current(self.artifact, item) for item in statements)
+        self.progress.configure(text=f"有效批准 {approved_count}/{len(statements)} 条（过期可重新批准）")
         self.previous_button.configure(state="normal" if self.index > 0 else "disabled")
         self.next_button.configure(state="normal" if self.index + 1 < len(statements) else "disabled")
         transaction_ready = (
@@ -319,32 +379,48 @@ class ApprovalWindow:
         try:
             result = execute_approved_transaction(self.transaction_id)
             messagebox.showinfo("执行结果", execution_result_message(result))
-            self.root.destroy()
+            self.close()
         except Exception as exc:
             self.transaction = self.state.get_transaction(self.transaction_id)
             if self.transaction["state"] in {"failed_no_write", "rolled_back"}:
+                retained = self.state.get_session(self.transaction["session_id"])["state"] == "saved"
                 messagebox.showerror(
-                    "保存未完成，已释放会话占用",
-                    f"{exc}\n\n本次未写入或已经回滚，会话占用已释放。请重新生成计划和审批。",
+                    "恢复未完成，已回到原保存状态" if retained else "保存未完成，已释放会话占用",
+                    f"{exc}\n\n" + ("本次恢复未生效，可核对原保存结果或重新发起恢复审批。" if retained else "本次未写入或已经回滚，会话占用已释放。请重新生成计划和审批。"),
                     parent=self.root,
                 )
-                self.root.destroy()
+                self.close()
                 return
             messagebox.showerror("事务未完成", str(exc))
             self.artifact = load_artifact(self.path)
             self.render()
 
     def run(self) -> None:
-        self.root.mainloop()
+        try:
+            self.root.mainloop()
+        finally:
+            self.close()
 
 
 def main() -> int:
-    if len(sys.argv) != 2:
-        raise SystemExit("Usage: approval_app.py <transaction_id>")
+    if len(sys.argv) not in {2, 4}:
+        raise SystemExit("Usage: approval_app.py <transaction_id> [conversation_id owner_revision]")
     try:
-        ApprovalWindow(sys.argv[1]).run()
+        ApprovalWindow(
+            sys.argv[1], sys.argv[2] if len(sys.argv) == 4 else "",
+            int(sys.argv[3]) if len(sys.argv) == 4 else None,
+        ).run()
+    except ApprovalWindowBusyError as exc:
+        messagebox.showinfo("审批窗口已打开", str(exc))
+        return 2
+    except StateError as exc:
+        messagebox.showerror("审批会话不可用", str(exc))
+        return 1
     except (TransactionPlanError, SingleRowCheckError) as exc:
         messagebox.showerror("修改已被检查器阻止", str(exc))
+        return 1
+    except Exception as exc:
+        messagebox.showerror("审批窗口未能打开", f"{exc}\n\n请在当前对话调用 abort_edit_session 打开处理窗口；可取消未执行审批，或保留数据并释放本地流程。")
         return 1
     return 0
 

@@ -263,6 +263,7 @@ def build_transaction_artifact(
         "ref_id": str(baseline["ref_id"]),
         "action_code": str(baseline.get("code") or ""),
         "old_content_hash": old_hash,
+        "old_relation_hash": relation_snapshot_hash(current_relations),
         "new_content_hash": new_hash,
         "baseline_last_modification_time": str(baseline["last_modification_time"]),
         "desired_last_modification_time": modified_time,

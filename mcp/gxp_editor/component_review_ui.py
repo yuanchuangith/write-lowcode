@@ -7,6 +7,7 @@ from tkinter import ttk
 from typing import Any
 
 from .component_preview import component_changes, parameter_rows, plain_description
+from .canvas_review_ui import CanvasReview
 
 
 class ComponentReview:
@@ -15,11 +16,20 @@ class ComponentReview:
         self.items: list[dict[str, Any]] = []
         self._rendered = False
         self._shown_item = None
+        self._context_item = None
+        self._canvas_sources = None
+        self._select_from_canvas = False
         self.frame = ttk.Frame(notebook, padding=8)
         notebook.add(self.frame, text="元件预览")
-        ttk.Label(self.frame, text="点击元件展开配置；双击或点击“打开元件配置”查看详情。黄色字段表示有变化。", wraplength=1080).pack(fill="x", pady=(0, 4))
+        ttk.Label(self.frame, text="点击图标或元件联动选中前后画布；双击查看参数差异。分支可折叠，变更处带颜色标记。", wraplength=1080).pack(fill="x", pady=(0, 4))
         ttk.Label(self.frame, text=registry_note, foreground="#64748b", wraplength=1080).pack(fill="x", pady=(0, 6))
-        panes = ttk.Panedwindow(self.frame, orient="horizontal")
+        self.views = ttk.Notebook(self.frame)
+        self.views.pack(fill="both", expand=True)
+        self.canvas_review = CanvasReview(self.views, self.select_canvas_node, self.open_details)
+        self.views.add(self.canvas_review.frame, text="画布对比")
+        list_frame = ttk.Frame(self.views)
+        self.views.add(list_frame, text="变更列表与配置")
+        panes = ttk.Panedwindow(list_frame, orient="horizontal")
         panes.pack(fill="both", expand=True)
         listing = ttk.Frame(panes, width=285)
         panes.add(listing, weight=1)
@@ -63,7 +73,7 @@ class ComponentReview:
 
     def render(self, before: dict[str, Any], after: dict[str, Any], *, changes=None):
         items = component_changes(before, after) if changes is None else changes
-        if self._rendered and self.items == items:
+        if self._rendered and self.items == items and self._canvas_sources == (before, after):
             return
         selected = self.selected()
         selected_key = self.identity(selected) if selected else None
@@ -72,6 +82,9 @@ class ComponentReview:
         open_keys = {self.identity(self.items[int(iid)]) for iid in self.tree.get_children() if self.tree.item(iid, "open")}
         scroll = self.tree.yview()[0]
         self.items = deepcopy(items)
+        self._context_item = None
+        self._canvas_sources = deepcopy((before, after))
+        self.canvas_review.set_data(before, after, self.items)
         self._rendered = True
         self.tree.delete(*self.tree.get_children())
         for index, item in enumerate(self.items):
@@ -94,17 +107,62 @@ class ComponentReview:
             self.select()
         else:
             self._shown_item = None
+            self.canvas_review.selected_key = None
+            self.canvas_review.details_button.configure(state="disabled")
+            self.canvas_review.selection_label.configure(text="本次没有元件参数或位置变更；可点击画布查看上下文配置。")
             for child in self.detail_body.winfo_children():
                 child.destroy()
             ttk.Label(self.detail_body, text="本次没有元件参数或位置变更。请结合“本次改动”和完整 SQL 核对。", wraplength=600).pack(anchor="w")
 
     def selected(self):
+        if self._context_item is not None:
+            return self._context_item
         selection = self.tree.selection()
         return self.items[int(selection[0].split(":")[0])] if selection else None
 
+    def select_canvas_node(self, group_key, node_key):
+        self._context_item = None
+        index = next((i for i, item in enumerate(self.items) if self.identity(item) == (group_key, node_key)), None)
+        if index is not None:
+            self.tree.selection_set(str(index))
+        else:
+            # Unchanged surrounding nodes are inspectable too, using actual sides.
+            def side(data):
+                for group in data.get("actionData", []):
+                    if group["key"] != group_key:
+                        continue
+                    nodes = group.get("data", [])
+                    for row, node in enumerate(nodes):
+                        if node["key"] != node_key:
+                            continue
+                        neighbor = lambda i: {"line": i + 1, "name": nodes[i].get("title") or nodes[i]["elementKey"]} if 0 <= i < len(nodes) else None
+                        names = {item["key"]: item.get("title") or item["elementKey"] for item in nodes}
+                        return {"group": group.get("title") or group_key, "group_key": group_key, "line": row + 1,
+                                "node": node, "parents": [names.get(key, key) for key in node.get("depth") or []],
+                                "previous": neighbor(row - 1), "next": neighbor(row + 1)}
+                return None
+            old, new = (side(data) for data in self._canvas_sources)
+            if old is None and new is None:
+                return
+            self._context_item = {"kind": "未修改", "before": old, "after": new}
+        self._select_from_canvas = True
+        try:
+            self.select()
+        finally:
+            self._select_from_canvas = False
+
     def select(self, event=None):
+        if event is not None:
+            self._context_item = None
         item = self.selected()
         if item:
+            group_key, node_key = self.identity(item)
+            self.canvas_review.highlight(group_key, node_key, reveal=not self._select_from_canvas)
+            side = item["after"] or item["before"]
+            node = side["node"]
+            line = f" · 第 {side['line']} 行" if side["line"] else ""
+            self.canvas_review.selection_label.configure(text=f"{side['group']}{line} · {node.get('title') or node['elementKey']} · {item['kind']}")
+            self.canvas_review.details_button.configure(state="normal")
             if event is not None:
                 self.tree.item(self.tree.selection()[0].split(":")[0], open=True)
             if self._shown_item == item:

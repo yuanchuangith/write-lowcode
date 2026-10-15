@@ -31,8 +31,7 @@ def statement_hash(statement: dict[str, Any]) -> str:
 
 
 def transaction_binding_hash(artifact: dict[str, Any]) -> str:
-    return sha256_json(
-        {
+    binding = {
             "transaction_id": artifact.get("transaction_id"),
             "session_id": artifact.get("session_id"),
             "plan_id": artifact.get("plan_id"),
@@ -53,7 +52,22 @@ def transaction_binding_hash(artifact: dict[str, Any]) -> str:
             "statement_hashes": [item.get("statement_hash") for item in artifact.get("statements") or []],
             "created_at": artifact.get("created_at"),
         }
-    )
+    # Keep old signed artifacts verifiable; new snapshots bind recovery evidence.
+    if "old_relation_hash" in artifact:
+        binding["old_relation_hash"] = artifact["old_relation_hash"]
+    return sha256_json(binding)
+
+
+def approval_is_current(artifact: dict[str, Any], statement: dict[str, Any]) -> bool:
+    approval = (artifact.get("approvals") or {}).get(statement["id"]) or {}
+    try:
+        return (
+            datetime.fromisoformat(approval["expires_at"]) >= datetime.now()
+            and approval.get("statement_hash") == statement_hash(statement)
+            and approval.get("transaction_hash") == artifact.get("transaction_hash")
+        )
+    except (KeyError, TypeError, ValueError):
+        return False
 
 
 def approval_signature(config: EditorConfig, artifact: dict[str, Any], statement: dict[str, Any], expires_at: str) -> str:
