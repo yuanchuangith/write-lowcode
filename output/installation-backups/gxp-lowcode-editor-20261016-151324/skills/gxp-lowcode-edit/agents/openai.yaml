@@ -1,0 +1,6 @@
+interface:
+  display_name: "GXP 低代码受控编辑"
+  short_description: "用真实前端编译规则校验画布和代码，再经逐条审批保存草稿。"
+  default_prompt: "显式使用 $gxp-lowcode-edit 实施一个已确认的低代码方案；先重新校验当前草稿和 gxp2.components 编译结果，未获得后续写入确认时只生成计划。"
+policy:
+  allow_implicit_invocation: false

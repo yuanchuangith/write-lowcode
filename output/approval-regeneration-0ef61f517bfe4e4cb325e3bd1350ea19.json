@@ -1,0 +1,402 @@
+{
+  "conversation_id": "1a98e512ad984c0a9f25991abb3271da",
+  "attached": {
+    "attached": true,
+    "session_id": "0ef61f517bfe4e4cb325e3bd1350ea19",
+    "conversation_id": "1a98e512ad984c0a9f25991abb3271da",
+    "owner_revision": 1,
+    "transaction_id": null,
+    "session": {
+      "id": "0ef61f517bfe4e4cb325e3bd1350ea19",
+      "state": "planned",
+      "action_code": "IsnSZoB9",
+      "action_name": "周期培训处理",
+      "design_id": "3F803C88-FF34-4BAD-8F7D-3D468CD8B541",
+      "ref_id": "f2d12304b8ef4aa3b6660f0fb01b6c4c",
+      "transaction_id": null,
+      "conversation_id": "1a98e512ad984c0a9f25991abb3271da",
+      "owner_revision": 1
+    },
+    "write_executed": false
+  },
+  "status_summary": {
+    "planning_ready": true,
+    "write_ready": true,
+    "active_session": {
+      "id": "0ef61f517bfe4e4cb325e3bd1350ea19",
+      "state": "planned",
+      "action_code": "IsnSZoB9",
+      "action_name": "周期培训处理",
+      "design_id": "3F803C88-FF34-4BAD-8F7D-3D468CD8B541",
+      "ref_id": "f2d12304b8ef4aa3b6660f0fb01b6c4c",
+      "transaction_id": null,
+      "conversation_id": "1a98e512ad984c0a9f25991abb3271da",
+      "owner_revision": 1
+    }
+  },
+  "new_plan": {
+    "plan_id": "d4084ef88e56407f827f8a82d1b189a3",
+    "session_id": "0ef61f517bfe4e4cb325e3bd1350ea19",
+    "operation_count": 8,
+    "diff": [
+      {
+        "operation_index": 0,
+        "operation": "create_action_group",
+        "action_group_key": "mdb86171f",
+        "group_alias": "cycleAuditBefore",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "action_type": "js",
+        "input_params": [],
+        "output_params": [
+          {
+            "key": "returnValue",
+            "title": "returnValue",
+            "type": "boolean",
+            "description": "返回 false 可阻止点击"
+          }
+        ],
+        "generated_nodes": [],
+        "affected_node_keys": [],
+        "before_node_count": 0,
+        "after_node_count": 0
+      },
+      {
+        "operation_index": 1,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "SetVariable",
+        "affected_node_keys": [
+          "5BE469CF"
+        ],
+        "generated_nodes": [
+          {
+            "key": "5BE469CF",
+            "element_key": "SetVariable"
+          }
+        ],
+        "before_node_count": 0,
+        "after_node_count": 1
+      },
+      {
+        "operation_index": 2,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "SetVariable",
+        "affected_node_keys": [
+          "8138CF66"
+        ],
+        "generated_nodes": [
+          {
+            "key": "8138CF66",
+            "element_key": "SetVariable"
+          }
+        ],
+        "before_node_count": 1,
+        "after_node_count": 2
+      },
+      {
+        "operation_index": 3,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "SetVariable",
+        "affected_node_keys": [
+          "2EB299DE"
+        ],
+        "generated_nodes": [
+          {
+            "key": "2EB299DE",
+            "element_key": "SetVariable"
+          }
+        ],
+        "before_node_count": 2,
+        "after_node_count": 3
+      },
+      {
+        "operation_index": 4,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "SetVariable",
+        "affected_node_keys": [
+          "A93680A9"
+        ],
+        "generated_nodes": [
+          {
+            "key": "A93680A9",
+            "element_key": "SetVariable"
+          }
+        ],
+        "before_node_count": 3,
+        "after_node_count": 4
+      },
+      {
+        "operation_index": 5,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "SetVariable",
+        "affected_node_keys": [
+          "2FC291B0"
+        ],
+        "generated_nodes": [
+          {
+            "key": "2FC291B0",
+            "element_key": "SetVariable"
+          }
+        ],
+        "before_node_count": 4,
+        "after_node_count": 5
+      },
+      {
+        "operation_index": 6,
+        "operation": "append_node",
+        "action_group_key": "mdb86171f",
+        "group_title": "表格-子窗体自定义按钮点击前事件",
+        "anchor_node_key": null,
+        "target_node_key": null,
+        "element_key": "AddMetaData",
+        "affected_node_keys": [
+          "777D5D58"
+        ],
+        "generated_nodes": [
+          {
+            "key": "777D5D58",
+            "element_key": "AddMetaData"
+          }
+        ],
+        "before_node_count": 5,
+        "after_node_count": 6
+      },
+      {
+        "operation_index": 7,
+        "operation": "bind_component_event",
+        "action_group_key": "mVJUGBoK0",
+        "group_title": "动作绑定",
+        "anchor_node_key": "brXYYC2h",
+        "target_node_key": null,
+        "element_key": "ComponentEvent",
+        "affected_node_keys": [
+          "32B4CD61"
+        ],
+        "generated_nodes": [
+          {
+            "key": "32B4CD61",
+            "element_key": "ComponentEvent"
+          }
+        ],
+        "before_node_count": 2,
+        "after_node_count": 3
+      }
+    ],
+    "validation": {
+      "valid": true,
+      "warnings": [
+        "Node TIVibaNv references missing action input NAmtTrTz",
+        "Node gaMsaeSb references missing action output rTiCILvM",
+        "Node OkD2chXn references missing action input Vh4dD0TT",
+        "Node VLBzJSG9 references missing action output xlrbNTbO",
+        "Node zK5gzcAD references missing action output xlrbNTbO",
+        "Node IYisXJSR references missing action output xlrbNTbO",
+        "Node YAknsDZz references missing action input 4NiNaGKt",
+        "Node nLJG5E6v references missing action input m7JEIRKd",
+        "Node Le35Aokf references missing action input m7JEIRKd",
+        "Node yxw71JzL references missing action input YyMSc1Y3",
+        "Node kuY6tgbI references missing action input 4NiNaGKt",
+        "Node woaDlV0z references missing action input 4NiNaGKt",
+        "Node CNUEZrUY references missing action input NPhfwQay",
+        "Node XwQbdpXJ references missing action input UyzCEKZM",
+        "Node AwtoWV4z references missing action output srHVuRyU",
+        "Node ueGsdnRz references missing action output SxiS4dUV",
+        "Node Q51oSCet references missing action input gN8fuTAq",
+        "Node 4ROxTnYY references missing action input HoK0oAPb",
+        "Node S1KwAsnG references missing action input HoK0oAPb",
+        "Node xyPIxrw3 references missing action input oBZFU4BQ",
+        "Node D5xubUJ3 references missing action input KH5ehUr1",
+        "Node D5xubUJ3 references missing action input UI2mjwPT",
+        "Node D5xubUJ3 references missing action input L3WvfwNz",
+        "Node D5xubUJ3 references missing action input 3W5M6llT",
+        "Node D5xubUJ3 references missing action input QPqD0RIh",
+        "Node D5xubUJ3 references missing action input rwftow4t",
+        "Node D5xubUJ3 references missing action input YOmMj5z8",
+        "Node D5xubUJ3 references missing action input HoK0oAPb",
+        "Node HIZNVrYq references missing action input R0pKOXIZ",
+        "Node HIZNVrYq references missing action input ByPGUwH0",
+        "Node HIZNVrYq references missing action input s0H5FZdj",
+        "Node HIZNVrYq references missing action input ljowQs0G",
+        "Node HIZNVrYq references missing action input ZWXo0feN",
+        "Node HIZNVrYq references missing action input lYUiUXec",
+        "Node HIZNVrYq references missing action input k6N8NSeW",
+        "Node HIZNVrYq references missing action input s067bb5S"
+      ],
+      "action_count": 16,
+      "node_count": 701,
+      "registry_hash": "67083eb1e708c4d4c601b6fd6038775fdbde15d82cf0cb27632801cc056bb0e6",
+      "frontend_version": "6.5.1",
+      "rule_source_sha256": "256e7d55c33c45fbd56a25efd7819585c913dd4e3f841bfdb939272941c45ce7"
+    },
+    "runtime_validation": {
+      "available": false,
+      "success": false,
+      "production_compatible": false,
+      "source_mode": "development_build",
+      "target_framework": "net6.0",
+      "zero_backend_mode": true,
+      "csharp_sha256": "e38f1ddc59567cece22531f1dc405457cb3d604e655856dc05f2d15835d5c9d1",
+      "diagnostics": [],
+      "warning": "Advisory local C# validation was unavailable: Expecting ',' delimiter: line 1 column 1865 (char 1864)",
+      "advisory_only": true,
+      "runtime_compatibility_verified": false
+    },
+    "compiler_binding": {
+      "bridge_sha256": "91e70ebd0337f3c945255cbb4e871bc675d59d28525a9e92023f2450235b313a",
+      "adapter_sha256": "d169af4fee37b97a9b2ac51f035c1f3daa41facaf2f82f3c50aacfe40fc98720",
+      "registry_hash": "67083eb1e708c4d4c601b6fd6038775fdbde15d82cf0cb27632801cc056bb0e6",
+      "rule_source_sha256": "256e7d55c33c45fbd56a25efd7819585c913dd4e3f841bfdb939272941c45ce7",
+      "frontend_version": "6.5.1",
+      "source_provenance": {
+        "ready": true,
+        "frontend_repo": "G:\\hoyi\\updateComponents\\gxp2.components",
+        "commit": "8ccf0a4d5e326235f0173970fe206ebcf57c3894",
+        "branch": "develop",
+        "dirty": false,
+        "dirty_file_count": 0,
+        "workspace_sha256": "31bee6cc1dc7293513d5e8af2802cb57781c62b50d497e03aa2d614776157596",
+        "bridge_path": "dist/action-design-compiler/bridge.js"
+      },
+      "compiler_binding_sha256": "213adc39e72010c19cfdae3b7d5e34c1ca33044cdaa19c70fb0adddea8f61d3c"
+    },
+    "code_generation_complete": true,
+    "hashes": {
+      "data_sha256": "b48a3161cfeac8a6a7dc1fffa2942562d703703ab5bc11e0d8a20ffaa6f08041",
+      "js_sha256": "844fe876779885ffa3bc816fd3bc5719f0055a0c24261615abe0200536671db6",
+      "csharp_sha256": "e38f1ddc59567cece22531f1dc405457cb3d604e655856dc05f2d15835d5c9d1",
+      "relation_sha256": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+    },
+    "write_executed": false,
+    "reference_repairs": []
+  },
+  "approval": {
+    "transaction_id": "7eedb72b86814438a66ed59381a2f79f",
+    "state": "awaiting_approval",
+    "statement_count": 1,
+    "approval_window_opened": true,
+    "write_executed": false,
+    "runtime_validation": {
+      "available": false,
+      "success": false,
+      "production_compatible": false,
+      "source_mode": "development_build",
+      "target_framework": "net6.0",
+      "zero_backend_mode": true,
+      "csharp_sha256": "e38f1ddc59567cece22531f1dc405457cb3d604e655856dc05f2d15835d5c9d1",
+      "diagnostics": [],
+      "warning": "Advisory local C# validation was unavailable: Expecting ',' delimiter: line 1 column 1865 (char 1864)",
+      "advisory_only": true,
+      "runtime_compatibility_verified": false
+    },
+    "compiler_evidence": {
+      "validation": {
+        "valid": true,
+        "warnings": [
+          "Node TIVibaNv references missing action input NAmtTrTz",
+          "Node gaMsaeSb references missing action output rTiCILvM",
+          "Node OkD2chXn references missing action input Vh4dD0TT",
+          "Node VLBzJSG9 references missing action output xlrbNTbO",
+          "Node zK5gzcAD references missing action output xlrbNTbO",
+          "Node IYisXJSR references missing action output xlrbNTbO",
+          "Node YAknsDZz references missing action input 4NiNaGKt",
+          "Node nLJG5E6v references missing action input m7JEIRKd",
+          "Node Le35Aokf references missing action input m7JEIRKd",
+          "Node yxw71JzL references missing action input YyMSc1Y3",
+          "Node kuY6tgbI references missing action input 4NiNaGKt",
+          "Node woaDlV0z references missing action input 4NiNaGKt",
+          "Node CNUEZrUY references missing action input NPhfwQay",
+          "Node XwQbdpXJ references missing action input UyzCEKZM",
+          "Node AwtoWV4z references missing action output srHVuRyU",
+          "Node ueGsdnRz references missing action output SxiS4dUV",
+          "Node Q51oSCet references missing action input gN8fuTAq",
+          "Node 4ROxTnYY references missing action input HoK0oAPb",
+          "Node S1KwAsnG references missing action input HoK0oAPb",
+          "Node xyPIxrw3 references missing action input oBZFU4BQ",
+          "Node D5xubUJ3 references missing action input KH5ehUr1",
+          "Node D5xubUJ3 references missing action input UI2mjwPT",
+          "Node D5xubUJ3 references missing action input L3WvfwNz",
+          "Node D5xubUJ3 references missing action input 3W5M6llT",
+          "Node D5xubUJ3 references missing action input QPqD0RIh",
+          "Node D5xubUJ3 references missing action input rwftow4t",
+          "Node D5xubUJ3 references missing action input YOmMj5z8",
+          "Node D5xubUJ3 references missing action input HoK0oAPb",
+          "Node HIZNVrYq references missing action input R0pKOXIZ",
+          "Node HIZNVrYq references missing action input ByPGUwH0",
+          "Node HIZNVrYq references missing action input s0H5FZdj",
+          "Node HIZNVrYq references missing action input ljowQs0G",
+          "Node HIZNVrYq references missing action input ZWXo0feN",
+          "Node HIZNVrYq references missing action input lYUiUXec",
+          "Node HIZNVrYq references missing action input k6N8NSeW",
+          "Node HIZNVrYq references missing action input s067bb5S"
+        ],
+        "action_count": 16,
+        "node_count": 701,
+        "registry_hash": "67083eb1e708c4d4c601b6fd6038775fdbde15d82cf0cb27632801cc056bb0e6",
+        "frontend_version": "6.5.1",
+        "rule_source_sha256": "256e7d55c33c45fbd56a25efd7819585c913dd4e3f841bfdb939272941c45ce7"
+      },
+      "compiler_binding": {
+        "bridge_sha256": "91e70ebd0337f3c945255cbb4e871bc675d59d28525a9e92023f2450235b313a",
+        "adapter_sha256": "d169af4fee37b97a9b2ac51f035c1f3daa41facaf2f82f3c50aacfe40fc98720",
+        "registry_hash": "67083eb1e708c4d4c601b6fd6038775fdbde15d82cf0cb27632801cc056bb0e6",
+        "rule_source_sha256": "256e7d55c33c45fbd56a25efd7819585c913dd4e3f841bfdb939272941c45ce7",
+        "frontend_version": "6.5.1",
+        "source_provenance": {
+          "ready": true,
+          "frontend_repo": "G:\\hoyi\\updateComponents\\gxp2.components",
+          "commit": "8ccf0a4d5e326235f0173970fe206ebcf57c3894",
+          "branch": "develop",
+          "dirty": false,
+          "dirty_file_count": 0,
+          "workspace_sha256": "31bee6cc1dc7293513d5e8af2802cb57781c62b50d497e03aa2d614776157596",
+          "bridge_path": "dist/action-design-compiler/bridge.js"
+        },
+        "compiler_binding_sha256": "213adc39e72010c19cfdae3b7d5e34c1ca33044cdaa19c70fb0adddea8f61d3c"
+      },
+      "code_generation_complete": true
+    },
+    "manual_publication_required": true
+  },
+  "reopened_approval": {
+    "transaction_id": "7eedb72b86814438a66ed59381a2f79f",
+    "approval_window_opened": true,
+    "write_executed": false
+  },
+  "saved_verification": {
+    "verified": true,
+    "design_id": "3F803C88-FF34-4BAD-8F7D-3D468CD8B541",
+    "ref_id": "f2d12304b8ef4aa3b6660f0fb01b6c4c",
+    "content_hash": "4bd3963289258252a884260897b193a78e08dc57f52afc471d35fa350c06cee0",
+    "relation_hash": "4f53cda18c2baa0c0354bb5f9a3ecbe5ed12ab4d8e11ba873c2f11161202b945",
+    "transaction_kind": "write",
+    "runtime_finalized": false,
+    "runtime_mode": "existing_backend_lazy_compile_after_manual_publish",
+    "manual_publication_required": true
+  },
+  "finished": {
+    "finished": true,
+    "action_code": "IsnSZoB9",
+    "action_name": "周期培训处理",
+    "ref_id": "f2d12304b8ef4aa3b6660f0fb01b6c4c",
+    "message": "Draft data and relations were verified. No backend endpoint, Redis key, DLL, or PDB was changed by the editor. Inspect the canvas in ActionDesign and publish manually if accepted; the existing publish path clears its cache and the existing runtime lazily compiles C# on first use."
+  }
+}

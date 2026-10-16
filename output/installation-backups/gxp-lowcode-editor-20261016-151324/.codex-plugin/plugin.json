@@ -1,0 +1,24 @@
+{
+  "name": "gxp-lowcode-editor",
+  "version": "0.1.16+codex.local-20261016-event-contracts",
+  "description": "Zero-backend-change GXP ActionDesign draft editing with bound gxp2.components provenance, blocking canvas/code-generation validation, pinned account safety, immutable backups, human approval, optimistic locking, and restore support.",
+  "author": {
+    "name": "Local developer"
+  },
+  "skills": "./skills/",
+  "interface": {
+    "displayName": "GXP 低代码受控编辑",
+    "shortDescription": "支持新增动作分组、空组添加节点和组件事件绑定，经人工审批保存草稿。",
+    "longDescription": "为一个已有未发布 GXP 编排建立独占编辑会话，使用前端 ActionDesign 真实规则生成画布、JS、C# 与关联数据，并用只读部署程序集快照校验 C#。写入前完成本地备份、索引与权限检查、逐条人工审批和乐观锁验证，并支持审批式恢复。不修改后端、Redis、DLL/PDB，不会创建或发布编排。",
+    "developerName": "Local developer",
+    "category": "Developer Tools",
+    "capabilities": [
+      "Skills",
+      "MCP",
+      "Interactive",
+      "Write"
+    ],
+    "defaultPrompt": "使用 $gxp-lowcode-edit 为一个已有未发布编排生成受控画布修改计划；没有人工逐条审批时不要执行任何数据库写入。"
+  },
+  "mcpServers": "./.mcp.json"
+}
