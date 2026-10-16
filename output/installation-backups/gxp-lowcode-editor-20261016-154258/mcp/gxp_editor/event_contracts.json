@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "contracts": [
+    {
+      "component_type": "FormTables",
+      "event_name": "onChildrenCustomBeforeClick",
+      "input_params": [
+        {
+          "key": "action",
+          "title": "action",
+          "type": "object",
+          "description": "子窗体按钮上下文（id、action、name、innerInbiz）"
+        }
+      ],
+      "argument_properties": [
+        {
+          "name": "id",
+          "type": "string"
+        },
+        {
+          "name": "action",
+          "type": "string"
+        },
+        {
+          "name": "name",
+          "type": "string"
+        },
+        {
+          "name": "innerInbiz",
+          "type": "function"
+        }
+      ],
+      "return_mode": "native_output_params",
+      "evidence": [
+        {
+          "path": "src/core/common/base/ComponentEvents.ts",
+          "sha256": "c24dd56bb104f19ce07f824687ed9e0232ac4d4bf6dbcc19c5d86ceeab96e9c4"
+        },
+        {
+          "path": "src/core/components/form/grade/FormTables/preview/web/index.tsx",
+          "sha256": "e1668f940f2ebc5bb20f9c245bfa7b416cbc7be6a4d100f008be359988900398"
+        },
+        {
+          "path": "src/core/components/business/base/GxpSmartTables/preview/web/components/OperationButtonClick.ts",
+          "sha256": "23ca7ad205e9872d5ce7dbf44b1ac8a0fdc82bea9e14027c5a81707ae70c807c"
+        }
+      ],
+      "verification": "static_runtime_callsite",
+      "runtime_verified": false,
+      "return_verification": "sdk_wrapper_unverified",
+      "input_name_policy": "positional",
+      "input_type_aliases": {
+        "object": [
+          "dictionary"
+        ]
+      }
+    }
+  ]
+}
