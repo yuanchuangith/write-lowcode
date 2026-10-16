@@ -97,26 +97,40 @@ class EditorService:
             evidence = dict(runtime_validator.validate(action_code, csharp_code))
         except Exception as exc:
             evidence = {
-                "available": False,
+                "available": getattr(exc, "code", "") == "compilation_failed",
                 "success": False,
+                "compilation_succeeded": False,
                 "production_compatible": False,
                 "source_mode": runtime_validator.runtime.source_mode,
                 "target_framework": runtime_validator.runtime.target_framework,
                 "zero_backend_mode": True,
                 "csharp_sha256": sha256_text(csharp_code),
-                "diagnostics": [],
-                "warning": f"Advisory local C# validation was unavailable: {exc}",
+                "diagnostics": list(getattr(exc, "diagnostics", [])),
+                "failure_kind": getattr(exc, "code", "checker_unavailable"),
+                "warning": f"Local C# validation failed: {exc}",
             }
-        evidence["advisory_only"] = True
+        evidence["advisory_only"] = False
         evidence["runtime_compatibility_verified"] = bool(
-            evidence.get("success") and evidence.get("production_compatible")
+            evidence.get("available") and evidence.get("success") and evidence.get("compilation_succeeded") is True
+            and evidence.get("production_compatible") and not evidence.get("reference_conflicts")
+            and evidence.get("source_mode") == "deployment_snapshot"
         )
         if not evidence["runtime_compatibility_verified"] and not evidence.get("warning"):
             evidence["warning"] = (
-                "Local C# validation is advisory. Saving the unpublished database draft is allowed; "
-                "manual publication is still required to generate the runtime DLL."
+                "Local C# compiled with assembly reference conflicts; production compatibility is unverified."
+                if evidence.get("reference_conflicts") else
+                "No candidate C# compilation was required; production behavior remains unverified."
+                if not csharp_code.strip() else
+                "Local C# compilation passed against development references. Production compatibility "
+                "still requires matching deployment references and runtime acceptance."
             )
         return evidence
+
+    @staticmethod
+    def _require_candidate_csharp_validation(csharp_code: str, evidence: dict[str, Any]) -> None:
+        if csharp_code.strip() and not (evidence.get("available") is True and evidence.get("success") is True):
+            reason = evidence.get("warning") or evidence.get("failure_kind") or "C# compilation did not succeed"
+            raise EditorServiceError("Candidate C# validation did not pass; no approval can be created. " + str(reason))
 
     def editor_status(self) -> dict[str, Any]:
         result: dict[str, Any] = {
@@ -185,6 +199,7 @@ class EditorService:
             result["compiler"] = {
                 **binding,
                 "element_count": len(registry.get("elements") or []),
+                "supported_operations": registry.get("supported_operations") or [],
             }
             result["gates"]["compiler"] = {
                 "ready": True,
@@ -197,27 +212,29 @@ class EditorService:
             result["gates"]["compiler"] = {"ready": False, "error": str(exc)}
         try:
             runtime_status = dict(runtime_validator.status())
-            runtime_verified = bool(runtime_status.get("production_compatible"))
+            runtime_verified = False  # A status probe verifies no candidate or deployed action.
+            runtime_status["reference_snapshot_available"] = bool(runtime_status.get("available"))
             runtime_status["advisory_only"] = True
             runtime_status["runtime_compatibility_verified"] = runtime_verified
             if not runtime_verified:
                 runtime_status["warning"] = (
-                    "Runtime references are not a deployment snapshot. This does not block saving the "
-                    "unpublished database draft; manual publication must generate the runtime DLL."
+                    "SDK/reference availability does not validate a candidate. Nonblank candidate C# must "
+                    "compile before approval; production compatibility requires deployment evidence."
                 )
             result["runtime_validation"] = runtime_status
             result["runtime_compatibility_verified"] = runtime_verified
             result["gates"]["runtime_snapshot"] = {
-                "ready": True,
+                "ready": bool(runtime_status.get("available")),
                 "blocking": False,
+                "candidate_compilation_required": True,
                 "advisory": True,
                 "runtime_compatibility_verified": runtime_verified,
                 "warning": runtime_status.get("warning"),
             }
         except Exception as exc:
             warning = (
-                f"Advisory runtime validation was unavailable: {exc}. This does not block saving the "
-                "unpublished database draft; manual publication must generate the runtime DLL."
+                f"Local C# checker is unavailable: {exc}. Nonblank candidate C# must pass "
+                "compilation before a plan or approval can be created."
             )
             result["runtime_validation"] = {
                 "available": False,
@@ -231,8 +248,9 @@ class EditorService:
                 "warning": warning,
             }
             result["gates"]["runtime_snapshot"] = {
-                "ready": True,
+                "ready": False,
                 "blocking": False,
+                "candidate_compilation_required": True,
                 "advisory": True,
                 "runtime_compatibility_verified": False,
                 "warning": warning,
@@ -249,7 +267,12 @@ class EditorService:
             bool(result["gates"].get(name, {}).get("ready"))
             for name in ("indexes", "least_privilege")
         )
-        result["production_ready"] = result["write_ready"]
+        result["draft_write_ready"] = result["write_ready"]
+        result["production_ready"] = False
+        result["production_readiness_reason"] = (
+            "Production readiness requires matching deployment references, manual publication "
+            "and runtime acceptance evidence; draft write readiness does not establish it."
+        )
         return result
 
     @staticmethod
@@ -411,6 +434,13 @@ class EditorService:
                 "structure_validated": True, "candidate_validation_required": True} if report is not None else {}),
         }
 
+    def inspect_component_contract(self, component_type: str) -> dict[str, Any]:
+        """Read compiled event signatures; this does not verify a page instance."""
+        if not isinstance(component_type, str) or not component_type.strip():
+            raise EditorServiceError("component_type is required")
+        _, _, _, compiler, _ = self._components()
+        return compiler.describe_component_contract(component_type)
+
     def plan_canvas_patch(self, session_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
         session = self._owned_session(session_id)
         if session.get("session_mode", "edit") != "edit":
@@ -484,6 +514,7 @@ class EditorService:
             str(current.get("code") or ""),
             desired["csharp_code"],
         )
+        self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
         plan_artifact = {
             "session_id": session_id,
             "base_content_hash": current["content_hash"],
@@ -495,7 +526,9 @@ class EditorService:
             "operations": operations,
             "desired": desired,
             "validation": compiler_evidence["validation"],
+            "event_binding_validation": compiler_evidence.get("event_binding_validation"),
             "code_generation_complete": compiler_evidence["code_generation_complete"],
+            "generated_code_consistency_verified": compiler_evidence["generated_code_consistency_verified"],
             "runtime_validation": runtime_validation,
             "diff": result.get("diff") or [],
             "hashes": self._desired_hashes(desired),
@@ -521,9 +554,11 @@ class EditorService:
             "operation_count": len(operations),
             "diff": plan_artifact["diff"],
             "validation": plan_artifact["validation"],
+            "event_binding_validation": plan_artifact["event_binding_validation"],
             "runtime_validation": plan_artifact["runtime_validation"],
             "compiler_binding": binding,
             "code_generation_complete": True,
+            "generated_code_consistency_verified": plan_artifact["generated_code_consistency_verified"],
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
             "reference_repairs": plan_artifact["reference_repairs"],
@@ -615,9 +650,13 @@ class EditorService:
                 for key in expected_nodes
             ):
                 raise EditorServiceError("Candidate parameters differ from the recorded reference repairs")
-        compiler_evidence = compiler.verify_candidate_artifact(candidate_design, desired)
+        compiler_evidence = compiler.verify_candidate_artifact(
+            candidate_design, desired, baseline_design=self._compiler_design(session["baseline"]))
         if (
             compiler_evidence.get("validation") != artifact.get("validation")
+            or compiler_evidence.get("event_binding_validation") != artifact.get("event_binding_validation")
+            or compiler_evidence.get("generated_code_consistency_verified") is not True
+            or artifact.get("generated_code_consistency_verified") is not True
             or not compiler_evidence.get("code_generation_complete")
             or not self._compiler_binding_matches(compiler_evidence.get("compiler_binding"), binding)
             or artifact.get("code_generation_complete") is not True
@@ -628,6 +667,7 @@ class EditorService:
             str(current.get("code") or ""),
             desired["csharp_code"],
         )
+        self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
         transaction_id = uuid.uuid4().hex
         transaction_artifact = build_transaction_artifact(
             transaction_id=transaction_id,
@@ -643,7 +683,9 @@ class EditorService:
             compiler_evidence={
                 "compiler_binding": binding,
                 "validation": compiler_evidence["validation"],
+                "event_binding_validation": compiler_evidence.get("event_binding_validation"),
                 "code_generation_complete": True,
+                "generated_code_consistency_verified": compiler_evidence["generated_code_consistency_verified"],
                 "hashes": hashes,
                 "reference_repairs": artifact.get("reference_repairs") or [],
             },

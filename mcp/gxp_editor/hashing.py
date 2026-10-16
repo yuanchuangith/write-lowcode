@@ -36,6 +36,14 @@ def sha256_json(value: Any) -> str:
     return sha256_text(canonical_json(value))
 
 
+def compiler_binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
+    """Canonical fields shared by compiler fingerprints and approval validation."""
+    return {field: binding.get(field) for field in (
+        "bridge_sha256", "adapter_sha256", "registry_hash", "rule_source_sha256",
+        "frontend_version", "source_provenance",
+    )}
+
+
 def design_content_hash(row: dict[str, Any]) -> str:
     return sha256_json(
         {

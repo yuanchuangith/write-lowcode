@@ -3,6 +3,7 @@ from __future__ import annotations
 import hashlib
 import json
 import os
+import re
 import signal
 import subprocess
 import sys
@@ -17,7 +18,10 @@ from .hashing import sha256_json, sha256_text
 
 
 class RuntimeValidationError(RuntimeError):
-    pass
+    def __init__(self, message: str, *, code: str = "checker_unavailable", diagnostics: list[str] | None = None):
+        super().__init__(message)
+        self.code = code
+        self.diagnostics = list(diagnostics or [])
 
 
 class RuntimeCsharpValidator:
@@ -29,6 +33,10 @@ class RuntimeCsharpValidator:
     }
     MAX_REFERENCE_FILES = 500
     MAX_REFERENCE_BYTES = 1024 * 1024 * 1024
+    STATUS_TIMEOUT_SECONDS = 20
+    VALIDATION_TIMEOUT_SECONDS = 65
+    DOTNET_STATUS_TIMEOUT_SECONDS = 10
+    BUILD_TIMEOUT_SECONDS = 55
 
     def __init__(self, config: EditorConfig):
         self.config = config
@@ -97,15 +105,14 @@ class RuntimeCsharpValidator:
             stdin=subprocess.PIPE,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
-            text=True,
-            encoding="utf-8",
             env=environment,
             start_new_session=os.name != "nt",
             creationflags=subprocess.CREATE_NO_WINDOW if os.name == "nt" else 0,
         )
         request = {"command": command, "runtime": asdict(self.runtime), **payload}
         try:
-            stdout, stderr = process.communicate(json.dumps(request, ensure_ascii=False), timeout=timeout)
+            request_bytes = json.dumps(request, ensure_ascii=False).encode("utf-8")
+            stdout, stderr = process.communicate(request_bytes, timeout=timeout)
         except subprocess.TimeoutExpired as exc:
             if os.name == "nt":
                 try:
@@ -131,18 +138,32 @@ class RuntimeCsharpValidator:
                         stream.close()
             raise RuntimeValidationError(
                 f"Advisory runtime {command} exceeded {timeout:g} seconds; "
-                "local DLL access or compilation did not finish."
+                "local DLL access or compilation did not finish.",
+                code="checker_timeout",
             ) from exc
         try:
-            response = json.loads(stdout)
-        except json.JSONDecodeError as exc:
-            raise RuntimeValidationError("Runtime probe returned invalid JSON: " + stderr[-2000:]) from exc
-        if process.returncode != 0 or not response.get("ok"):
-            raise RuntimeValidationError(str(response.get("error") or "Runtime probe failed"))
-        return response["result"]
+            response = json.loads(stdout.decode("utf-8"))
+        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            error_output = stderr.decode("utf-8", errors="replace")[-2000:]
+            raise RuntimeValidationError(
+                "Runtime probe returned invalid UTF-8 JSON: " + error_output,
+                code="probe_protocol_error",
+            ) from exc
+        if not isinstance(response, dict):
+            raise RuntimeValidationError("Runtime probe returned a non-object response", code="probe_protocol_error")
+        if process.returncode != 0 or response.get("ok") is not True:
+            raise RuntimeValidationError(
+                str(response.get("error") or "Runtime probe failed"),
+                code=str(response.get("error_code") or "checker_unavailable"),
+                diagnostics=response.get("diagnostics") if isinstance(response.get("diagnostics"), list) else [],
+            )
+        result = response.get("result")
+        if not isinstance(result, dict):
+            raise RuntimeValidationError("Runtime probe returned an invalid result", code="probe_protocol_error")
+        return result
 
     def status(self) -> dict[str, Any]:
-        return self._probe("status", timeout=10)
+        return self._probe("status", timeout=self.STATUS_TIMEOUT_SECONDS)
 
     def _status(self) -> dict[str, Any]:
         references = self._references()
@@ -150,12 +171,14 @@ class RuntimeCsharpValidator:
             process = subprocess.run(
                 [self.runtime.dotnet_command, "--version"],
                 stdin=subprocess.DEVNULL,
-                text=True,
+                text=True, encoding="utf-8", errors="replace",
                 capture_output=True,
-                timeout=10,
+                timeout=self.DOTNET_STATUS_TIMEOUT_SECONDS,
                 check=False,
             )
-        except (OSError, subprocess.TimeoutExpired) as exc:
+        except subprocess.TimeoutExpired as exc:
+            raise RuntimeValidationError("dotnet runtime check timed out", code="checker_timeout") from exc
+        except OSError as exc:
             raise RuntimeValidationError(f"dotnet runtime check failed: {exc}") from exc
         if process.returncode != 0:
             raise RuntimeValidationError(
@@ -178,8 +201,23 @@ class RuntimeCsharpValidator:
         meaningful = [line.strip() for line in lines if line.strip()]
         return "\n".join(meaningful[-80:])[:16000]
 
+    @staticmethod
+    def _build_failure_code(output: str) -> str:
+        # A failed restore/SDK/MSBuild invocation does not establish a defect in C#.
+        infrastructure_error = re.search(r"\berror\s+(?:NU|NETSDK|MSB)\d+\b", output, re.IGNORECASE)
+        compiler_error = re.search(r"\berror\s+CS\d+\b", output, re.IGNORECASE)
+        return "compilation_failed" if compiler_error and not infrastructure_error else "checker_unavailable"
+
     def validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
-        return self._probe("validate", timeout=30, action_code=action_code, csharp_code=csharp_code)
+        result = self._probe(
+            "validate", timeout=self.VALIDATION_TIMEOUT_SECONDS,
+            action_code=action_code, csharp_code=csharp_code,
+        )
+        if result.get("csharp_sha256") != sha256_text(csharp_code):
+            raise RuntimeValidationError(
+                "Runtime probe validated different C# source text", code="probe_protocol_error"
+            )
+        return result
 
     def _validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
         if not csharp_code.strip():
@@ -187,6 +225,9 @@ class RuntimeCsharpValidator:
             return {
                 **status,
                 "success": True,
+                "compilation_succeeded": False,
+                "validation_scope": "no_csharp_source",
+                "reference_conflicts": False,
                 "csharp_sha256": sha256_text(csharp_code),
                 "diagnostics": [],
             }
@@ -209,6 +250,7 @@ class RuntimeCsharpValidator:
     <ImplicitUsings>disable</ImplicitUsings>
     <EnableDefaultCompileItems>false</EnableDefaultCompileItems>
     <RestoreIgnoreFailedSources>true</RestoreIgnoreFailedSources>
+    <NuGetAudit>false</NuGetAudit>
     <AssemblyName>GxpLowcodeCandidate</AssemblyName>
   </PropertyGroup>
   <ItemGroup>
@@ -224,6 +266,15 @@ class RuntimeCsharpValidator:
             root = Path(temporary)
             project = root / "Candidate.csproj"
             source = root / "Candidate.cs"
+            nuget_config = root / "NuGet.Config"
+            nuget_config.write_text(
+                "<configuration><packageSources><clear /></packageSources>"
+                "<fallbackPackageFolders><clear /></fallbackPackageFolders>"
+                "<config><add key=\"globalPackagesFolder\" value=\"{}\" /></config></configuration>".format(
+                    escape(str(root / "packages"), {chr(34): "&quot;"})
+                ),
+                encoding="utf-8",
+            )
             project.write_text(project_text, encoding="utf-8")
             source.write_text(csharp_code, encoding="utf-8")
             try:
@@ -236,25 +287,47 @@ class RuntimeCsharpValidator:
                         "--verbosity",
                         "minimal",
                         "--ignore-failed-sources",
+                        "-p:RestoreConfigFile=" + str(nuget_config),
+                        "-p:NuGetAudit=false",
                     ],
                     stdin=subprocess.DEVNULL,
-                    text=True,
+                    text=True, encoding="utf-8", errors="replace",
                     capture_output=True,
                     cwd=root,
-                    timeout=90,
+                    timeout=self.BUILD_TIMEOUT_SECONDS,
                     check=False,
                 )
-            except (OSError, subprocess.TimeoutExpired) as exc:
+            except subprocess.TimeoutExpired as exc:
+                raise RuntimeValidationError("Candidate C# compilation timed out", code="checker_timeout") from exc
+            except OSError as exc:
                 raise RuntimeValidationError(f"Candidate C# compilation failed to start: {exc}") from exc
         output = self._bounded_output(process)
+        full_output = process.stdout + "\n" + process.stderr
+        reference_conflicts = bool(re.search(r"\bMSB3277\b", full_output, re.IGNORECASE))
         if process.returncode != 0:
-            raise RuntimeValidationError("Candidate C# compilation failed:\n" + output)
+            failure_code = self._build_failure_code(full_output)
+            message = "Candidate C# compilation failed" if failure_code == "compilation_failed" else "Local C# checker could not complete"
+            raise RuntimeValidationError(
+                message + ":\n" + output,
+                code=failure_code, diagnostics=full_output.splitlines(),
+            )
+        final_manifest = self._manifest(self._references())
+        if (
+            final_manifest["reference_manifest_sha256"] != manifest["reference_manifest_sha256"]
+            or final_manifest["reference_count"] != manifest["reference_count"]
+        ):
+            raise RuntimeValidationError(
+                "Runtime reference snapshot changed during C# validation", code="reference_drift"
+            )
         return {
             **manifest,
             "available": True,
-            "production_compatible": self.runtime.source_mode == "deployment_snapshot",
+            "production_compatible": self.runtime.source_mode == "deployment_snapshot" and not reference_conflicts,
+            "reference_conflicts": reference_conflicts,
             "zero_backend_mode": True,
             "success": True,
+            "compilation_succeeded": True,
+            "validation_scope": "local_reference_compile",
             "csharp_sha256": sha256_text(csharp_code),
             "diagnostics": [line for line in output.splitlines() if " warning " in line.lower()][:20],
         }

@@ -112,6 +112,7 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
     }
     binding_payload = {
         "bridge_sha256": "a" * 64,
+        "adapter_sha256": "f" * 64,
         "registry_hash": "b" * 64,
         "rule_source_sha256": "c" * 64,
         "frontend_version": "test",
@@ -134,6 +135,9 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
                 "frontend_version": binding_payload["frontend_version"],
             },
             "code_generation_complete": True,
+            "generated_code_consistency_verified": True,
+            "event_binding_validation": {"binding_node_keys": [], "checks": [],
+                "javascript_syntax_checked": True, "javascript_lexical_scope": "all_js_groups", "javascript_group_keys": []},
             "hashes": {
                 "data_sha256": sha256_text(desired["data"]),
                 "js_sha256": sha256_text(desired["js_code"]),

@@ -46,7 +46,7 @@ class ComponentPreviewTests(unittest.TestCase):
         after = copy.deepcopy(before)
         after["actionData"][0]["data"].pop(1)
         self.assertEqual([item["kind"] for item in component_changes(before, after)], ["删除"])
-        self.assertEqual(len(component_changes(before, {"actionData": [], "globalVariables": []})), 3)
+        self.assertEqual(len(component_changes(before, {"actionData": [], "globalVariables": []})), 4)
         after = copy.deepcopy(before)
         after["actionData"][0]["data"] = list(reversed(after["actionData"][0]["data"]))
         self.assertEqual([item["kind"] for item in component_changes(before, after)], ["移动", "移动"])

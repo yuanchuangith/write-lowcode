@@ -126,6 +126,11 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any], *, chan
         node = side["node"]
         old = old_side["node"] if old_side else None
         location = f"{side['group']} → 第 {side['line']} 行 → {node.get('title') or node['elementKey']}"
+        if node["elementKey"] == "actionGroup":
+            def group_text(value):
+                return json.dumps(value["node"]["paramsValue"]["inputParams"], ensure_ascii=False, indent=2) if value else "不存在"
+            chunks.append(f"{count}. {item['kind']}动作分组：{side['group']}\n修改前：{group_text(old_side)}\n修改后：{group_text(new_side)}")
+            continue
         if node["elementKey"] == "globalVariables":
             chunks.append(f"{count}. 全局变量发生变更，完整内容见“元件预览”。")
             continue

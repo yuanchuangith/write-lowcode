@@ -1,15 +1,124 @@
 from __future__ import annotations
 
 import copy
+import json
 import unittest
+from unittest.mock import patch
 
-from tests.helpers import baseline, relation, runtime_validation, transaction
+from tests.helpers import baseline, editor_config, relation, runtime_validation, transaction
+from gxp_editor.compiler import CompilerBridge
 from gxp_editor.approval import statement_hash, transaction_binding_hash
-from gxp_editor.hashing import sha256_text
+from gxp_editor.hashing import compiler_binding_payload, sha256_json, sha256_text
 from gxp_editor.transaction import RESTORE_RELATION_SQL, TransactionPlanError, build_transaction_artifact, validate_transaction_artifact
 
 
 class TransactionTests(unittest.TestCase):
+    @staticmethod
+    def _canvas_transaction(groups, binding_checks=None):
+        template = transaction()
+        desired = dict(template["desired_design"])
+        desired["data"] = json.dumps({"actionData": groups, "globalVariables": []})
+        compiler = copy.deepcopy(template["compiler_evidence"])
+        compiler["hashes"]["data_sha256"] = sha256_text(desired["data"])
+        proof = compiler["event_binding_validation"]
+        proof["javascript_group_keys"] = [group["key"] for group in groups if group.get("actionType") == "js"]
+        proof["checks"] = list(binding_checks or [])
+        proof["binding_node_keys"] = [check["binding_node_key"] for check in proof["checks"]]
+        return build_transaction_artifact(transaction_id="evidence-test", session_id="session-test", plan_id="plan-test", kind="write",
+            baseline=baseline(), desired_design=desired, current_relations=[], desired_relations={},
+            database_safety=template["database_safety"], runtime_validation=template["runtime_validation"], compiler_evidence=compiler)
+
+    @classmethod
+    def _binding_transaction(cls):
+        groups = [{"key": "main", "actionType": "js", "data": [{"key": "binding", "elementKey": "ComponentEvent", "paramsValue": {"inputParams": {
+            "name": {"paramTypes": "componentsVariable", "value": "componentsVariable-button", "dataType": "EformButton"},
+            "eventName": "click", "action": {"value": "callback"}}}}]},
+            {"key": "callback", "actionType": "js", "data": [], "inputParams": [{"title": "event", "type": "object"}]}]
+        check = {"binding_node_key": "binding", "source_group_key": "main", "target_group_key": "callback",
+            "component_id": "button", "component_type": "EformButton", "event_name": "click", "input_params": groups[1]["inputParams"],
+            "output_params": [], "parameters_declared": True, "hidden_arguments_allowed": False, "signature_status": "catalog_declared"}
+        return cls._canvas_transaction(groups, [check])
+
+    def test_native_regeneration_evidence_is_required(self):
+        artifact = transaction()
+        artifact["compiler_evidence"].pop("generated_code_consistency_verified")
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        with self.assertRaisesRegex(TransactionPlanError, "consistency evidence is missing"):
+            validate_transaction_artifact(artifact)
+
+    def test_event_validation_evidence_cannot_be_omitted(self):
+        artifact = transaction()
+        artifact["compiler_evidence"].pop("event_binding_validation")
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        with self.assertRaisesRegex(TransactionPlanError, "binding validation evidence is missing"):
+            validate_transaction_artifact(artifact)
+
+    def test_javascript_evidence_must_cover_exactly_all_candidate_groups(self):
+        original = self._canvas_transaction([{"key": "main", "actionType": "js", "data": []}])
+        for field, value in (("javascript_syntax_checked", False), ("javascript_lexical_scope", "event_callbacks"),
+                             ("javascript_group_keys", []), ("javascript_group_keys", ["main", "invented"]),
+                             ("javascript_group_keys", ["main", "main"])):
+            with self.subTest(field=field, value=value):
+                artifact = copy.deepcopy(original)
+                artifact["compiler_evidence"]["event_binding_validation"][field] = value
+                artifact["transaction_hash"] = transaction_binding_hash(artifact)
+                with self.assertRaisesRegex(TransactionPlanError, "JavaScript.*evidence"):
+                    validate_transaction_artifact(artifact)
+
+    def test_event_scope_must_be_unique_and_identify_candidate_events(self):
+        original = self._binding_transaction()
+        for scope in (["binding", "binding"], ["missing"], ["main"], [1], "binding"):
+            with self.subTest(scope=scope):
+                artifact = copy.deepcopy(original)
+                artifact["compiler_evidence"]["event_binding_validation"]["binding_node_keys"] = scope
+                artifact["transaction_hash"] = transaction_binding_hash(artifact)
+                with self.assertRaisesRegex(TransactionPlanError, "binding validation"):
+                    validate_transaction_artifact(artifact)
+
+    def test_event_check_must_match_canvas_component_target_and_parameters(self):
+        original = self._binding_transaction()
+        for field, value in (("binding_node_key", "other"), ("source_group_key", "other"), ("target_group_key", "other"),
+                             ("component_id", "other"), ("component_type", "OtherButton"), ("event_name", "change"),
+                             ("input_params", []), ("output_params", [{"title": "other"}]), ("parameters_declared", False),
+                             ("hidden_arguments_allowed", True), ("signature_status", "incomplete")):
+            with self.subTest(field=field):
+                artifact = copy.deepcopy(original)
+                artifact["compiler_evidence"]["event_binding_validation"]["checks"][0][field] = value
+                artifact["transaction_hash"] = transaction_binding_hash(artifact)
+                with self.assertRaisesRegex(TransactionPlanError, "binding.*(check|contract)"):
+                    validate_transaction_artifact(artifact)
+
+    def test_actual_compiler_binding_is_accepted_by_approval_validation(self):
+        artifact = transaction()
+        evidence = artifact["compiler_evidence"]
+        bridge = CompilerBridge(editor_config())
+        registry = {**evidence["compiler_binding"], "adapter_sha256": "f" * 64}
+        with patch.object(bridge, "describe_registry", return_value=registry):
+            evidence["compiler_binding"] = bridge.compiler_binding()
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        validate_transaction_artifact(artifact)
+
+    def test_adapter_tampering_is_rejected_even_when_transaction_hash_is_rebound(self):
+        artifact = transaction()
+        artifact["compiler_evidence"]["compiler_binding"]["adapter_sha256"] = "e" * 64
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        with self.assertRaisesRegex(TransactionPlanError, "Compiler binding hash is invalid"):
+            validate_transaction_artifact(artifact)
+
+    def test_missing_or_invalid_adapter_fingerprint_is_rejected(self):
+        for value in (None, "", "invalid", "z" * 64):
+            with self.subTest(value=value):
+                artifact = transaction()
+                binding = artifact["compiler_evidence"]["compiler_binding"]
+                if value is None:
+                    binding.pop("adapter_sha256")
+                else:
+                    binding["adapter_sha256"] = value
+                binding["compiler_binding_sha256"] = sha256_json(compiler_binding_payload(binding))
+                artifact["transaction_hash"] = transaction_binding_hash(artifact)
+                with self.assertRaisesRegex(TransactionPlanError, "Compiler binding field adapter_sha256 is invalid"):
+                    validate_transaction_artifact(artifact)
+
     def test_sql_template_tampering_is_rejected(self):
         artifact = transaction()
         statement = artifact["statements"][0]
@@ -125,19 +234,14 @@ class TransactionTests(unittest.TestCase):
         with self.assertRaisesRegex(TransactionPlanError, "privileged shared-account"):
             validate_transaction_artifact(artifact)
 
-    def test_development_build_runtime_evidence_is_advisory(self):
-        artifact = transaction()
-        artifact["runtime_validation"].update(
-            {
-                "available": False,
-                "success": False,
-                "source_mode": "development_build",
-                "production_compatible": False,
-                "reference_manifest_sha256": "",
-            }
-        )
-        artifact["transaction_hash"] = transaction_binding_hash(artifact)
-        validate_transaction_artifact(artifact)
+    def test_unavailable_or_failed_csharp_cannot_create_write_approval(self):
+        for available in (False, True):
+            artifact = transaction()
+            artifact["runtime_validation"].update(available=available, success=False,
+                source_mode="development_build", production_compatible=False, reference_manifest_sha256="")
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.assertRaisesRegex(TransactionPlanError, "compilation must succeed"):
+                validate_transaction_artifact(artifact)
 
     def test_runtime_evidence_must_match_candidate_csharp(self):
         artifact = transaction()

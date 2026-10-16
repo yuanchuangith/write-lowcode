@@ -186,12 +186,12 @@ class WriterTests(unittest.TestCase):
     def test_development_build_evidence_does_not_block_database_write(self):
         self.artifact["runtime_validation"].update(
             {
-                "available": False,
-                "success": False,
+                "available": True,
+                "success": True,
                 "production_compatible": False,
                 "source_mode": "development_build",
-                "reference_manifest_sha256": "",
-                "warning": "local compilation unavailable",
+                "reference_manifest_sha256": "a" * 64,
+                "warning": "development references only; production unverified",
             }
         )
         self.artifact["approvals"] = {}

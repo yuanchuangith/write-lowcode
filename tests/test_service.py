@@ -42,6 +42,7 @@ class FakeCompiler:
     def compiler_binding(self):
         payload = {
             "bridge_sha256": "a" * 64,
+            "adapter_sha256": "f" * 64,
             "registry_hash": "b" * 64,
             "rule_source_sha256": "c" * 64,
             "frontend_version": "test",
@@ -115,7 +116,7 @@ class BlockingPlanCompiler(FakeCompiler):
 
 
 class BlockingPrepareCompiler(FakeCompiler):
-    def verify_candidate_artifact(self, design, desired):
+    def verify_candidate_artifact(self, design, desired, **kwargs):
         raise CompilerError("Candidate canvas is invalid")
 
 
@@ -179,7 +180,7 @@ class ServiceStatusTests(unittest.TestCase):
         self.assertIn("abort_session_app.py", launch.call_args.args[0][1])
         service.state.update_session.assert_not_called()
 
-    def test_runtime_validation_failure_is_advisory_for_database_writes(self):
+    def test_draft_capability_does_not_claim_production_readiness(self):
         config = editor_config()
         service = object.__new__(EditorService)
         service.state = FakeState()
@@ -197,11 +198,50 @@ class ServiceStatusTests(unittest.TestCase):
 
         self.assertTrue(status["planning_ready"])
         self.assertTrue(status["write_ready"])
-        self.assertTrue(status["production_ready"])
+        self.assertFalse(status["production_ready"])
+        self.assertTrue(status["draft_write_ready"])
         self.assertFalse(status["runtime_compatibility_verified"])
-        self.assertTrue(status["gates"]["runtime_snapshot"]["ready"])
+        self.assertFalse(status["gates"]["runtime_snapshot"]["ready"])
         self.assertFalse(status["gates"]["runtime_snapshot"]["blocking"])
-        self.assertIn("does not block", status["gates"]["runtime_snapshot"]["warning"])
+        self.assertIn("must pass", status["gates"]["runtime_snapshot"]["warning"])
+
+    def test_empty_csharp_never_claims_runtime_compatibility(self):
+        from unittest.mock import Mock
+        runtime=Mock();runtime.validate.return_value={"available":True,"success":True,
+            "compilation_succeeded":False,"production_compatible":True,"source_mode":"deployment_snapshot"}
+        evidence=EditorService._runtime_validation_evidence(runtime,"Action","")
+        self.assertFalse(evidence["runtime_compatibility_verified"])
+        self.assertIn("No candidate",evidence["warning"])
+
+    def test_candidate_csharp_unavailable_or_failed_blocks_before_approval(self):
+        from gxp_editor.service import EditorServiceError
+        for available in (False, True):
+            with self.assertRaisesRegex(EditorServiceError, "no approval"):
+                EditorService._require_candidate_csharp_validation("class Candidate {}", {"available":available, "success":False})
+        EditorService._require_candidate_csharp_validation("class Candidate {}", {"available":True, "success":True})
+        EditorService._require_candidate_csharp_validation("", {"available":False, "success":False})
+
+    def test_csharp_failure_creates_no_plan_file_or_state(self):
+        from unittest.mock import Mock
+        from gxp_editor.service import EditorServiceError
+        draft=baseline();draft["data_json"]=json.loads(draft["data"])
+        compiler=FakeCompiler();binding=compiler.compiler_binding()
+        result={"design":draft["data_json"],"js_code":"","csharp_code":"invalid candidate C#","relation_data":{}}
+        compiler.compile_patch=Mock(return_value=result)
+        compiler.verify_compiled_result=Mock(return_value={"compiler_binding":binding,"validation":{"valid":True},
+            "code_generation_complete":True,"generated_code_consistency_verified":True,"event_binding_validation":{}})
+        session={"id":"session-1","state":"locked","design_id":draft["id"],
+            "compiler_hash":binding["compiler_binding_sha256"],"baseline":draft}
+        state=RecordingPlanState(session);service=object.__new__(EditorService);service.state=state
+        with tempfile.TemporaryDirectory() as temporary, patch.object(service,"_components",return_value=(
+            editor_config(),object(),PlanRepository(draft),compiler,object())), patch.object(
+            service,"_runtime_validation_evidence",return_value={"available":True,"success":False,"failure_kind":"compilation_failed"}), patch(
+            "gxp_editor.service.runtime_root",return_value=Path(temporary)):
+            with self.assertRaisesRegex(EditorServiceError,"C# validation did not pass"):
+                service.plan_canvas_patch("session-1",[{"operation":"replace_params"}])
+            self.assertFalse((Path(temporary)/"plans").exists())
+        self.assertFalse(state.plan_created)
+        self.assertFalse(state.transaction_created)
 
     def test_invalid_compiler_result_creates_no_plan_or_artifact(self):
         draft = baseline()

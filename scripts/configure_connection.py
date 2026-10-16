@@ -85,7 +85,7 @@ def main() -> int:
         current.compiler_bridge if current else "dist/action-design-compiler/bridge.js",
     )
     runtime_reference_dir = ask(
-        "Optional read-only backend runtime reference directory (advisory only)",
+        "Read-only backend runtime reference directory (required to compile nonblank candidate C#)",
         current.runtime_references.directory if current else "",
     )
     runtime_source_mode = ask(

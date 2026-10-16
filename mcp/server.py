@@ -79,10 +79,16 @@ def plan_reference_repairs(
 
 
 @mcp.tool()
+def inspect_component_contract(component_type: str, conversation_id: str = "") -> dict[str, Any]:
+    """Read native component events and callback parameters. Page instance identity needs readonly page evidence."""
+    return service(conversation_id).inspect_component_contract(component_type)
+
+
+@mcp.tool()
 def plan_canvas_patch(
     session_id: str, operations: list[dict[str, Any]], conversation_id: str = ""
 ) -> dict[str, Any]:
-    """Compile a structured canvas patch without writing to the database."""
+    """Compile node edits, create_action_group, append_node and bind_component_event. New groups use @group_alias in the same batch. No database write."""
     return service(conversation_id).plan_canvas_patch(session_id, operations)
 
 

@@ -9,7 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .config import EditorConfig
-from .hashing import sha256_json, sha256_text
+from .hashing import compiler_binding_payload, sha256_json, sha256_text
 from .reference_repair import scan_references
 
 
@@ -92,7 +92,7 @@ class CompilerBridge:
         if not self.path.exists():
             raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}")
         process = subprocess.run(
-            ["node", str(self.path)],
+            ["node", str(Path(__file__).with_name("compiler_runner.cjs")), str(self.path)],
             input=json.dumps(payload, ensure_ascii=False),
             text=True,
             encoding="utf-8",
@@ -151,20 +151,26 @@ class CompilerBridge:
                     raise CompilerError(f"Compiler registry field {field} is missing or invalid")
             result["registry_hash"] = self._stable_registry_hash(result)
             result["bridge_sha256"] = sha256_text(self.path.read_text(encoding="utf-8"))
+            result["adapter_sha256"] = self._adapter_sha256()
+            result["supported_operations"] = [
+                "insert_before", "insert_after", "replace_params", "replace_block",
+                "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
+                "append_node", "bind_component_event",
+            ]
             result["source_provenance"] = self.source_provenance()
             result["compiler_binding_sha256"] = sha256_json(self._binding_fields(result))
             self._registry = result
         return deepcopy(self._registry)
 
     @staticmethod
+    def _adapter_sha256() -> str:
+        return sha256_json({name: sha256_text(Path(__file__).with_name(name).read_text(encoding="utf-8"))
+                            for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
+                                         "event_contracts.json", "event_binding_checks.cjs")})
+
+    @staticmethod
     def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:
-        return {
-            "bridge_sha256": registry.get("bridge_sha256"),
-            "registry_hash": registry.get("registry_hash"),
-            "rule_source_sha256": registry.get("rule_source_sha256"),
-            "frontend_version": registry.get("frontend_version"),
-            "source_provenance": registry.get("source_provenance"),
-        }
+        return compiler_binding_payload(registry)
 
     def compiler_binding(self) -> dict[str, Any]:
         registry = self.describe_registry()
@@ -211,6 +217,23 @@ class CompilerBridge:
         if actions and not js_code.strip() and not csharp_code.strip():
             raise CompilerError("Compiler generated no executable code for a non-empty ActionDesign canvas")
 
+    def _verify_codegen_consistency(self, design: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
+        """Regenerate with the same native compiler instead of trusting code hashes alone."""
+        self._validate_editable_variable_values(design)
+        regenerated = self._bind_registry_hash(self._call({"command": "compile_design", "design": design}))
+        if regenerated.get("command") != "compile_design":
+            raise CompilerError("Native code regeneration returned an invalid command identity")
+        self._validate_generated_artifacts(
+            design, js_code=regenerated.get("js_code"), csharp_code=regenerated.get("csharp_code"),
+            relation_data=regenerated.get("relation_data"),
+        )
+        for field in ("js_code", "csharp_code", "relation_data"):
+            if regenerated[field] != artifacts.get(field):
+                raise CompilerError(
+                    f"Generated {field} does not match the candidate canvas; regenerate the plan"
+                )
+        return regenerated
+
     def verify_compiled_result(self, result: dict[str, Any]) -> dict[str, Any]:
         design = result.get("design")
         if not isinstance(design, dict):
@@ -224,21 +247,26 @@ class CompilerBridge:
             csharp_code=result["csharp_code"],
             relation_data=result["relation_data"],
         )
-        revalidation = self.validate_design(design)
+        event_validation = self.verify_event_binding_validation(
+            design, result["js_code"], result.get("event_binding_validation"))
+        revalidation = self._verify_codegen_consistency(design, result)
         if revalidation.get("validation") != result.get("validation"):
             raise CompilerError("Compiler result validation changed when the candidate canvas was revalidated")
         if revalidation.get("compiler_binding") != result.get("compiler_binding"):
             raise CompilerError("Compiler binding changed while verifying the candidate canvas")
         return {
+            "event_binding_validation": event_validation,
             "validation": deepcopy(revalidation["validation"]),
             "compiler_binding": deepcopy(revalidation["compiler_binding"]),
             "code_generation_complete": True,
+            "generated_code_consistency_verified": True,
         }
 
     def verify_candidate_artifact(
         self,
         design: dict[str, Any],
         desired: dict[str, Any],
+        *, baseline_design: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         for field in ("js_code", "csharp_code", "relation_data"):
             if field not in desired:
@@ -249,12 +277,25 @@ class CompilerBridge:
             csharp_code=desired["csharp_code"],
             relation_data=desired["relation_data"],
         )
-        validation = self.validate_design(design)
+        event_validation = self._call({"command": "validate_event_bindings", "design": design,
+                                       "baseline": baseline_design or design, "js_code": desired["js_code"]})["event_binding_validation"]
+        validation = self._verify_codegen_consistency(design, desired)
         return {
+            "event_binding_validation": event_validation,
             "validation": deepcopy(validation["validation"]),
             "compiler_binding": deepcopy(validation["compiler_binding"]),
             "code_generation_complete": True,
+            "generated_code_consistency_verified": True,
         }
+
+    def verify_event_binding_validation(self, design, js_code, evidence):
+        if not isinstance(evidence, dict) or not isinstance(evidence.get("binding_node_keys"), list):
+            raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
+        checked = self._call({"command": "validate_event_bindings", "design": design,
+                              "js_code": js_code, "binding_node_keys": evidence["binding_node_keys"]})["event_binding_validation"]
+        if checked != evidence:
+            raise CompilerError("Event binding validation evidence changed")
+        return checked
 
     def validate_design(self, design: dict[str, Any]) -> dict[str, Any]:
         self._validate_editable_variable_values(design)
@@ -285,6 +326,13 @@ class CompilerBridge:
                             f"{location}：{title}的显示值 value 与生成表达式 code 不一致，"
                             "打开元件重新保存可能覆盖修改。请通过元件参数同步修改两者；已阻止生成审批。"
                         )
+
+    def describe_component_contract(self, component_type: str) -> dict[str, Any]:
+        result = self._call({"command": "describe_component_contract", "component_type": component_type})
+        if result.get("command") != "describe_component_contract" or not isinstance(result.get("component"), dict):
+            raise CompilerError("Compiler returned an invalid component contract")
+        return {"component": result["component"], "compiler_binding": self.compiler_binding(),
+                "component_instance_verified": False}
 
     def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
         if not operations:

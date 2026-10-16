@@ -99,6 +99,13 @@ class ComponentReview(QWidget):
                 self.lookup[side] = {}
                 for group in review_groups(before, after):
                     group_item = QTreeWidgetItem(tree, [group["title"], ""])
+                    identity = group["key"], "__group_metadata__"
+                    group_change = change_map.get(identity)
+                    if group_change:
+                        group_item.setText(1, group_change["kind"] + "分组")
+                        group_item.setForeground(1, QColor(COLORS[group_change["kind"]]))
+                        group_item.setData(0, Qt.ItemDataRole.UserRole, identity)
+                        self.lookup[side][identity] = group_item
                     nodes = {}
                     for index, node in enumerate(group[side]):
                         identity = group["key"], node["key"]

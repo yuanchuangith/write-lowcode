@@ -1,0 +1,344 @@
+{
+  "key": "manualCallback",
+  "title": "子窗体按钮事件手工版回归",
+  "actionType": "js",
+  "inputParams": [
+    {
+      "key": "input-action",
+      "type": "object",
+      "title": "action",
+      "description": "",
+      "defaultValue": ""
+    }
+  ],
+  "outputParams": [
+    {
+      "key": "returnValue",
+      "type": "boolean",
+      "title": "returnValue",
+      "description": "返回 false 可阻止点击"
+    }
+  ],
+  "data": [
+    {
+      "key": "TPgeAbPV",
+      "elementKey": "SetVariable",
+      "title": "定义变量",
+      "paramsValue": {
+        "inputParams": {
+          "variableType": "string",
+          "variableValue": {
+            "paramTypes": "custom",
+            "value": "action[\"id\"]",
+            "dataType": "",
+            "label": "action[\"id\"]",
+            "code": "action[\"id\"]"
+          }
+        },
+        "outputParams": {
+          "variableName": {
+            "paramTypes": "custom",
+            "value": "id",
+            "dataType": "string",
+            "label": "id",
+            "code": "id"
+          }
+        }
+      },
+      "depth": []
+    },
+    {
+      "key": "fmldbLXq",
+      "elementKey": "SetVariable",
+      "title": "定义变量",
+      "paramsValue": {
+        "inputParams": {
+          "variableType": "dictionary",
+          "variableValue": {
+            "paramTypes": "custom",
+            "value": "action.innerInbiz",
+            "dataType": "",
+            "label": "action.innerInbiz",
+            "code": "action.innerInbiz"
+          }
+        },
+        "outputParams": {
+          "variableName": {
+            "paramTypes": "custom",
+            "value": "innerInbiz",
+            "dataType": "dictionary",
+            "label": "innerInbiz",
+            "code": "innerInbiz"
+          }
+        }
+      },
+      "depth": []
+    },
+    {
+      "key": "e1RGIwJ6",
+      "elementKey": "IfCondition",
+      "title": "IF 条件判断",
+      "paramsValue": {
+        "inputParams": {
+          "condition": {
+            "Logic": "And",
+            "Id": "TIl6tUG7",
+            "Filters": [
+              {
+                "Id": "IEWFTved",
+                "target": {
+                  "paramTypes": "custom",
+                  "value": "id",
+                  "dataType": "",
+                  "label": "id",
+                  "code": "id"
+                },
+                "equalTo": "Equal",
+                "value": {
+                  "paramTypes": "custom",
+                  "value": "\"AP5l67Gn\"",
+                  "dataType": "",
+                  "label": "\"AP5l67Gn\"",
+                  "code": "\"AP5l67Gn\""
+                }
+              }
+            ]
+          }
+        },
+        "outputParams": {}
+      },
+      "depth": []
+    },
+    {
+      "key": "2EB299DE",
+      "elementKey": "SetVariable",
+      "title": "定义变量",
+      "paramsValue": {
+        "inputParams": {
+          "variableType": "string",
+          "variableValue": {
+            "paramTypes": "custom",
+            "value": "id === \"AP5l67Gn\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "code": "id === \"AP5l67Gn\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "label": "id === \"AP5l67Gn\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "dataType": "string"
+          }
+        },
+        "outputParams": {
+          "variableName": {
+            "paramTypes": "custom",
+            "value": "trainingTopics",
+            "code": "trainingTopics",
+            "label": "trainingTopics",
+            "dataType": "string"
+          }
+        }
+      },
+      "depth": [
+        "e1RGIwJ6"
+      ]
+    },
+    {
+      "key": "jFPyzD6e",
+      "elementKey": "AddMetaData",
+      "title": "附加元数据",
+      "paramsValue": {
+        "inputParams": {
+          "config": {
+            "paramSettings": [
+              {
+                "id": "CycleAudit0",
+                "key": "trainingTopics",
+                "value": {
+                  "paramTypes": "localVariable",
+                  "value": "localVariable-trainingTopics",
+                  "code": "trainingTopics",
+                  "label": "局部变量-trainingTopics",
+                  "dataType": "string"
+                }
+              }
+            ]
+          }
+        },
+        "outputParams": {}
+      },
+      "depth": [
+        "e1RGIwJ6"
+      ]
+    },
+    {
+      "key": "gvDau0c2",
+      "elementKey": "IfEnd",
+      "title": "End IF",
+      "paramsValue": {
+        "inputParams": {},
+        "outputParams": {}
+      },
+      "depth": [
+        "e1RGIwJ6"
+      ]
+    },
+    {
+      "key": "R91YZv9X",
+      "elementKey": "IfCondition",
+      "title": "IF 条件判断",
+      "paramsValue": {
+        "inputParams": {
+          "condition": {
+            "Logic": "Or",
+            "Id": "TIl6tUG7",
+            "Filters": [
+              {
+                "Id": "IEWFTved",
+                "target": {
+                  "paramTypes": "custom",
+                  "value": "id",
+                  "dataType": "",
+                  "label": "id",
+                  "code": "id"
+                },
+                "equalTo": "Equal",
+                "value": {
+                  "paramTypes": "custom",
+                  "value": "\"OjuHwTLK\"",
+                  "dataType": "",
+                  "label": "\"OjuHwTLK\"",
+                  "code": "\"OjuHwTLK\""
+                }
+              },
+              {
+                "Id": "3913326E-7B8C-4191-95F0-F7AB8BF18421",
+                "target": {
+                  "paramTypes": "custom",
+                  "value": "id",
+                  "dataType": "",
+                  "label": "id",
+                  "code": "id"
+                },
+                "equalTo": "Equal",
+                "value": {
+                  "paramTypes": "custom",
+                  "value": "\"Jv0Lyar9\"",
+                  "dataType": "",
+                  "label": "\"Jv0Lyar9\"",
+                  "code": "\"Jv0Lyar9\""
+                }
+              }
+            ]
+          }
+        },
+        "outputParams": {}
+      },
+      "depth": []
+    },
+    {
+      "key": "A93680A9",
+      "elementKey": "SetVariable",
+      "title": "定义变量",
+      "paramsValue": {
+        "inputParams": {
+          "variableType": "string",
+          "variableValue": {
+            "paramTypes": "custom",
+            "value": "id === \"OjuHwTLK\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "code": "id === \"OjuHwTLK\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "label": "id === \"OjuHwTLK\" ? (inbiz(\"trainee_task\").getSelectedRows() || []).map(row => row.topic ?? \"\").join(\"、\") : \"\"",
+            "dataType": "string"
+          }
+        },
+        "outputParams": {
+          "variableName": {
+            "paramTypes": "custom",
+            "value": "evaluationTopics",
+            "code": "evaluationTopics",
+            "label": "evaluationTopics",
+            "dataType": "string"
+          }
+        }
+      },
+      "depth": [
+        "R91YZv9X"
+      ]
+    },
+    {
+      "key": "2FC291B0",
+      "elementKey": "SetVariable",
+      "title": "定义变量",
+      "paramsValue": {
+        "inputParams": {
+          "variableType": "string",
+          "variableValue": {
+            "paramTypes": "custom",
+            "value": "id === \"OjuHwTLK\" ? (innerInbiz(\"assess_status\").getText() || \"\") : \"\"",
+            "code": "id === \"OjuHwTLK\" ? (innerInbiz(\"assess_status\").getText() || \"\") : \"\"",
+            "label": "id === \"OjuHwTLK\" ? (innerInbiz(\"assess_status\").getText() || \"\") : \"\"",
+            "dataType": "string"
+          }
+        },
+        "outputParams": {
+          "variableName": {
+            "paramTypes": "custom",
+            "value": "evaluationResult",
+            "code": "evaluationResult",
+            "label": "evaluationResult",
+            "dataType": "string"
+          }
+        }
+      },
+      "depth": [
+        "R91YZv9X"
+      ]
+    },
+    {
+      "key": "777D5D58",
+      "elementKey": "AddMetaData",
+      "title": "附加元数据",
+      "paramsValue": {
+        "inputParams": {
+          "config": {
+            "paramSettings": [
+              {
+                "id": "CycleAudit1",
+                "key": "evaluationTopics",
+                "value": {
+                  "paramTypes": "localVariable",
+                  "value": "localVariable-evaluationTopics",
+                  "code": "evaluationTopics",
+                  "label": "局部变量-evaluationTopics",
+                  "dataType": "string"
+                }
+              },
+              {
+                "id": "CycleAudit2",
+                "key": "evaluationResult",
+                "value": {
+                  "paramTypes": "localVariable",
+                  "value": "localVariable-evaluationResult",
+                  "code": "evaluationResult",
+                  "label": "局部变量-evaluationResult",
+                  "dataType": "string"
+                }
+              }
+            ]
+          }
+        },
+        "outputParams": {}
+      },
+      "depth": [
+        "R91YZv9X"
+      ]
+    },
+    {
+      "key": "5VToGfQ0",
+      "elementKey": "IfEnd",
+      "title": "End IF",
+      "paramsValue": {
+        "inputParams": {},
+        "outputParams": {}
+      },
+      "depth": [
+        "R91YZv9X"
+      ]
+    }
+  ]
+}

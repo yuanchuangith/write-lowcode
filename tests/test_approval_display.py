@@ -150,7 +150,7 @@ class ApprovalWindowTests(unittest.TestCase):
         self.assertIn("移动", window.change_details())
         window.artifact["desired_design"]["data"] = json.dumps({"actionData": [], "globalVariables": []})
         details = window.change_details()
-        self.assertEqual(details.count("删除 ·"), 3)
+        self.assertEqual(details.count("删除 ·"), 4)
         self.assertIn("节点：assign", details)
 
     def test_preview_parameter_titles_are_accepted_only_from_bound_registry(self):

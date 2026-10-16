@@ -7,7 +7,7 @@ from datetime import datetime
 from typing import Any
 
 from .approval import statement_hash, transaction_binding_hash
-from .hashing import design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
+from .hashing import compiler_binding_payload, design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
 from .single_row_checker import SingleRowCheckError, check_statement_list
 
 
@@ -293,6 +293,70 @@ def build_transaction_artifact(
     return artifact
 
 
+def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) -> None:
+    """Check signed evidence structure; native recompilation is performed by the service."""
+    if not isinstance(evidence, dict):
+        raise TransactionPlanError("Event binding validation evidence is missing")
+    try:
+        canvas = json.loads(desired.get("data") or "")
+    except (TypeError, ValueError) as exc:
+        raise TransactionPlanError("Candidate canvas JSON is invalid") from exc
+    if not isinstance(canvas, dict) or not isinstance(canvas.get("actionData"), list):
+        raise TransactionPlanError("Candidate canvas actionData is invalid")
+    groups: dict[str, dict[str, Any]] = {}
+    nodes: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+    for group in canvas["actionData"]:
+        if not isinstance(group, dict) or not isinstance(group.get("key"), str) or not group["key"] or group["key"] in groups:
+            raise TransactionPlanError("Candidate canvas group identity is invalid")
+        if not isinstance(group.get("data"), list):
+            raise TransactionPlanError("Candidate canvas group nodes are invalid")
+        groups[group["key"]] = group
+        for node in group["data"]:
+            if not isinstance(node, dict) or not isinstance(node.get("key"), str) or not node["key"]:
+                raise TransactionPlanError("Candidate canvas node identity is invalid")
+            nodes.setdefault(node["key"], []).append((group, node))
+    js_keys = [key for key, group in groups.items() if group.get("actionType") == "js"]
+    if evidence.get("javascript_syntax_checked") is not True:
+        raise TransactionPlanError("Generated JavaScript syntax evidence is incomplete")
+    if evidence.get("javascript_lexical_scope") != "all_js_groups" or evidence.get("javascript_group_keys") != js_keys:
+        raise TransactionPlanError("Generated JavaScript lexical evidence does not cover the candidate groups")
+    scope, checks = evidence.get("binding_node_keys"), evidence.get("checks")
+    if not isinstance(scope, list) or any(not isinstance(key, str) or not key for key in scope) or len(set(scope)) != len(scope):
+        raise TransactionPlanError("Event binding validation scope is invalid")
+    if not isinstance(checks, list) or len(checks) != len(scope):
+        raise TransactionPlanError("Event binding validation checks are incomplete")
+    for key, check in zip(scope, checks):
+        owners = nodes.get(key, [])
+        if len(owners) != 1 or owners[0][1].get("elementKey") != "ComponentEvent":
+            raise TransactionPlanError("Event binding validation scope does not identify a candidate ComponentEvent")
+        source, node = owners[0]
+        params = node.get("paramsValue")
+        inputs = params.get("inputParams") if isinstance(params, dict) else None
+        name = inputs.get("name") if isinstance(inputs, dict) else None
+        action = inputs.get("action") if isinstance(inputs, dict) else None
+        if not isinstance(name, dict) or not isinstance(action, dict) or not isinstance(action.get("value"), str):
+            raise TransactionPlanError("Event binding candidate parameters are invalid")
+        target = groups.get(action["value"])
+        if (not isinstance(check, dict) or target is None or source.get("actionType") != "js"
+                or target.get("actionType") != "js" or source is target):
+            raise TransactionPlanError("Event binding validation target is invalid")
+        component = name.get("value")
+        if name.get("paramTypes") != "componentsVariable" or not isinstance(component, str) or not component.startswith("componentsVariable-"):
+            raise TransactionPlanError("Event binding component declaration is invalid")
+        expected = {"binding_node_key": key, "source_group_key": source["key"], "target_group_key": target["key"],
+                    "component_id": component[len("componentsVariable-"):], "component_type": name.get("dataType"),
+                    "event_name": inputs.get("eventName"), "input_params": target.get("inputParams") or [],
+                    "output_params": target.get("outputParams") or []}
+        if not isinstance(expected["input_params"], list) or not isinstance(expected["output_params"], list):
+            raise TransactionPlanError("Event callback parameter declarations are invalid")
+        if any(check.get(field) != value for field, value in expected.items()):
+            raise TransactionPlanError("Event binding validation check does not match the candidate canvas")
+        if (not all(isinstance(expected[field], str) and expected[field] for field in ("component_id", "component_type", "event_name"))
+                or check.get("parameters_declared") is not True or check.get("hidden_arguments_allowed") is not False
+                or check.get("signature_status") not in {"source_verified", "catalog_declared"}):
+            raise TransactionPlanError("Event binding runtime contract evidence is incomplete")
+
+
 def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
     transaction_id = str(artifact.get("transaction_id") or "")
     design_id = str(artifact.get("design_id") or "")
@@ -380,6 +444,9 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         str((artifact.get("desired_design") or {}).get("csharp_code") or "")
     ):
         raise TransactionPlanError("Runtime C# validation hash does not match the desired design")
+    if artifact.get("kind") == "write" and str((artifact.get("desired_design") or {}).get("csharp_code") or "").strip():
+        if runtime_validation.get("available") is not True or runtime_validation.get("success") is not True:
+            raise TransactionPlanError("Candidate C# compilation must succeed before a write approval")
     compiler_evidence = artifact.get("compiler_evidence")
     if artifact.get("kind") == "write":
         if not isinstance(compiler_evidence, dict):
@@ -389,14 +456,8 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         hashes = compiler_evidence.get("hashes")
         if not isinstance(binding, dict) or not isinstance(validation, dict) or not isinstance(hashes, dict):
             raise TransactionPlanError("Blocking compiler evidence is incomplete")
-        binding_payload = {
-            "bridge_sha256": binding.get("bridge_sha256"),
-            "registry_hash": binding.get("registry_hash"),
-            "rule_source_sha256": binding.get("rule_source_sha256"),
-            "frontend_version": binding.get("frontend_version"),
-            "source_provenance": binding.get("source_provenance"),
-        }
-        for field in ("bridge_sha256", "registry_hash", "rule_source_sha256"):
+        binding_payload = compiler_binding_payload(binding)
+        for field in ("bridge_sha256", "adapter_sha256", "registry_hash", "rule_source_sha256"):
             if not re.fullmatch(r"[0-9a-f]{64}", str(binding.get(field) or "").lower()):
                 raise TransactionPlanError(f"Compiler binding field {field} is invalid")
         if binding.get("compiler_binding_sha256") != sha256_json(binding_payload):
@@ -415,6 +476,9 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         if validation.get("rule_source_sha256") != binding.get("rule_source_sha256"):
             raise TransactionPlanError("Candidate validation rule hash does not match the compiler binding")
         desired = artifact.get("desired_design") or {}
+        if compiler_evidence.get("generated_code_consistency_verified") is not True:
+            raise TransactionPlanError("Native generated-code consistency evidence is missing")
+        _validate_event_compiler_evidence(desired, compiler_evidence.get("event_binding_validation"))
         expected_hashes = {
             "data_sha256": sha256_text(str(desired.get("data") or "")),
             "js_sha256": sha256_text(str(desired.get("js_code") or "")),

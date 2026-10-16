@@ -10,7 +10,8 @@ from .runtime_validation import RuntimeCsharpValidator
 
 def main() -> int:
     try:
-        request = json.load(sys.stdin)
+        # Windows pipes otherwise default to the user ANSI code page (for example GBK).
+        request = json.loads(sys.stdin.buffer.read().decode("utf-8"))
         validator = object.__new__(RuntimeCsharpValidator)
         validator.runtime = RuntimeReferenceConfig.from_dict(request["runtime"])
         if request["command"] == "status":
@@ -22,9 +23,14 @@ def main() -> int:
         response = {"ok": True, "result": result}
         code = 0
     except Exception as exc:
-        response = {"ok": False, "error": str(exc)}
+        response = {
+            "ok": False, "error": str(exc),
+            "error_code": getattr(exc, "code", "checker_unavailable"),
+            "diagnostics": getattr(exc, "diagnostics", []),
+        }
         code = 1
-    print(json.dumps(response, ensure_ascii=False))
+    sys.stdout.buffer.write(json.dumps(response, ensure_ascii=False).encode("utf-8"))
+    sys.stdout.buffer.flush()
     return code
 
 

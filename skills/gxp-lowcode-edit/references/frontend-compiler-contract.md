@@ -12,12 +12,21 @@ The compiler binding contains:
 
 - frontend Git root, branch, commit, dirty-file count, and a workspace fingerprint;
 - bridge path and SHA-256;
+- plugin compiler-runner and structured-operation adapter SHA-256;
 - frontend version;
 - ActionDesign rule-source SHA-256;
 - stable element-registry SHA-256;
 - a SHA-256 over the complete binding.
 
 The working tree may be dirty, but its exact fingerprint is bound. Any binding change between session start, planning, and `prepare_write` invalidates the current workflow. Do not rebuild, reset, format, or modify the frontend repository as part of an edit request.
+
+## Structured group and component operations
+
+The plugin runner loads the configured native bundle with a narrow in-memory dispatch extension; it does not rewrite the frontend repository or replace native node/code generators. The recognized webpack bundle must expose the native component catalog and compiler dispatch. An unknown or ambiguous bundle shape fails closed. Both runner and adapter hashes participate in the complete compiler binding, so an upgrade invalidates old plans.
+
+`create_action_group` follows the platform child-action shape and generates keys internally. `append_node` and `bind_component_event` call native `generateNodes`; the normal compiler still recomputes nesting, validates the complete design and generates JS/C#/relations. Event callback declarations come from the compiled native component catalog, enriched only by source-hash-bound audited runtime payload contracts. `inspect_component_contract` exposes those signatures without claiming that a page instance exists. The skill must verify current component identity and the binding execution path separately.
+
+Approval previews show added/removed groups and group parameter changes even when their canvases are empty. Group details are display projections only and are never stored as executable nodes. The native ComponentEvent node shows the component, event and callback link in the ordinary parameter comparison.
 
 ## Blocking canvas and code checks
 
@@ -85,7 +94,7 @@ artifacts, SQL, approval requirements, or executable code.
 
 `prepare_write` parses and revalidates the stored candidate, recomputes every hash, compares the complete compiler binding, and binds the resulting evidence into the approval transaction. Failure occurs before transaction creation and before the approval application is launched.
 
-Runtime-reference C# compilation remains a separate advisory check. It cannot replace or weaken these frontend compiler gates.
+Nonblank candidate C# compilation against local read-only references is also mandatory before planning and approval. Its UTF-8 subprocess protocol preserves the exact candidate hash. Timeout, protocol errors, missing SDK/reference packs and C# errors are reported separately and block the candidate; local success does not prove production runtime behavior.
 
 ## Legacy reference repair adapter
 
@@ -108,3 +117,31 @@ and the normal compiled-result verification. It rechecks structured bindings
 after native regeneration and before approval. Raw generated code is never an
 input. Native generation may refresh node descriptions and declared output types;
 the signed approval compares the actual original and actual complete candidate.
+
+## Event contracts and verification limits
+
+The native event catalog can omit inputs even when a real component passes a payload. Inspect signatures before binding. Missing parameter metadata or output-only catalog entries are incomplete and block affected bindings until the runtime callsite has been audited. A catalog declaration alone remains catalog_only evidence. The audited FormTables.onChildrenCustomBeforeClick payload is one object containing id, action, name and callable innerInbiz; its default canvas input name is action. Source evidence hashes in event_contracts.json must match the configured frontend. Input names are positional and may differ (for example context) when declared and used consistently; output names remain contract keys. The audited object input also accepts the platform dictionary declaration.
+
+For new or changed binding/callback groups, the compiler derives validation scope from actual before/after canvases, including bindings inserted through the generic native ComponentEvent element. It checks parameter arity/types, output keys and native generated signature for affected callbacks. JavaScript syntax and lexical declarations are checked for all JS groups (including existing lower-level groups); callback-level arguments access remains forbidden for affected event targets. prepare_write derives and compares that evidence again. Unchanged unrelated legacy bindings are outside this gate. This does not validate all custom expression semantics or every component method/property.
+
+set_event_callback_contract restores visible declarations for an existing JS callback; compatible existing input names/keys are preserved. It does not rewrite expressions or infer business behavior. If references still disagree, lexical checks block the candidate. Do not use it as a generated-code escape hatch.
+
+Keep the native outputParams convention. The platform SDK useEvents/configEvent wrapper is not proven by the local callsite; do not force a primitive boolean ExitAction or claim cancellation semantics without wrapper/browser evidence. return_verification explicitly records sdk_wrapper_unverified for this event. Isolated primitive-return tests prove only the direct stubbed callsite.
+
+Always distinguish these evidence levels in the result:
+
+- Canvas/native regeneration and syntax/signature checks: mandatory for an affected binding.
+- Business scenarios: verify expected branch, output keys/values and side effects with representative fixtures; compilation alone is insufficient. Tests may execute generated code with documented stubs, which proves only those fixtures.
+- Browser/page acceptance: current component instance, initialization timing, SDK wrapping, asynchronous behavior and publication require actual page evidence. Never mark browser_verified or runtime_verified from a VM test.
+
+The emitted validation flags business_scenarios_verified=false, browser_verified=false and runtime_verified=false are intentional: the compiler gate cannot certify these layers. Report any separately executed scenario results with their scope. Do not describe unsupported, unknown or untested combinations as confirmed usable. Many combinations are addressed through shared contract/control-flow checks and representative boundary scenarios; do not promise exhaustive correctness.
+
+The fixture tests/fixtures/manual_child_button_callback.json preserves the user's corrected callback structure as an offline regression example. Its second evaluation-button branch still has expressions restricted to the first evaluation-button ID. The test records that observed empty result, not an independently confirmed business requirement. For unmatched IDs it checks that no new metadata handler is registered; it does not prove previous metadata is cleared.
+
+## Exact generated artifact consistency
+
+Both candidate generation verification and prepare_write invoke native compileCode again on the candidate canvas and require exact JS, C# and relation-data equality. The signed evidence includes generated_code_consistency_verified=true; the transaction validator requires it. This catches syntactically valid artifacts that no longer correspond to their canvas.
+
+Native compile-time UUIDs used for temporary symbols/configuration IDs are reproducible from a canonical canvas hash and call counter only while compileCode runs. Node creation still uses native random UUIDs. The adapter never rewrites business strings, generated source text or runtime random expressions. An unrecognized bundle/stub shape blocks compilation.
+
+Local C# checks use bounded subprocesses. Nonblank C# cannot proceed after unavailable/failed checks. SDK/reference status is only a capability probe, so editor_status never claims a candidate or production has been verified. Production DLL snapshots and real page acceptance are separate evidence; never relabel a development build as a deployment snapshot.

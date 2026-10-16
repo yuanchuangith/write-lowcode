@@ -36,8 +36,23 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
                 "parents": [names.get(key, key) for key in node.get("depth") or []],
                 "line": index + 1, "node": node, "previous": neighbor(index - 1), "next": neighbor(index + 1)}
 
+    def group_side(group):
+        if not group:
+            return None
+        return {"group": group.get("title") or group["key"], "group_key": group["key"],
+                "line": None, "previous": None, "next": None,
+                "node": {"key": "__group_metadata__", "elementKey": "actionGroup",
+                         "title": "动作分组：" + (group.get("title") or group["key"]),
+                         "description": "动作分组及回调参数配置", "paramsValue": {"inputParams": {
+                             "分组名称": group.get("title"), "动作类型": group.get("actionType"),
+                             "分组说明": group.get("description") or "",
+                             "输入参数": group.get("inputParams") or [], "输出参数": group.get("outputParams") or []}}}}
+
     for group in after.get("actionData", []):
         previous_group = old_groups.pop(group["key"], {})
+        previous_meta, current_meta = group_side(previous_group), group_side(group)
+        if previous_meta != current_meta:
+            result.append({"kind": "修改" if previous_group else "新增", "before": previous_meta, "after": current_meta})
         old_nodes, new_nodes = previous_group.get("data", []), group.get("data", [])
         old_names, new_names = names_for(old_nodes), names_for(new_nodes)
         old_by_key = {node["key"]: index for index, node in enumerate(old_nodes)}
@@ -61,6 +76,7 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
         for index in old_by_key.values():
             result.append({"kind": "删除", "before": side(previous_group, old_nodes, index, old_names), "after": None})
     for group in old_groups.values():
+        result.append({"kind": "删除", "before": group_side(group), "after": None})
         names = names_for(group.get("data", []))
         for index in range(len(group.get("data", []))):
             result.append({"kind": "删除", "before": side(group, group["data"], index, names), "after": None})

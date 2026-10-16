@@ -1,15 +1,15 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.13+codex.local-20261015-qt-approval-compact",
+  "version": "0.1.17+codex.local-20261016-validation-gates",
   "description": "Zero-backend-change GXP ActionDesign draft editing with bound gxp2.components provenance, blocking canvas/code-generation validation, pinned account safety, immutable backups, human approval, optimistic locking, and restore support.",
   "author": {
     "name": "Local developer"
   },
   "skills": "./skills/",
   "interface": {
-    "displayName": "GXP \u4f4e\u4ee3\u7801\u53d7\u63a7\u7f16\u8f91",
-    "shortDescription": "\u6309\u771f\u5b9e\u753b\u5e03\u89c4\u5219\u89c4\u5212\u8349\u7a3f\u4fee\u6539\uff0c\u5e76\u5728\u9010\u6761\u4eba\u5de5\u5ba1\u6279\u540e\u539f\u5b50\u4fdd\u5b58\u3002",
-    "longDescription": "\u4e3a\u4e00\u4e2a\u5df2\u6709\u672a\u53d1\u5e03 GXP \u7f16\u6392\u5efa\u7acb\u72ec\u5360\u7f16\u8f91\u4f1a\u8bdd\uff0c\u4f7f\u7528\u524d\u7aef ActionDesign \u771f\u5b9e\u89c4\u5219\u751f\u6210\u753b\u5e03\u3001JS\u3001C# \u4e0e\u5173\u8054\u6570\u636e\uff0c\u5e76\u7528\u53ea\u8bfb\u90e8\u7f72\u7a0b\u5e8f\u96c6\u5feb\u7167\u6821\u9a8c C#\u3002\u5199\u5165\u524d\u5b8c\u6210\u672c\u5730\u5907\u4efd\u3001\u7d22\u5f15\u4e0e\u6743\u9650\u68c0\u67e5\u3001\u9010\u6761\u4eba\u5de5\u5ba1\u6279\u548c\u4e50\u89c2\u9501\u9a8c\u8bc1\uff0c\u5e76\u652f\u6301\u5ba1\u6279\u5f0f\u6062\u590d\u3002\u4e0d\u4fee\u6539\u540e\u7aef\u3001Redis\u3001DLL/PDB\uff0c\u4e0d\u4f1a\u521b\u5efa\u6216\u53d1\u5e03\u7f16\u6392\u3002",
+    "displayName": "GXP 低代码受控编辑",
+    "shortDescription": "支持新增动作分组、空组添加节点和组件事件绑定，经人工审批保存草稿。",
+    "longDescription": "为一个已有未发布 GXP 编排建立独占编辑会话，使用前端 ActionDesign 真实规则生成画布、JS、C# 与关联数据，并用只读部署程序集快照校验 C#。写入前完成本地备份、索引与权限检查、逐条人工审批和乐观锁验证，并支持审批式恢复。不修改后端、Redis、DLL/PDB，不会创建或发布编排。",
     "developerName": "Local developer",
     "category": "Developer Tools",
     "capabilities": [
@@ -18,7 +18,7 @@
       "Interactive",
       "Write"
     ],
-    "defaultPrompt": "\u4f7f\u7528 $gxp-lowcode-edit \u4e3a\u4e00\u4e2a\u5df2\u6709\u672a\u53d1\u5e03\u7f16\u6392\u751f\u6210\u53d7\u63a7\u753b\u5e03\u4fee\u6539\u8ba1\u5212\uff1b\u6ca1\u6709\u4eba\u5de5\u9010\u6761\u5ba1\u6279\u65f6\u4e0d\u8981\u6267\u884c\u4efb\u4f55\u6570\u636e\u5e93\u5199\u5165\u3002"
+    "defaultPrompt": "使用 $gxp-lowcode-edit 为一个已有未发布编排生成受控画布修改计划；没有人工逐条审批时不要执行任何数据库写入。"
   },
   "mcpServers": "./.mcp.json"
 }
