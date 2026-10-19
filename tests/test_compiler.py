@@ -42,6 +42,8 @@ class CompilerBridgeTests(unittest.TestCase):
         (root / "bridge.js").write_text("// test bridge\n", encoding="utf-8")
         config = replace(editor_config(), frontend_repo=str(root))
         bridge = CompilerBridge(config)
+        # This fixture mocks Node responses, not a real frontend build.
+        bridge._verify_native_sources = lambda: "a" * 64
         bridge.source_provenance = lambda: {
             "ready": True,
             "frontend_repo": str(root),
@@ -106,10 +108,11 @@ class CompilerBridgeTests(unittest.TestCase):
             }
             with patch.object(bridge, "_call", side_effect=[validation, registry("ROW")]):
                 result = bridge.validate_design({"actionData": []})
+            active_registry_hash = bridge.describe_registry()["registry_hash"]
 
         self.assertEqual(
             result["validation"]["registry_hash"],
-            bridge.describe_registry()["registry_hash"],
+            active_registry_hash,
         )
 
     def test_invalid_canvas_validation_is_blocking(self):

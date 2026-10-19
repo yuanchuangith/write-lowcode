@@ -91,6 +91,7 @@ class CompilerBridge:
     def _call(self, payload: dict[str, Any], *, timeout_seconds: int = 60) -> dict[str, Any]:
         if not self.path.exists():
             raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}")
+        source_hash = self._verify_native_sources()
         process = subprocess.run(
             ["node", str(Path(__file__).with_name("compiler_runner.cjs")), str(self.path)],
             input=json.dumps(payload, ensure_ascii=False),
@@ -115,7 +116,51 @@ class CompilerBridge:
             raise CompilerError(f"Compiler returned invalid JSON: {exc}") from exc
         if not result.get("ok"):
             raise CompilerError(str(result.get("error") or "compiler rejected request"))
+        evidence = result.get("validation", result)
+        if source_hash and "rule_source_sha256" in evidence and evidence["rule_source_sha256"] != source_hash:
+            raise CompilerError("Compiler rule hash does not match its embedded source manifest; rebuild the bridge")
         return result
+
+    def _verify_native_sources(self) -> str:
+        """Reject stale native rules before a session can report compiler readiness."""
+        rules_root = self.frontend_repo / "src/core/common/ActionDesign"
+        rebuild = 'Run node scripts/build_compiler_bridge.cjs "' + str(self.frontend_repo) + '" before starting a new session'
+        prefix = "// GXP_COMPILER_SOURCES_V1="
+        try:
+            with self.path.open(encoding="utf-8") as stream:
+                header = stream.readline()
+            if not header.startswith(prefix):
+                raise CompilerError("Legacy compiler bridge has no verified native source manifest. " + rebuild)
+            if not rules_root.is_dir():
+                raise ValueError("native rule directory is missing")
+            manifest = json.loads(header[len(prefix):])
+            entries = manifest["files"]
+            if manifest.get("schema_version") != 1 or not isinstance(entries, list) or not entries:
+                raise ValueError("invalid manifest schema")
+            seen = set()
+            rule_entries = []
+            for item in entries:
+                relative = item["path"]
+                file = (self.frontend_repo / relative).resolve()
+                if file == self.frontend_repo or not file.is_relative_to(self.frontend_repo) or relative in seen:
+                    raise ValueError("invalid or duplicate source path")
+                seen.add(relative)
+                if hashlib.sha256(file.read_bytes()).hexdigest() != item["sha256"]:
+                    raise CompilerError(f"Compiler native source changed: {relative}. {rebuild}")
+                if file.is_relative_to(rules_root) and not file.is_relative_to(rules_root / "compiler"):
+                    rule_entries.append(item)
+            current_rules = {file.relative_to(self.frontend_repo).as_posix()
+                             for file in rules_root.rglob("*") if file.is_file()
+                             and re.search(r"\.[cm]?[jt]sx?$", file.name)
+                             and not file.is_relative_to(rules_root / "compiler")}
+            if current_rules != {item["path"] for item in rule_entries}:
+                raise CompilerError("Compiler native rule file set changed. " + rebuild)
+            actual = hashlib.sha256(json.dumps(rule_entries, ensure_ascii=False, separators=(",", ":")).encode("utf-8")).hexdigest()
+            if actual != manifest["rule_source_sha256"]:
+                raise ValueError("rule source hash mismatch")
+            return actual
+        except (OSError, KeyError, TypeError, ValueError) as exc:
+            raise CompilerError(f"Invalid compiler native source manifest: {exc}. {rebuild}") from exc
 
     @classmethod
     def _stable_registry_hash(cls, registry: dict[str, Any]) -> str:
@@ -140,6 +185,11 @@ class CompilerBridge:
         )
 
     def describe_registry(self) -> dict[str, Any]:
+        if self._registry is not None:
+            source_hash = self._verify_native_sources()
+            if (source_hash != self._registry["rule_source_sha256"]
+                    or sha256_text(self.path.read_text(encoding="utf-8")) != self._registry["bridge_sha256"]):
+                raise CompilerError("Compiler bridge changed; start a new validated compiler session")
         if self._registry is None:
             result = self._call({"command": "describe_registry"})
             if result.get("command") != "describe_registry":

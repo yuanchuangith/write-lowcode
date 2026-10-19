@@ -48,12 +48,34 @@ failure. Native generation failures still block planning. Session entry returns
 the baseline validation, and candidate warnings are preserved in the plan and
 signed approval evidence.
 
-For older installed bundles, run `python scripts/relax_compiler_references.py
-<frontend_repo>/dist/action-design-compiler/bridge.js` before starting a session.
-The updater changes only the five static reference diagnostics, retains all
-structural and native generation checks, and rejects unrecognized bundle shapes.
-Reapply it after rebuilding an older bridge. The resulting bridge SHA-256 remains
-part of the compiler binding; existing sessions cannot silently adopt the change.
+## Rebuilding a stale compiler bridge
+
+An old bridge can omit elements that already exist in the frontend source. For
+example, the old 95-element bundle omitted SyncLock, SyncLockEnd, AddChangeData,
+VersionFormat, FileRelease, FileCopyVersion and FileEditingCheck. Do not remove
+these nodes, invent generators, or downgrade Unknown elementKey to a warning.
+
+Compiler maintenance is separate from a business draft edit. Before starting a
+new edit session, run `node scripts/build_compiler_bridge.cjs <frontend_repo>`
+from this plugin to rebuild the offline bridge from the complete native registry,
+node generators, code generators and relation generators. The optional second
+argument stages the build in another directory; compiler acceptance still
+requires the bridge to reside within the configured frontend Git root.
+
+The builder emits a source manifest in the bridge header and source-manifest.json.
+The Python bridge checks dependency hashes and the complete native rule file set
+before every compiler command. Changed, added or removed native rules and legacy
+bundles without a manifest require an explicit rebuild. New builds already treat
+static reference diagnostics as advisory; they do not need the legacy
+relax_compiler_references.py updater. Unknown elements, unsupported languages,
+broken structure and native generation failures still block the workflow.
+Missing frontend sources also block verification. Cached registry reads recheck
+source hashes and the bridge identity instead of retaining an obsolete binding.
+
+Replacing the bridge changes its binding and invalidates existing plans. Restart
+the editor MCP after updating plugin code and start a new validated plan; never
+carry an old approval across a compiler update. Rebuilding does not save or
+publish any business draft.
 
 ## Canvas visibility and re-editing
 

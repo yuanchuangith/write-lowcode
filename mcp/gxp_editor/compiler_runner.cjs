@@ -69,7 +69,6 @@ function main() {
 module.exports = {adapt, reproducibleCompile, uuidBytes};
 if (require.main === module) {
   try { main(); } catch (error) {
-    process.stdout.write(JSON.stringify({ok:false, error:error.message}));
-    process.exitCode = 1;
+    process.stdout.write(JSON.stringify({ok:false, error:error.message}), () => process.exit(1));
   }
 }
