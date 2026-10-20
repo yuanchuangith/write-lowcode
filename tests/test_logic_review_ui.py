@@ -212,6 +212,22 @@ class BusinessQtTests(unittest.TestCase):
         self.assertNotIn("所列场景通过", widget.status.text())
         self.assertIn("超出声明的需求范围", widget.changes.topLevelItem(0).text(3))
 
+    def test_requirement_limit_is_not_overridden_by_passing_linked_case(self):
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        report = {"status": "unverified", "requirements": [{"id": "r1", "text": "C# 查询只处理冻结资质",
+            "status": "unverified", "case_ids": ["c1"], "reason": "C# 需求目标未执行验证"}],
+            "scenarios": {"cases": [{"id": "c1", "requirement_ids": ["r1"],
+                "candidate": {"status": "passed", "actual": True}}]}}
+        original = deepcopy(report)
+        widget.set_report(report)
+        entry = widget.requirements.topLevelItem(0)
+        self.assertEqual(entry.text(3), "待验证")
+        self.assertIn("C#", entry.toolTip(3))
+        self.assertEqual(widget.scenarios.topLevelItem(0).text(4), "通过")
+        self.assertIn("需求待验证 1", widget.status.text())
+        self.assertEqual(report, original)
+
     def test_target_navigation_preserves_nested_parameter_identity(self):
         widget = LogicReview()
         self.addCleanup(widget.close)
@@ -223,6 +239,26 @@ class BusinessQtTests(unittest.TestCase):
         widget.changes.setCurrentItem(widget.changes.topLevelItem(0))
         widget.locate.click()
         self.assertEqual(received, [("main", "assign", "paramsValue/inputParams/variableValue/code")])
+
+    def test_collapsed_evidence_retains_selection_and_tab_navigation_cannot_use_stale_target(self):
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report({"changes": [{"group_key": "main", "node_key": "assign", "before": "old", "after": "new"}]})
+        widget.changes.setCurrentItem(widget.changes.topLevelItem(0))
+        evidence = widget.details.toPlainText()
+        self.assertTrue(widget.details.isHidden())
+        widget.details_toggle.click()
+        self.assertFalse(widget.details.isHidden())
+        self.assertEqual(widget.details.toPlainText(), evidence)
+        widget.details_toggle.click()
+        self.assertTrue(widget.details.isHidden())
+        self.assertEqual(widget.details.toPlainText(), evidence)
+        widget.evidence_tabs.setCurrentWidget(widget.requirements)
+        self.assertFalse(widget.locate.isEnabled())
+        self.assertIn("先选择", widget.locate.toolTip())
+        widget.evidence_tabs.setCurrentWidget(widget.changes)
+        self.assertTrue(widget.locate.isEnabled())
+        self.assertEqual(widget.details.toPlainText(), evidence)
 
     def test_scenario_spec_inputs_and_requirement_target_remain_visible_and_navigable(self):
         widget = LogicReview()

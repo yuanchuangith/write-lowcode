@@ -59,7 +59,17 @@ class LogicReviewTests(unittest.TestCase):
         require_write_business_review(self.template)
 
     def test_failed_baseline_does_not_block_passing_candidate(self):
-        review = self.build(specification())
+        canvas = {"actionData": [{"key": "main", "actionType": "js", "data": [{"key": "assign"}]}], "globalVariables": []}
+        self.base = baseline(data=json.dumps(canvas))
+        self.desired["data"] = json.dumps(canvas)
+        spec = specification()
+        # This case asserts the group's observable result. The runner does not
+        # trace individual nodes, so it cannot certify a node-specific target.
+        spec["requirements"][0]["targets"] = [{"group_key": "main"}]
+        report = self.report(spec)
+        report["cases"][0]["candidate"]["trace"] = [{"api": "group.main"}]
+        review = build_business_review(review_spec=spec, baseline_design=self.base, candidate_design=self.desired,
+                                       compiler_binding=self.binding, scenario_report=report)
         self.assertEqual(review["status"], "passed")
         self.assertEqual(review["requirements"][0]["status"], "passed")
         self.assertFalse(review["candidate_gate"]["blocked"])

@@ -3,13 +3,14 @@ from copy import deepcopy
 import gc
 import unittest
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, QUrl
 from PySide6.QtTest import QTest
 
 from gxp_editor.logic_flow_model import (
     MISSING, UNDEFINED, condition_text, field_states, flow_lane, flow_options, output_states, same, trace_events,
 )
 from gxp_editor.logic_review_ui import LogicReview
+from gxp_editor.logic_flow_ui import FlowCard, difference_html
 from gxp_editor.qt_theme import application
 
 
@@ -167,17 +168,27 @@ class FlowQtTests(unittest.TestCase):
         self.assertEqual(widget.views.currentIndex(), 0)
         self.assertGreater(len(widget.flow.cards), 8)
         for card in widget.flow.cards:
-            self.assertEqual(len(card.childItems()), 3)
+            self.assertGreaterEqual(len(card.childItems()), 3)
             self.assertTrue(card.text_items[1].toPlainText())
         self.assertEqual(widget.flow.view.verticalScrollBar().value(), 0)
 
-    def test_click_condition_card_locates_native_controller(self):
+    def test_click_condition_card_opens_comparison_and_can_locate_controller(self):
         widget = self.widget()
         received = []
         widget.navigate_requested.connect(lambda *target: received.append(target))
         card = next(card for card in widget.flow.cards if card.target and card.target.get("node_key") == "if")
+        widget.flow.view.ensureVisible(card)
+        self.app.processEvents()
         center = widget.flow.view.mapFromScene(card.mapToScene(card.boundingRect().center()))
         QTest.mouseClick(widget.flow.view.viewport(), Qt.MouseButton.LeftButton, pos=center)
+        self.app.processEvents()
+        self.assertEqual(received, [])
+        dialog = widget.flow.comparison_dialog
+        self.addCleanup(dialog.close)
+        self.assertTrue(dialog.isVisible())
+        self.assertIn("执行条件", dialog.windowTitle())
+        self.assertIn("inbiz.getPageMode()", widget.flow.comparison_views[1].toPlainText())
+        widget.flow.comparison_locate_button.click()
         self.assertEqual(received, [("main", "if", "inputParams.condition")])
 
     def test_observed_values_are_on_destination_cards_and_track_expands(self):
@@ -198,6 +209,147 @@ class FlowQtTests(unittest.TestCase):
         self.assertGreater(widget.flow.view.verticalScrollBar().maximum(), 0)
         self.assertGreaterEqual(widget.flow.view.transform().m11(), 0.55)
         self.assertEqual(len(widget.flow.options), 2)
+
+    def test_small_changes_are_visible_inside_their_flow_block(self):
+        widget = self.widget()
+        rows = widget.flow.change_rows
+        self.assertTrue(rows)
+        self.assertTrue(any("inbiz.getPageMode()" in row["after"] for row in rows))
+        self.assertFalse(widget.flow.change_cards, "Changes must not occupy a separate row above the graph")
+        condition = widget.flow.cards[5]
+        contents = "\n".join(item.toPlainText() for item in condition.inline_change_items)
+        self.assertIn("inbiz.getPageMode()", contents)
+        self.assertTrue(condition.details_button.isEnabled())
+        self.assertTrue(condition.detail_payload["changes"])
+        self.assertEqual(widget.flow.cards[0].inline_change_items, [])
+        self.assertEqual(widget.flow.cards[0].detail_payload["changes"], [])
+        self.assertFalse(widget.flow.cards[0].color in {"amber", "blue"}, "Unchanged source must not be marked changed")
+
+    def test_long_change_is_bounded_on_graph_and_complete_in_comparison(self):
+        widget = self.widget()
+        value = 'inbiz("source").value + ' + '"full-value" + ' * 40 + '"END_OF_VALUE"'
+        before, after, report, _, _ = sample()
+        after["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["condition"]["Filters"][0]["target"]["code"] = value
+        widget.set_report(report, before=before, after=after)
+        condition = widget.flow.cards[5]
+        visible = "\n".join(item.toPlainText() for item in condition.text_items)
+        self.assertNotIn("END_OF_VALUE", visible)
+        condition.details_button.click()
+        self.app.processEvents()
+        dialog = widget.flow.comparison_dialog
+        self.addCleanup(dialog.close)
+        self.assertTrue(dialog.isVisible())
+        self.assertIn("END_OF_VALUE", widget.flow.comparison_views[1].toPlainText())
+        self.assertIn("true", widget.flow.comparison_views[0].toPlainText())
+        self.assertIn(value, widget.flow.comparison_raw_views[1].toPlainText().replace('\\"', '"'))
+
+    def test_many_changes_are_collapsed_but_block_button_shows_all(self):
+        widget = self.widget()
+        before, after, report, _, _ = sample()
+        filters = after["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["condition"]["Filters"]
+        for index in range(7):
+            filters.append({"target": {"paramTypes": "custom", "code": f"extra_filter_{index}"},
+                            "equalTo": "Equal", "value": index})
+        widget.set_report(report, before=before, after=after)
+        condition = widget.flow.cards[5]
+        changes = condition.detail_payload["changes"]
+        self.assertGreaterEqual(len(changes), 7)
+        self.assertLess(len(condition.inline_change_items), len(changes))
+        visible = "\n".join(item.toPlainText() for item in condition.inline_change_items)
+        self.assertNotIn("extra_filter_6", visible)
+        condition.details_button.click()
+        self.app.processEvents()
+        self.addCleanup(widget.flow.comparison_dialog.close)
+        complete = widget.flow.comparison_views[1].toPlainText()
+        for index in range(7):
+            self.assertIn(f"extra_filter_{index}", complete)
+        self.assertIn("extra_filter_6", widget.flow.comparison_raw_views[1].toPlainText())
+
+    def test_unchanged_block_opens_its_complete_values_without_other_block_changes(self):
+        widget = self.widget()
+        source = widget.flow.cards[0]
+        self.assertEqual(source.detail_payload["changes"], [])
+        source.details_button.click()
+        self.app.processEvents()
+        dialog = widget.flow.comparison_dialog
+        self.addCleanup(dialog.close)
+        self.assertTrue(dialog.isVisible())
+        self.assertIn("数据来源", dialog.windowTitle())
+        for view in widget.flow.comparison_full_views:
+            contents = view.toPlainText()
+            self.assertIn("来源编号", contents)
+            self.assertNotIn("inbiz.getPageMode()", contents)
+        self.assertTrue(all("未改动" in view.toPlainText() for view in widget.flow.comparison_views))
+        self.assertTrue(all(view.toPlainText() for view in widget.flow.comparison_raw_views))
+        self.assertNotIn("inbiz.getPageMode()", widget.flow.comparison_raw_views[1].toPlainText())
+
+    def test_global_comparison_still_shows_all_changes(self):
+        widget = self.widget()
+        widget.flow.compare_button.click()
+        self.app.processEvents()
+        self.addCleanup(widget.flow.comparison_dialog.close)
+        self.assertTrue(widget.flow.comparison_dialog.isVisible())
+        self.assertIn("inbiz.getPageMode()", widget.flow.comparison_views[1].toPlainText())
+
+    def test_markers_identify_each_native_controller_and_both_version_line_numbers(self):
+        widget = self.widget()
+        before, _, report, _, _ = sample()
+        outer, assignment = before["actionData"][0]["data"]
+        inner = deepcopy(outer)
+        inner.update(key="if-inner", title="判断冻结资质", depth=["if"])
+        assignment["depth"] = ["if", "if-inner"]
+        before["actionData"][0]["data"] = [outer, inner, assignment]
+        after = deepcopy(before)
+        for index, code in enumerate(("page_is_add", "qualification_is_frozen")):
+            after["actionData"][0]["data"][index]["paramsValue"]["inputParams"]["condition"]["Filters"][0]["target"]["code"] = code
+        after["actionData"][0]["data"].insert(0, {
+            "key": "prefix", "elementKey": "SetVariableValue", "title": "先读页面", "paramsValue": {}})
+        widget.set_report(report, before=before, after=after,
+                          action_context={"action_name": "审批动作", "action_code": "CodeA"})
+        selected = next(index for index, option in enumerate(widget.flow.options) if option["node_key"] == "assign")
+        widget.flow.flow_picker.setCurrentIndex(selected)
+        self.app.processEvents()
+
+        action = widget.flow.block_payloads[2]
+        self.assertIn("审批动作（CodeA） · 初始化", action["marker"])
+        self.assertIn("画布第 3 行 · 回填编号", action["baseline_marker"])
+        self.assertIn("画布第 4 行 · 回填编号", action["candidate_marker"])
+        self.assertEqual(widget.flow.cards[2].marker_item.toPlainText(), "第 3 行 · 回填编号")
+        self.assertEqual(widget.flow.cards[6].marker_item.toPlainText(), "第 4 行 · 回填编号")
+
+        widget.flow.cards[5].details_button.click()
+        self.app.processEvents()
+        self.addCleanup(widget.flow.comparison_dialog.close)
+        for view, outer_line, inner_line in zip(widget.flow.comparison_views, (1, 2), (2, 3)):
+            contents = view.toPlainText()
+            self.assertIn("审批动作（CodeA） · 初始化", contents)
+            self.assertIn(f"画布第 {outer_line} 行 · 判断新增", contents)
+            self.assertIn(f"画布第 {inner_line} 行 · 判断冻结资质", contents)
+            self.assertNotIn("回填编号", contents, "Controller changes must keep their own canvas markers")
+        received = []
+        widget.navigate_requested.connect(lambda *target: received.append(target))
+        widget.flow.comparison_views[1].anchorClicked.emit(QUrl("gxp-marker:0"))
+        self.assertEqual(received, [("main", "if", "inputParams.condition.Filters[0].target.code")])
+        self.assertFalse(widget.flow.comparison_dialog.isVisible())
+
+    def test_full_text_card_expands_instead_of_truncating_its_value(self):
+        text = 'long-value ' * 80 + 'END_OF_VALUE'
+        card = FlowCard("修改后", "完整参数", text, full_text=True)
+        self.assertEqual(card.text_items[2].toPlainText(), text)
+        self.assertGreater(card.card_height, 128)
+
+    def test_difference_markup_escapes_code_and_highlights_the_changed_tokens(self):
+        marked = difference_html('<old> & "same"', '<new> & "same"', "candidate")
+        self.assertIn("background-color", marked)
+        self.assertIn("new", marked)
+        self.assertIn("&lt;", marked)
+        self.assertNotIn("<new>", marked)
+
+    def test_highlighted_change_preserves_spaces_tabs_and_line_breaks(self):
+        value = '"a  b"\n\tEND_OF_VALUE'
+        card = FlowCard("修改后", "完整表达式", value, full_text=True,
+                        body_html=difference_html("old", value, "candidate"))
+        self.assertEqual(card.text_items[2].toPlainText(), value)
 
 
 if __name__ == "__main__":

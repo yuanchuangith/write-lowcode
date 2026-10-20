@@ -77,7 +77,7 @@ class LogicScenarioExecutionTests(unittest.TestCase):
     def test_actual_generated_function_observes_page_mode_and_field_writes(self):
         source = 'function(inbiz){return {main:async function(){if(inbiz.getPageMode()==="add") inbiz("result").value="after";}};}'
         evidence = self.run_case(source)
-        self.assertEqual(evidence["cases"][0]["candidate"]["status"], "passed")
+        self.assertEqual(evidence["cases"][0]["candidate"]["status"], "passed", evidence["cases"][0]["candidate"])
         self.assertEqual(evidence["cases"][0]["candidate"]["actual"]["fields"]["result"]["value"], "after")
         self.assertEqual(evidence["cases"][0]["requirement_ids"], ["requirement-one"])
         self.assertFalse(evidence["runtime_verified"])

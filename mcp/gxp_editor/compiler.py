@@ -191,6 +191,8 @@ class CompilerBridge:
             if (source_hash != self._registry["rule_source_sha256"]
                     or sha256_text(self.path.read_text(encoding="utf-8")) != self._registry["bridge_sha256"]):
                 raise CompilerError("Compiler bridge changed; start a new validated compiler session")
+            if self._adapter_sha256() != self._registry["adapter_sha256"]:
+                raise CompilerError("Compiler adapter changed; start a new validated compiler session")
         if self._registry is None:
             result = self._call({"command": "describe_registry"})
             if result.get("command") != "describe_registry":
@@ -206,7 +208,7 @@ class CompilerBridge:
             result["supported_operations"] = [
                 "insert_before", "insert_after", "replace_params", "replace_block",
                 "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
-                "append_node", "bind_component_event",
+                "append_node", "bind_component_event", "set_parameter",
             ]
             result["source_provenance"] = self.source_provenance()
             result["compiler_binding_sha256"] = sha256_json(self._binding_fields(result))

@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.22+codex.local-20261019-approval-queue",
+  "version": "0.1.24+codex.local-20261020-guarded-parameters",
   "description": "Guarded GXP ActionDesign draft editing with business expectation review, before/after generated-JS scenarios, bound compiler evidence, immutable backups, human approval and restore support.",
   "author": {
     "name": "Local developer"
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "GXP 低代码受控编辑",
     "shortDescription": "图形对比数据流与字段状态，明确失败阻止审批，经人工确认保存草稿。",
-    "longDescription": "为一个已有未发布 GXP 编排建立独占编辑会话，使用前端 ActionDesign 真实规则生成画布、JS、C# 与关联数据，并用只读部署程序集快照校验 C#。写入前完成本地备份、索引与权限检查、逐条人工审批和乐观锁验证，并支持审批式恢复。不修改后端、Redis、DLL/PDB，不会创建或发布编排。",
+    "longDescription": "为已有未发布 GXP 编排建立独占编辑会话，支持显式多动作审批队列。使用前端 ActionDesign 真实规则生成画布、JS、C# 与关联数据，并用只读本地引用（开发构建或部署程序集快照）校验 C#；开发引用通过仅证明本地兼容性。写入前完成本地备份、索引与权限检查、逐条人工审批和乐观锁验证，并支持审批式恢复。不修改后端、Redis、DLL/PDB，不会创建或发布编排。",
     "developerName": "Local developer",
     "category": "Developer Tools",
     "capabilities": [

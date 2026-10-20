@@ -44,6 +44,9 @@ class CodeReviewTests(unittest.TestCase):
             (before, before.replace("AAAAAAAA", "BBBBBBBB").replace("'Rows'", "'Total'"), context),
             (before, before.replace("AAAAAAAA", "BBBBBBBB", 1), context),
             (before + "\nvar s = 'ChildAction_AAAAAAAA_Output';", before.replace("AAAAAAAA", "BBBBBBBB") + "\nvar s = 'ChildAction_BBBBBBBB_Output';", context),
+            (before + "\n// ChildAction_AAAAAAAA_Output", before.replace("AAAAAAAA", "BBBBBBBB") + "\n// ChildAction_BBBBBBBB_Output", context),
+            (before + "\n/* ChildAction_AAAAAAAA_Output */", before.replace("AAAAAAAA", "BBBBBBBB") + "\n/* ChildAction_BBBBBBBB_Output */", context),
+            (before + '\nvar s = @"ChildAction_AAAAAAAA_Output";', before.replace("AAAAAAAA", "BBBBBBBB") + '\nvar s = @"ChildAction_BBBBBBBB_Output";', context),
             (before, before.replace("AAAAAAAA", "BBBBBBBB"), None),
             ("var customAAAAAAAA = 1;", "var customBBBBBBBB = 1;", context),
             (before + "\nobj.ChildAction_AAAAAAAA_Output;", before.replace("AAAAAAAA", "BBBBBBBB") + "\nobj.ChildAction_BBBBBBBB_Output;", context),
@@ -55,6 +58,19 @@ class CodeReviewTests(unittest.TestCase):
             with self.subTest(old=old, new=new):
                 rows, _ = aligned_code_rows(old, new, context=enabled)
                 self.assertFalse(any(row["generated_only"] for row in rows))
+
+    def test_action_names_with_underscores_and_dollars_keep_exact_identity(self):
+        for action in ("Child_Action", "Child$Action", "Child_AAAAAAAA_Output"):
+            with self.subTest(action=action):
+                before = f"var {action}_AAAAAAAA_Output = await self.{action}();"
+                after = before.replace("_AAAAAAAA_Output =", "_BBBBBBBB_Output =")
+                context = (frozenset({"CallAction"}), frozenset({action, "Child"}))
+                rows, _ = aligned_code_rows(before, after, context=context)
+                self.assertTrue(rows[0]["generated_only"])
+                self.assertEqual(rows[0]["before"], before)
+                self.assertEqual(rows[0]["after"], after)
+                rows, _ = aligned_code_rows(before, after, context=(context[0], frozenset({"Child"})))
+                self.assertFalse(rows[0]["generated_only"])
 
     def test_insert_and_delete_align_real_line_numbers_without_losing_code(self):
         before = "a\nb\nremoved\nz"

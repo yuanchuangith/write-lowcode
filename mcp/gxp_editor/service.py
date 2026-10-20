@@ -534,8 +534,8 @@ class EditorService:
         if previous is not None and sha256_json(spec) != sha256_json(previous):
             if spec.get("revision") == previous.get("revision"):
                 raise EditorServiceError("修改验收规则或场景时必须提供新的 revision。")
-            old_rules = {item["id"]: item["text"] for item in previous.get("requirements", [])}
-            new_rules = {item["id"]: item["text"] for item in spec.get("requirements", [])}
+            old_rules = {item["id"]: {field: item[field] for field in ("text", "targets")} for item in previous.get("requirements", [])}
+            new_rules = {item["id"]: {field: item[field] for field in ("text", "targets")} for item in spec.get("requirements", [])}
             old_cases = {item["id"]: item for item in previous["scenarios"]["cases"]}
             new_cases = {item["id"]: item for item in spec["scenarios"]["cases"]}
             changed_existing_cases = any(
@@ -544,13 +544,19 @@ class EditorService:
                     for field in ("environment", "steps", "expect", "requirement_ids")
                 ) for case_id, old_case in old_cases.items()
             )
-            if old_rules != new_rules or changed_existing_cases:
+            old_assertions = {item["id"]: item for item in previous.get("canvas_assertions", [])}
+            new_assertions = {item["id"]: item for item in spec.get("canvas_assertions", [])}
+            changed_existing_assertions = any(
+                assertion_id not in new_assertions or sha256_json(assertion) != sha256_json(new_assertions[assertion_id])
+                for assertion_id, assertion in old_assertions.items()
+            )
+            if old_rules != new_rules or changed_existing_cases or changed_existing_assertions:
                 old_sources = {str(item.get("source_text") or "").strip() for item in previous.get("requirements", [])}
                 new_sources = {str(item.get("source_text") or "").strip() for item in spec.get("requirements", [])}
                 change_source = str(spec.get("change_source_text") or "").strip()
                 previous_change_source = str(previous.get("change_source_text") or "").strip()
                 if not (change_source and change_source != previous_change_source) and not (new_sources - old_sources - {""}):
-                    raise EditorServiceError("修改或移除业务预期、已有场景时必须附新的用户依据 source_text 或 change_source_text。")
+                    raise EditorServiceError("修改或移除业务预期、已有场景或画布断言时必须附新的用户依据 source_text 或 change_source_text。")
         return spec
 
     @staticmethod

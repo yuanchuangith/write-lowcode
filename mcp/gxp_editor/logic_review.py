@@ -6,6 +6,7 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from .canvas_assertions import CanvasAssertionError, build_canvas_checks, normalize_canvas_assertions, validate_json_value
 from .hashing import canonical_json, design_content_hash, sha256_json, sha256_text
 
 
@@ -33,7 +34,11 @@ def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
                 "scenarios": {"schema_version": 1, "cases": []}}
     if not isinstance(spec, dict) or type(spec.get("schema_version")) is not int or spec.get("schema_version") != REVIEW_SCHEMA_VERSION:
         raise LogicReviewError("review_spec.schema_version 必须为 1。")
-    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text"}
+    try:
+        validate_json_value(spec)
+    except CanvasAssertionError as exc:
+        raise LogicReviewError(str(exc)) from exc
+    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text", "canvas_assertions"}
     if unknown:
         raise LogicReviewError("review_spec 包含未知字段：" + ", ".join(sorted(unknown)))
     revision = _text(spec.get("revision"), "review_spec.revision", limit=128)
@@ -72,6 +77,11 @@ def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
         if any(identifier not in seen for identifier in case.get("requirement_ids", [])):
             raise LogicReviewError("场景关联了不存在的预期规则。")
     result = {"schema_version": 1, "revision": revision, "requirements": normalized, "scenarios": scenarios}
+    if "canvas_assertions" in spec:
+        try:
+            result["canvas_assertions"] = normalize_canvas_assertions(spec["canvas_assertions"], normalized)
+        except CanvasAssertionError as exc:
+            raise LogicReviewError(str(exc)) from exc
     if "change_source_text" in spec:
         result["change_source_text"] = _text(spec["change_source_text"], "review_spec.change_source_text")
     if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 2 * 1024 * 1024:
@@ -186,15 +196,76 @@ def _scenario_report(spec, baseline, candidate, report):
     return deepcopy(report)
 
 
-def _requirements_evidence(spec, report):
+_TARGET_LIMIT_REASONS = {
+    "未指定需求目标，需人工判断",
+    "需求目标不存在或类型未知，需人工判断",
+    "C# 需求目标未执行验证，JS 场景不能证明此项通过",
+    "关联场景没有记录目标分组的执行，需人工判断",
+    "仅有分组执行记录，需求目标节点未验证",
+    "仅有分组执行记录，需求目标字段未验证",
+}
+
+
+def _requirement_target_limit(requirement, linked, candidate):
+    targets = requirement["targets"]
+    if not targets:
+        return "未指定需求目标，需人工判断"
+    groups = {group["key"]: group for group in candidate["actionData"]}
+    for target in targets:
+        group = groups.get(target["group_key"])
+        if (group is None or group.get("actionType") not in {"js", "csharp"}
+                or target.get("node_key") and not any(node.get("key") == target["node_key"] for node in group.get("data", []))):
+            return "需求目标不存在或类型未知，需人工判断"
+        if group["actionType"] == "csharp":
+            return "C# 需求目标未执行验证，JS 场景不能证明此项通过"
+    observed = {entry.get("api") for case in linked for entry in (case["candidate"].get("trace") or []) if isinstance(entry, dict)}
+    executed = {key for key in groups if "group." + key in observed}
+    # Event/registration traces do not identify the native callback function.
+    # An unexecuted or later-overwritten canvas binding cannot prove which
+    # group handled an event. Nested action/node coverage is also not logged.
+    if any(target["group_key"] not in executed for target in targets):
+        return "关联场景没有记录目标分组的执行，需人工判断"
+    if any(target.get("node_key") for target in targets):
+        return "仅有分组执行记录，需求目标节点未验证"
+    if any(target.get("field_path") for target in targets):
+        return "仅有分组执行记录，需求目标字段未验证"
+    return None
+
+
+def _requirements_evidence(spec, report, candidate=None, canvas_checks=None):
     evidence = []
     for requirement in spec["requirements"]:
         linked = [case for case in report["cases"] if requirement["id"] in case.get("requirement_ids", [])]
         statuses = {case["candidate"]["status"] for case in linked}
         status = "failed" if "failed" in statuses else "unverified" if not linked or "unverified" in statuses else "passed"
-        evidence.append({**deepcopy(requirement), "status": status, "case_ids": [case["id"] for case in linked],
-                         "reason": "没有关联执行场景，需人工判断" if not linked else "关联场景存在失败" if status == "failed" else
-                         "关联场景仍有未验证项" if status == "unverified" else "关联场景均通过；覆盖范围限于这些场景"})
+        reason = ("没有关联执行场景，需人工判断" if not linked else "关联场景存在失败" if status == "failed" else
+                  "关联场景仍有未验证项" if status == "unverified" else "关联场景均通过；覆盖范围限于这些场景")
+        if status == "passed" and candidate is not None:
+            limit = _requirement_target_limit(requirement, linked, candidate)
+            if limit:
+                status, reason = "unverified", limit
+        item = {**deepcopy(requirement), "status": status, "case_ids": [case["id"] for case in linked], "reason": reason}
+        configuration = [check for check in (canvas_checks or []) if requirement["id"] in check["requirement_ids"]]
+        if configuration:
+            states = {check["status"] for check in configuration}
+            # A passing local assertion covers only its actual value. Broad
+            # group/node targets and array-member checks cannot certify an
+            # entire requirement's configuration scope.
+            covered = all(target.get("node_key") and target.get("field_path") and any(
+                check["operator"] in {"equals", "unchanged"}
+                and check["target"]["group_key"] == target["group_key"]
+                and check["target"]["node_key"] == target["node_key"]
+                and (target["field_path"].lstrip("/") == "paramsValue" + check["path"]
+                     or target["field_path"].lstrip("/").startswith("paramsValue" + check["path"] + "/"))
+                for check in configuration) for target in requirement["targets"])
+            configuration_status = "failed" if "failed" in states else "unverified" if "unverified" in states or not covered else "passed"
+            configuration_reason = ("关联配置断言存在失败" if configuration_status == "failed" else
+                                    "关联配置断言仍有未验证项" if "unverified" in states else
+                                    "指定配置字段已核对；运行状态独立" if covered else
+                                    "关联断言已通过；配置范围尚未完整核对")
+            item.update(configuration_status=configuration_status, configuration_reason=configuration_reason,
+                        configuration_check_ids=[check["id"] for check in configuration])
+        evidence.append(item)
     return evidence
 
 
@@ -203,16 +274,22 @@ def _has_expectations(expect):
         field in expect for field in ("metadata", "metadata_registrations", "last_return", "last_return_undefined", "call_order"))
 
 
-def _review_summary(spec, changes, report):
+def _review_summary(spec, changes, report, requirements=None, canvas_checks=None):
     counts = {status: sum(case["candidate"]["status"] == status for case in report["cases"]) for status in _STATUSES}
     scope_unknown = sum(change["status"] == "unverified" for change in changes)
-    requirements = _requirements_evidence(spec, report)
+    if requirements is None:
+        requirements = _requirements_evidence(spec, report)
     requirement_counts = {"requirements_" + status: sum(item["status"] == status for item in requirements) for status in _STATUSES}
     failures = counts["failed"]
     unknowns = counts["unverified"] + scope_unknown + requirement_counts["requirements_unverified"] + int(not spec["requirements"])
     summary = {**counts, **requirement_counts, "scope_failed": 0, "scope_unverified": scope_unknown}
+    if canvas_checks is not None:
+        configuration_counts = {"configuration_" + state: sum(check["status"] == state for check in canvas_checks) for state in _STATUSES}
+        summary.update(configuration_counts)
+        failures += configuration_counts["configuration_failed"]
+        unknowns += configuration_counts["configuration_unverified"]
     gate = {"blocked": bool(failures), "fail_count": failures, "unknown_count": unknowns,
-            "pass_count": counts["passed"]}
+            "pass_count": counts["passed"] + (summary.get("configuration_passed", 0))}
     return summary, gate, "failed" if failures else "unverified" if unknowns else "passed"
 
 
@@ -221,20 +298,28 @@ def build_business_review(*, review_spec, baseline_design, candidate_design, com
     hashes = _candidate_hashes(candidate_design)
     if "relation_sha256" not in hashes:
         raise LogicReviewError("候选业务审查缺少 relation_data。")
-    changes = _canvas_changes(_canvas(baseline_design), _canvas(candidate_design), spec)
+    candidate = _canvas(candidate_design)
+    baseline = _canvas(baseline_design)
+    changes = _canvas_changes(baseline, candidate, spec)
     scenarios = _scenario_report(spec, baseline_design, candidate_design, scenario_report)
     try:
-        summary, gate, status = _review_summary(spec, changes, scenarios)
+        canvas_checks = build_canvas_checks(spec["canvas_assertions"], baseline, candidate) if "canvas_assertions" in spec else None
+        requirements = _requirements_evidence(spec, scenarios, candidate, canvas_checks)
+        summary, gate, status = _review_summary(spec, changes, scenarios, requirements, canvas_checks)
+    except CanvasAssertionError as exc:
+        raise LogicReviewError(str(exc)) from exc
     except (KeyError, TypeError) as exc:
         raise LogicReviewError("场景执行报告结构无效。") from exc
     review = {"schema_version": 1, "engine_version": REVIEW_ENGINE_VERSION, "spec": spec,
-              "changes": changes, "scenarios": scenarios, "requirements": _requirements_evidence(spec, scenarios),
+              "changes": changes, "scenarios": scenarios, "requirements": requirements,
               "bindings": {"baseline_content_hash": _base_hash(baseline_design),
                            "baseline_js_sha256": sha256_text(str(baseline_design.get("js_code") or "")),
                            "candidate_hashes": hashes, "compiler_binding_sha256": compiler_binding.get("compiler_binding_sha256"),
                            "review_spec_sha256": sha256_json(spec)},
               "summary": summary, "candidate_gate": gate, "status": status,
               "browser_verified": False, "runtime_verified": False}
+    if canvas_checks is not None:
+        review["canvas_checks"] = canvas_checks
     review["review_sha256"] = sha256_json(review)
     validate_business_review(review, baseline_design=baseline_design, candidate_design=candidate_design, compiler_binding=compiler_binding)
     return review
@@ -296,8 +381,29 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
                 not isinstance(assertions, list) or not assertions or any(not isinstance(item, dict) or item.get("passed") is not True for item in assertions)
             ):
                 raise LogicReviewError("场景通过状态与实际断言结果不一致。")
-    summary, gate, status = _review_summary(spec, changes, report)
-    if review.get("requirements") != _requirements_evidence(spec, report):
+    canvas_checks = None
+    if "canvas_assertions" in spec:
+        try:
+            canvas_checks = build_canvas_checks(spec["canvas_assertions"],
+                _canvas(baseline_design) if baseline_design is not None else None,
+                _canvas(candidate_design) if candidate_design is not None else None,
+                recorded=review.get("canvas_checks"))
+        except CanvasAssertionError as exc:
+            raise LogicReviewError(str(exc)) from exc
+        if review.get("canvas_checks") != canvas_checks:
+            raise LogicReviewError("画布配置检查缺失或不一致。")
+    elif "canvas_checks" in review:
+        raise LogicReviewError("没有固定画布断言时不能添加配置检查。")
+    requirements = _requirements_evidence(spec, report, _canvas(candidate_design) if candidate_design is not None else None, canvas_checks)
+    if candidate_design is None:
+        # Read-only report validation may lack the canvas. Preserve a recorded
+        # conservative limit; every write validates it again with the candidate.
+        for expected, recorded in zip(requirements, review.get("requirements") or []):
+            if (expected["status"] == "passed" and isinstance(recorded, dict) and recorded.get("status") == "unverified"
+                    and recorded.get("reason") in _TARGET_LIMIT_REASONS):
+                expected.update(status="unverified", reason=recorded["reason"])
+    summary, gate, status = _review_summary(spec, changes, report, requirements, canvas_checks)
+    if review.get("requirements") != requirements:
         raise LogicReviewError("业务审查逐条需求状态与关联场景不一致。")
     if review.get("summary") != summary or review.get("candidate_gate") != gate or review.get("status") != status:
         raise LogicReviewError("业务审查汇总与实际场景结果不一致。")

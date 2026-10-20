@@ -8,3 +8,4 @@ if (-not (Test-Path -LiteralPath $pythonPath)) {
     throw 'GXP editor MCP runtime is missing. Run scripts\setup.ps1 first.'
 }
 & $pythonPath (Join-Path $pluginRoot 'mcp\server.py')
+exit $LASTEXITCODE

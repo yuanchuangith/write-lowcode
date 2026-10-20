@@ -91,9 +91,10 @@ def _desired_relation_rows(
         existing = current_by_action.get(str(action_data_id))
         if existing:
             row = dict(existing)
-            row["data"] = data
-            row["isDeleted"] = 0
-            row["lastModificationTime"] = now
+            if existing.get("data") != data or existing.get("isDeleted") != 0:
+                row["data"] = data
+                row["isDeleted"] = 0
+                row["lastModificationTime"] = now
         else:
             modifier = str(
                 metadata_template.get("lastModifierId")
@@ -193,7 +194,8 @@ def build_transaction_artifact(
     for relation_id, row in wanted_by_id.items():
         existing = current_by_id.get(relation_id)
         if existing:
-            if str(existing.get("data") or "") == str(row.get("data") or "") and not restore:
+            if (not restore and existing.get("data") == row.get("data")
+                    and existing.get("isDeleted") == row.get("isDeleted")):
                 continue
             restore_existing = restore
             statements.append(

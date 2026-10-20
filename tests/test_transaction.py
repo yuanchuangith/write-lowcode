@@ -8,8 +8,8 @@ from unittest.mock import patch
 from tests.helpers import baseline, editor_config, relation, runtime_validation, transaction
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.approval import statement_hash, transaction_binding_hash
-from gxp_editor.hashing import compiler_binding_payload, sha256_json, sha256_text
-from gxp_editor.transaction import RESTORE_RELATION_SQL, TransactionPlanError, build_transaction_artifact, validate_transaction_artifact
+from gxp_editor.hashing import compiler_binding_payload, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
+from gxp_editor.transaction import RESTORE_RELATION_SQL, UPDATE_RELATION_SQL, TransactionPlanError, build_transaction_artifact, validate_transaction_artifact
 
 
 class TransactionTests(unittest.TestCase):
@@ -137,6 +137,51 @@ class TransactionTests(unittest.TestCase):
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
         with self.assertRaisesRegex(TransactionPlanError, "ownership guard|审批目标不一致"):
             validate_transaction_artifact(artifact)
+
+    def test_unchanged_relation_preserves_metadata_and_snapshot_without_update(self):
+        current = relation()
+        original = copy.deepcopy(current)
+        with patch("gxp_editor.transaction._now", return_value="2026-10-20 10:00:00.123"):
+            artifact = transaction(current_relations=[current], desired_relations={"node-1": current["data"]})
+
+        self.assertEqual([item["kind"] for item in artifact["statements"]], ["update_design"])
+        self.assertEqual(artifact["expected_relation_rows"], normalized_relation_rows([original]))
+        self.assertEqual(artifact["old_relation_hash"], relation_snapshot_hash([original]))
+        self.assertEqual(artifact["expected_relation_hash"], artifact["old_relation_hash"])
+        self.assertEqual(current, original)
+
+    def test_changed_relation_data_updates_timestamp_and_expected_snapshot(self):
+        current = relation()
+        expected = {**current, "data": '{"new":true}', "lastModificationTime": "2026-10-20 10:00:00.123"}
+        with patch("gxp_editor.transaction._now", return_value=expected["lastModificationTime"]):
+            artifact = transaction(current_relations=[current], desired_relations={"node-1": expected["data"]})
+
+        updates = [item for item in artifact["statements"] if item["kind"] == "update_relation"]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["sql"], UPDATE_RELATION_SQL)
+        self.assertEqual(updates[0]["params"], [expected["data"], current["lastModifierId"],
+                         expected["lastModificationTime"], current["id"], current["design_id"]])
+        self.assertEqual(artifact["expected_relation_rows"], normalized_relation_rows([expected]))
+        self.assertEqual(artifact["expected_relation_hash"], relation_snapshot_hash([expected]))
+        self.assertNotEqual(artifact["expected_relation_hash"], artifact["old_relation_hash"])
+        self.assertEqual(current["lastModificationTime"], "2026-07-25 08:00:00.000")
+
+    def test_deleted_relation_is_reactivated_even_when_data_is_unchanged(self):
+        current = relation(isDeleted=1)
+        expected = {**current, "isDeleted": 0, "lastModificationTime": "2026-10-20 10:00:00.123"}
+        with patch("gxp_editor.transaction._now", return_value=expected["lastModificationTime"]):
+            artifact = transaction(current_relations=[current], desired_relations={"node-1": current["data"]})
+
+        updates = [item for item in artifact["statements"] if item["kind"] == "update_relation"]
+        self.assertEqual(len(updates), 1)
+        self.assertEqual(updates[0]["sql"], UPDATE_RELATION_SQL)
+        self.assertIn("isDeleted=0", updates[0]["sql"])
+        self.assertEqual(updates[0]["params"], [current["data"], current["lastModifierId"],
+                         expected["lastModificationTime"], current["id"], current["design_id"]])
+        self.assertEqual(artifact["expected_relation_rows"], normalized_relation_rows([expected]))
+        self.assertEqual(artifact["expected_relation_hash"], relation_snapshot_hash([expected]))
+        self.assertNotEqual(artifact["expected_relation_hash"], artifact["old_relation_hash"])
+        self.assertEqual(current["isDeleted"], 1)
 
     def test_restore_preserves_complete_relation_metadata(self):
         current = relation(data='{"current":true}', isDeleted=0)

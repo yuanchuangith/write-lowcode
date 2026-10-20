@@ -8,8 +8,8 @@ from pathlib import Path
 from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
-    QApplication, QComboBox, QDialog, QHBoxLayout, QHeaderView, QPushButton,
-    QSplitter, QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
+    QApplication, QDialog, QHBoxLayout, QHeaderView, QPushButton,
+    QSplitter, QTabBar, QTabWidget, QTextEdit, QTreeWidget, QTreeWidgetItem, QVBoxLayout, QWidget,
 )
 
 from .canvas_review_model import review_groups
@@ -263,10 +263,12 @@ class CodeReview(QWidget):
         layout.setContentsMargins(12, 12, 12, 12)
         layout.addWidget(label("比较整个动作的完整代码；元件参数与表达式见“元件预览”。", "muted", wrap=True))
         toolbar = QHBoxLayout()
-        self.language = QComboBox()
-        self.language.addItem("JavaScript", "js_code")
-        self.language.addItem("C#", "csharp_code")
-        self.language.currentIndexChanged.connect(self.render)
+        self.language = QTabBar()
+        self.language.setExpanding(False)
+        self.language.setDrawBase(False)
+        for title, field in (("JavaScript", "js_code"), ("C#", "csharp_code")):
+            self.language.setTabData(self.language.addTab(title), field)
+        self.language.currentChanged.connect(self.render)
         toolbar.addWidget(self.language)
         self.previous = QPushButton("上一处")
         self.next = QPushButton("下一处")
@@ -309,7 +311,7 @@ class CodeReview(QWidget):
         self.render()
 
     def render(self):
-        field = self.language.currentData()
+        field = self.language.tabData(self.language.currentIndex())
         before, after = self.sources["before"].get(field, ""), self.sources["after"].get(field, "")
         key = before, after, self.context, field
         if key == self._render_key:
@@ -338,4 +340,4 @@ class CodeReview(QWidget):
             bar.setValue(value)
 
     def copy(self, side):
-        QApplication.clipboard().setText(self.sources[side].get(self.language.currentData(), ""))
+        QApplication.clipboard().setText(self.sources[side].get(self.language.tabData(self.language.currentIndex()), ""))

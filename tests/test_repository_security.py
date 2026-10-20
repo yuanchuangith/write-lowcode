@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import contextlib
 import unittest
+from unittest.mock import Mock
 
 from gxp_editor.repository import EditorRepository
 
@@ -25,6 +26,18 @@ class GrantDatabase:
 
 
 class RepositorySecurityTests(unittest.TestCase):
+    def test_relation_snapshot_can_be_locked_in_the_write_transaction(self):
+        session = Mock()
+        session.query.return_value = []
+        repository = EditorRepository(None)
+        repository._relations("design-1", session, for_update=True)
+        sql, params = session.query.call_args.args
+        self.assertTrue(sql.rstrip().endswith("FOR UPDATE"))
+        self.assertIn("WHERE design_Id=", sql)
+        self.assertEqual(params, {"design_id": "design-1"})
+        repository._relations("design-1", session)
+        self.assertNotIn("FOR UPDATE", session.query.call_args.args[0])
+
     def test_grant_status_never_returns_raw_grant_identity(self):
         repository = EditorRepository(
             GrantDatabase(

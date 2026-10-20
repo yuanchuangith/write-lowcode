@@ -1,7 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const runtimeContracts = require('./event_contracts.cjs');
-const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'bind_component_event'];
+const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'bind_component_event', 'set_parameter'];
 const NATIVE = ['insert_before', 'insert_after', 'replace_params', 'replace_block', 'delete_block', 'move_block'];
 const TYPES = new Set(['string', 'number', 'double', 'boolean', 'object', 'dictionary', 'array', 'dateTime', 'any']);
 const FORBIDDEN = ['key', 'depth', 'title', 'description', 'js_code', 'csharp_code', 'relation_data', 'sql', 'raw_code'];
@@ -12,6 +12,72 @@ function text(value, field) {
 }
 function fields(op, names) {
   for (const key of Object.keys(op)) if (!names.includes(key)) throw new Error('Unsupported field for ' + op.operation + ': ' + key);
+}
+const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
+function sameJson(left, right) {
+  if (left === right) return true;
+  if (left === null || right === null || typeof left !== typeof right) return false;
+  if (Array.isArray(left)) return Array.isArray(right) && left.length === right.length && left.every((item, i) => sameJson(item, right[i]));
+  if (!object(left) || !object(right)) return false;
+  const keys = Object.keys(left);
+  return keys.length === Object.keys(right).length && keys.every(key => Object.hasOwn(right, key) && sameJson(left[key], right[key]));
+}
+function parameterValue(value) {
+  if (value === null || ['string', 'boolean'].includes(typeof value)) return;
+  if (typeof value === 'number' && Number.isFinite(value)) return;
+  if (Array.isArray(value)) { for (const item of value) parameterValue(item); return; }
+  if (!object(value)) throw new Error('Parameter value must be JSON data');
+  for (const [key, item] of Object.entries(value)) {
+    if (UNSAFE_KEYS.has(key)) throw new Error('Unsafe parameter key: ' + key);
+    parameterValue(item);
+  }
+}
+function parameterPath(path) {
+  text(path, 'path');
+  if (!path.startsWith('/') || /~(?![01])/.test(path)) throw new Error('path must be a valid JSON pointer');
+  const parts = path.slice(1).split('/').map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'));
+  if (parts.length < 2 || !['inputParams', 'outputParams'].includes(parts[0])) throw new Error('path must select an existing inputParams/outputParams parameter');
+  if (parts.some(part => UNSAFE_KEYS.has(part))) throw new Error('Unsafe parameter path');
+  return parts;
+}
+function sameRecordKeys(before, after) {
+  if (Array.isArray(before)) {
+    if (!Array.isArray(after)) throw new Error('An array parameter must remain an array');
+    return; // A complete native array parameter may add/remove rows under its full old-value precondition.
+  }
+  if (!object(before)) {
+    if (object(after) || Array.isArray(after)) throw new Error('A scalar parameter cannot become a container');
+    return;
+  }
+  if (!object(after) || Object.keys(before).length !== Object.keys(after).length || Object.keys(before).some(key => !Object.hasOwn(after, key))) {
+    throw new Error('Parameter record replacement must preserve existing keys');
+  }
+  for (const key of Object.keys(before)) sameRecordKeys(before[key], after[key]);
+}
+function checkedParameters(params) {
+  if (!object(params)) throw new Error('Target paramsValue must be an object');
+  const result = JSON.parse(JSON.stringify(params));
+  for (const section of ['inputParams', 'outputParams']) {
+    if (!Object.hasOwn(result, section)) result[section] = {};
+    if (!object(result[section])) throw new Error(section + ' must be a parameter dictionary');
+  }
+  return result;
+}
+function checkEditableInput(element, parts, params) {
+  const known = {
+    SetVariable: [['inputParams', 'variableValue'], ['outputParams', 'variableName']],
+    SetVariableValue: [['inputParams', 'attributeValue']],
+  };
+  for (const [section, name] of known[element] || []) {
+    const record = params[section]?.[name];
+    if (parts[0] === section && parts[1] === name && parts.length !== 2) {
+      throw new Error('Submit the complete ParamInput record so value/code stay synchronized');
+    }
+    if (object(record) && record.paramTypes === 'custom' && (typeof record.value !== 'string' || record.value !== record.code)) {
+      throw new Error('Custom ParamInput value and code must be synchronized');
+    }
+  }
 }
 function eventContract(catalog, type, event, api, allowIncomplete = false) {
   const components = catalog.filter(c => c.type === type);
@@ -98,6 +164,46 @@ function applyOperations(design, operations, native, api) {
       continue;
     }
     const group = api.actionByKey(design, resolve(op.action_group_key));
+    if (op.operation === 'set_parameter') {
+      fields(op, ['operation', 'action_group_key', 'target_node_key', 'expected_element_key', 'path', 'expected_old_value', 'value']);
+      text(op.target_node_key, 'target_node_key');
+      text(op.expected_element_key, 'expected_element_key');
+      if (!Object.hasOwn(op, 'expected_old_value') || !Object.hasOwn(op, 'value')) throw new Error('set_parameter requires expected_old_value and value');
+      if (design.actionData.filter(item => item.key === group.key).length !== 1 || group.data.filter(item => item.key === op.target_node_key).length !== 1) {
+        throw new Error('set_parameter requires an unambiguous group and target node');
+      }
+      const at = api.nodeIndex(group, op.target_node_key), current = group.data[at];
+      if (current.elementKey !== op.expected_element_key) throw new Error('Target element type changed; inspect the current node');
+      const parts = parameterPath(op.path), params = checkedParameters(current.paramsValue);
+      let parent = params;
+      for (const part of parts.slice(0, -1)) {
+        if (Array.isArray(parent)) throw new Error('Array indexes are unsupported; submit the complete array parameter and its old value');
+        if (!object(parent) || !Object.hasOwn(parent, part)) throw new Error('Parameter path does not exist');
+        parent = parent[part];
+      }
+      if (Array.isArray(parent)) throw new Error('Array indexes are unsupported; submit the complete array parameter and its old value');
+      const leaf = parts.at(-1);
+      if (!object(parent) || !Object.hasOwn(parent, leaf)) throw new Error('Parameter path does not exist');
+      parameterValue(op.expected_old_value); parameterValue(op.value);
+      if (!sameJson(parent[leaf], op.expected_old_value)) throw new Error('Parameter old value changed; inspect the current node');
+      sameRecordKeys(parent[leaf], op.value);
+      parent[leaf] = JSON.parse(JSON.stringify(op.value));
+      checkEditableInput(current.elementKey, parts, params);
+      // Validate native regeneration before replacing anything on the caller's canvas.
+      const candidateGroup = {...group, data: group.data.slice()};
+      const candidate = {...design, actionData: design.actionData.map(item => item === group ? candidateGroup : item)};
+      const nativeDiff = native(candidate, [{operation:'replace_params', action_group_key:group.key,
+        target_node_key:current.key, input_params:params.inputParams, output_params:params.outputParams}]);
+      const generated = candidateGroup.data[at];
+      if (candidateGroup.data.length !== group.data.length || generated.key !== current.key || generated.elementKey !== current.elementKey ||
+          !sameJson(generated.depth, current.depth) || !sameJson(checkedParameters(generated.paramsValue), params)) {
+        throw new Error('Native regeneration changed parameters outside the requested value; inspect the native contract and use an explicit complete replacement');
+      }
+      group.data[at] = generated;
+      diff.push(...nativeDiff.map(item => ({...item, operation_index:index, operation:op.operation,
+        element_key:current.elementKey, parameter_path:op.path})));
+      continue;
+    }
     if (op.operation === 'set_event_callback_contract') {
       fields(op, ['operation','action_group_key','component_type','event_name']);
       if (group.actionType !== 'js') throw new Error('Event callback contract requires a JS group');

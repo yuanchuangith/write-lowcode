@@ -5,7 +5,7 @@ import json
 import re
 from copy import deepcopy
 
-from .component_preview import canvas_node_locations, control_flow_impacts
+from .component_preview import canvas_node_locations, control_flow_impacts, plain_description
 from .logic_review_model import operation_rule, rule_path
 
 MISSING = object()
@@ -36,7 +36,9 @@ def value_text(value):
 
 def expression(value):
     if isinstance(value, dict):
-        return str(value.get("code") if value.get("code") is not None else value.get("value") or "")
+        if value.get("code") is not None:
+            return expression(value["code"])
+        return expression(value["value"]) if "value" in value else ""
     return value_text(value)
 
 
@@ -60,8 +62,11 @@ def condition_text(condition):
         return expression(condition)
     if "Filters" in condition:
         joiner = " 且 " if str(condition.get("Logic", "And")).lower() == "and" else " 或 "
-        return joiner.join("(" + condition_text(item) + ")" if "Filters" in item else condition_text(item)
-                           for item in condition["Filters"]) or "未配置条件"
+        filters = condition["Filters"]
+        if not isinstance(filters, list):
+            return value_text(condition)
+        return joiner.join("(" + condition_text(item) + ")" if isinstance(item, dict) and "Filters" in item else condition_text(item)
+                           for item in filters) or "未配置条件"
     if "target" in condition or "Field" in condition:
         target = condition.get("target", condition.get("Field"))
         code = expression(target)
@@ -76,30 +81,130 @@ def condition_text(condition):
                 return "始终成立"
         ops = {"Equal": "=", "NotEqual": "≠", "EqualNull": "为空", "NotEqualNull": "不为空",
                "GreaterThan": ">", "LessThan": "<", "GreaterThanOrEqual": "≥", "LessThanOrEqual": "≤"}
-        return code + " " + ops.get(op, op) + ("" if op in {"EqualNull", "NotEqualNull"} else " " + expression(expected))
+        # SelectData stores a parameter descriptor separately from its legacy
+        # value. Keep the executable expression visible, without evaluating it.
+        configured = condition.get("ParamInput", expected)
+        return code + " " + ops.get(op, op) + ("" if op in {"EqualNull", "NotEqualNull"} else " " + expression(configured))
     return expression(condition)
 
 
-def flow_options(before, after, report):
-    previous, current = canvas_node_locations(before or {}), canvas_node_locations(after or {})
+ROLES = ("数据来源", "执行条件", "处理动作", "流向目标")
+BRANCHES = {"If", "IfCondition", "ElseIfCondition", "Else"}
+
+
+def _parameter_role(kind, section, key):
+    """Assign each native parameter once; query predicates are operations."""
+    if section == "outputParams":
+        return "流向目标"
+    if section != "inputParams":
+        return "处理动作"
+    if kind in BRANCHES and key == "condition":
+        return "执行条件"
+    source_keys = {
+        "SetVariable": {"variableValue"}, "SetVariableValue": {"attributeValue"},
+        "QueryData": {"paramName"}, "ExitAction": {"returnValue"},
+        "ComponentEvent": {"name", "eventName"},
+        "SelectData": {"modelName", "tableName", "table", "model", "dataSource", "source"},
+    }
+    destination_keys = {
+        "SetVariableValue": {"variableName", "attributeName"},
+        "CallAction": {"actionName"}, "ComponentEvent": {"action"},
+    }
+    if key in source_keys.get(kind, set()):
+        return "数据来源"
+    if key in destination_keys.get(kind, set()):
+        return "流向目标"
+    return "处理动作"
+
+
+def _role_parameters(node):
+    roles = {role: {} for role in ROLES}
+    kind = node.get("elementKey")
+    roles["处理动作"]["elementKey"] = kind
+    params = node.get("paramsValue") or {}
+    for section, values in params.items():
+        if section in {"inputParams", "outputParams"} and isinstance(values, dict):
+            for key, value in values.items():
+                path = section + "." + key
+                if kind == "SelectData" and path == "inputParams.selectDataConfig" and isinstance(value, dict):
+                    for child, configured in value.items():
+                        child_path = path + "." + child
+                        roles[_path_role(kind, child_path)][child_path] = configured
+                else:
+                    roles[_parameter_role(kind, section, key)][path] = value
+        else:
+            roles["处理动作"][section] = values
+    return roles
+
+
+def _path_role(kind, path):
+    parts = path.split(".")
+    if kind == "SelectData" and parts[:2] == ["inputParams", "selectDataConfig"] and len(parts) > 2:
+        key = parts[2].split("[", 1)[0]
+        if key in {"outputMapping", "outputMappings", "outputFields", "fieldMapping", "fieldMappings"}:
+            return "流向目标"
+    return _parameter_role(kind, parts[0], parts[1] if len(parts) > 1 else "")
+
+
+def _control_nodes(data, target):
+    """Follow native depth and Else/ElseIf predecessor links, in source order."""
+    group = next((item for item in (data or {}).get("actionData", [])
+                  if item.get("key") == target.get("group_key")), {})
+    nodes = {item["key"]: item for item in group.get("data", [])}
+    node = nodes.get(target.get("node_key"), {})
+    result, seen = [], set()
+
+    def add(key):
+        if key in seen:
+            return
+        seen.add(key)
+        parent = nodes.get(key)
+        if parent and parent.get("elementKey") in {"Else", "ElseIfCondition"}:
+            previous = parent.get("depth") or []
+            if previous:
+                add(previous[-1])
+        result.append((key, parent))
+
+    for key in node.get("depth") or []:
+        add(key)
+    if node.get("elementKey") in BRANCHES:
+        add(node["key"])
+    return result
+
+
+def _control_identity(node):
+    if node is None:
+        return None
+    inputs = (node.get("paramsValue") or {}).get("inputParams") or {}
+    return [node.get("elementKey"), inputs.get("condition") if node.get("elementKey") in BRANCHES else inputs]
+
+
+def flow_options(before, after, report, *, display_context=None):
+    if display_context is None:
+        previous, current = canvas_node_locations(before or {}), canvas_node_locations(after or {})
+        impacts = control_flow_impacts(before or {}, after or {}, before_locations=previous, after_locations=current)
+    else:
+        previous, current = display_context["before_locations"], display_context["after_locations"]
+        impacts = display_context["impacts"]
     identifiers = []
     for change in report.get("changes") or []:
         identifier = (change.get("group_key"), change.get("node_key"))
         if identifier in previous or identifier in current:
             identifiers.append(identifier)
-    identifiers += [(item["group_key"], item["node_key"]) for item in control_flow_impacts(before or {}, after or {})]
+    identifiers += [(item["group_key"], item["node_key"]) for item in impacts]
     unique = list(dict.fromkeys(identifiers))
     # The action whose input or execution condition changed is the useful entry.
     unique.sort(key=lambda key: (current.get(key) or previous[key])["node"].get("elementKey") in {"IfCondition", "If", "ElseIfCondition", "Else", "IfEnd"})
     return [{"group_key": key[0], "node_key": key[1],
              "title": (current.get(key) or previous[key])["group"] + " / " +
+                      f"第 {(current.get(key) or previous[key])['line']} 行 / " +
                       str((current.get(key) or previous[key])["node"].get("title") or (current.get(key) or previous[key])["node"].get("elementKey"))}
             for key in unique]
 
 
-def flow_lane(data, target):
+def flow_lane(data, target, *, locations=None, triggers_by_group=None):
     group_key, node_key = target.get("group_key"), target.get("node_key")
-    locations = canvas_node_locations(data or {})
+    locations = canvas_node_locations(data or {}) if locations is None else locations
     side = locations.get((group_key, node_key))
     if not side:
         return {"missing": True, "cards": [], "detail": "此版本不存在该节点"}
@@ -131,6 +236,14 @@ def flow_lane(data, target):
     elif kind == "ComponentEvent":
         source = ("组件事件", expression(inputs.get("name")) + " · " + expression(inputs.get("eventName")))
         destination = ("回调动作", expression(inputs.get("action")))
+    elif kind == "SelectData":
+        model = inputs.get("modelName")
+        if isinstance(model, dict):
+            source = (str(model.get("modelComment") or model.get("modelName") or "查询表 / 对象"),
+                      str(model.get("modelName") or model.get("modelId") or "来源名称未配置"))
+        else:
+            source = parameter(model)
+        destination = parameter(outputs.get("rows")) if "rows" in outputs else ("查询输出", "输出映射未配置")
     conditions = []
     condition_identities = []
     control_target = None
@@ -155,25 +268,181 @@ def flow_lane(data, target):
         destination = ("分支内节点", "条件满足后继续")
     # The native path already handles Else/ElseIf's preceding-branch semantics.
     if any(group_nodes.get(key, {}).get("elementKey") in {"Else", "ElseIfCondition"} for key in depth) or branch:
-        conditions = rule_path(data, group_key, node_key).split("\n→ ")[1:-1] + ([operation_rule(node)] if branch else [])
+        conditions = rule_path(data, group_key, node_key, locations=locations,
+                               triggers_by_group=triggers_by_group).split("\n→ ")[1:-1] + ([operation_rule(node)] if branch else [])
         # Retain the complete native path for branch-chain identity too.
         condition_identities.append(conditions)
     current_target = {"group_key": group_key, "node_key": node_key}
     operation_text = {"SetVariable": "把来源值赋给目标", "SetVariableValue": "设置目标字段属性", "QueryData": "读取页面参数",
                       "CallAction": "调用后续动作", "ExitAction": "返回结果并结束", "ComponentEvent": "绑定组件事件",
                       "IfCondition": "按条件选择分支", "If": "按条件选择分支", "ElseIfCondition": "检查后续分支", "Else": "执行兜底分支"}.get(kind, str(kind))
-    return {"missing": False, "detail": rule_path(data, group_key, node_key), "cards": [
-        {"role": "数据来源", "title": source[0], "body": source[1], "identity": source_identity, "field": source_field, "target": current_target},
-        {"role": "执行条件", "title": " 且 ".join(conditions) or "分组执行到此处", "body": "配置条件 · 命中结果未单独采集", "identity": condition_identities, "target": control_target},
-        {"role": "处理动作", "title": str(node.get("title") or kind), "body": operation_text, "identity": [kind, params], "target": current_target},
-        {"role": "流向目标", "title": destination[0], "body": destination[1], "identity": destination_identity, "field": destination_field, "target": current_target},
+    if kind == "SelectData":
+        config = inputs.get("selectDataConfig") or {}
+        if isinstance(config, dict):
+            operation_text = "查询数据"
+            if "whereConditions" in config:
+                operation_text += "\n筛选：" + condition_text(config["whereConditions"])
+            if config.get("sort"):
+                operation_text += "\n排序：" + value_text(config["sort"])
+    roles = _role_parameters(node)
+    source_identity, destination_identity = roles["数据来源"], roles["流向目标"]
+    condition_identities = [[key, _control_identity(parent)] for key, parent in _control_nodes(data, target)]
+    if "depth" in node:
+        condition_identities.append(["depth", node["depth"]])
+    condition_title = " 且 ".join("(" + item + ")" for item in conditions) if len(conditions) > 1 else "".join(conditions)
+    return {"missing": False, "detail": rule_path(data, group_key, node_key, locations=locations,
+                                                   triggers_by_group=triggers_by_group), "cards": [
+        {"role": "数据来源", "title": source[0], "body": source[1], "identity": source_identity, "field": source_field, "target": current_target, "changes": []},
+        {"role": "执行条件", "title": condition_title or "分组执行到此处", "body": "配置条件 · 命中结果未单独采集", "identity": condition_identities, "target": control_target, "changes": []},
+        {"role": "处理动作", "title": str(node.get("title") or kind), "body": operation_text, "identity": roles["处理动作"], "target": current_target, "changes": []},
+        {"role": "流向目标", "title": destination[0], "body": destination[1], "identity": destination_identity, "field": destination_field, "target": current_target, "changes": []},
     ]}
 
 
-def field_names(before, after):
+def _structural_changes(before, after, path):
+    """Use native field/index paths; additions retain the entire new value."""
+    if same(before, after):
+        return
+    if isinstance(before, dict) and isinstance(after, dict):
+        for key in dict.fromkeys([*before, *after]):
+            yield from _structural_changes(before.get(key, MISSING), after.get(key, MISSING),
+                                           path + "." + str(key) if path else str(key))
+    elif isinstance(before, list) and isinstance(after, list):
+        for index in range(max(len(before), len(after))):
+            yield from _structural_changes(before[index] if index < len(before) else MISSING,
+                                           after[index] if index < len(after) else MISSING,
+                                           f"{path}[{index}]")
+    else:
+        yield path, before, after
+
+
+_FIELD_TITLES = {
+    "elementKey": "元件类型", "title": "元件名称", "description": "元件说明", "depth": "上级控制关联",
+    "inputParams": "输入参数", "outputParams": "输出参数", "modelName": "来源表 / 对象",
+    "selectDataConfig": "查询配置", "whereConditions": "筛选条件", "condition": "判断条件",
+    "Logic": "条件组合方式", "Filters": "条件", "Field": "筛选字段", "Operator": "比较方式",
+    "target": "判断对象", "equalTo": "比较方式", "ParamInput": "条件取值", "sort": "排序",
+    "rows": "查询结果变量", "variableValue": "来源值", "attributeValue": "来源值",
+    "variableName": "目标变量", "attributeName": "目标属性", "parameterResults": "参数结果变量",
+    "paramName": "页面参数名", "returnValue": "返回值", "actionName": "调用动作", "action": "回调动作",
+    "label": "显示名称", "code": "完整表达式", "value": "配置值", "paramTypes": "取值方式",
+    "dataType": "数据类型", "type": "字段类型", "modelComment": "来源名称", "modelId": "来源标识",
+}
+
+
+def _field_title(path, before, after):
+    pieces = []
+    for part in path.split("."):
+        match = re.fullmatch(r"([^\[]+)(\[\d+\])?", part)
+        key, index = match.groups() if match else (part, None)
+        if key in {"inputParams", "outputParams", "selectDataConfig"}:
+            continue
+        title = _FIELD_TITLES.get(key, key)
+        if index:
+            title += " " + str(int(index[1:-1]) + 1)
+        pieces.append(title)
+    value = after if after is not MISSING else before
+    if isinstance(value, dict) and "Field" in value:
+        pieces.append(str(value["Field"]))
+    return " / ".join(pieces or ["配置"])
+
+
+def _configuration_text(value):
+    if value is MISSING:
+        return "未配置此项"
+    if isinstance(value, dict) and "Field" in value and "Operator" in value:
+        text = condition_text(value)
+        parameter_value = value.get("ParamInput")
+        if isinstance(parameter_value, dict) and parameter_value.get("label"):
+            text += "（" + str(parameter_value["label"]) + "）"
+        extra = {key: item for key, item in value.items()
+                 if key not in {"Field", "Operator", "value", "type", "ParamInput"}}
+        if extra:
+            text += "\n其它配置：" + json.dumps(extra, ensure_ascii=False, indent=2)
+        return text
+    if isinstance(value, (dict, list)):
+        return json.dumps(value, ensure_ascii=False, indent=2)
+    return value_text(value)
+
+
+def _change_rows(before_node, after_node, target, *, control=False):
+    before_node, after_node = before_node or {}, after_node or {}
+    before_params, after_params = before_node.get("paramsValue") or {}, after_node.get("paramsValue") or {}
+    rows = []
+
+    def add(role, path, previous, current):
+        location = {**target, "field_path": path}
+        field = _field_title(path, previous, current)
+        if control:
+            field = "上级控制 · " + field
+        previous_text, current_text = _configuration_text(previous), _configuration_text(current)
+        if path == "description":
+            if isinstance(previous, str):
+                previous_text = plain_description({"description": previous}) or '空字符串 ""'
+            if isinstance(current, str):
+                current_text = plain_description({"description": current}) or '空字符串 ""'
+            if previous is not MISSING and current is not MISSING and previous_text == current_text:
+                field += "（仅说明格式变化）"
+        rows.append({"role": role, "field": field, "path": path,
+                     "before": previous_text, "after": current_text,
+                     "before_value": previous, "after_value": current,
+                     "kind": "新增" if previous is MISSING else "删除" if current is MISSING else "修改",
+                     "target": location})
+
+    # Parameters precede generated captions, so concrete edits are immediately visible.
+    for section in dict.fromkeys([*before_params, *after_params]):
+        old_values, new_values = before_params.get(section, {}), after_params.get(section, {})
+        if section in {"inputParams", "outputParams"} and isinstance(old_values, dict) and isinstance(new_values, dict):
+            for key in dict.fromkeys([*old_values, *new_values]):
+                kind = (after_node if key in new_values else before_node).get("elementKey")
+                if control and (section != "inputParams" or kind in BRANCHES and key != "condition"):
+                    continue
+                for path, previous, current in _structural_changes(old_values.get(key, MISSING), new_values.get(key, MISSING), section + "." + key):
+                    add("执行条件" if control else _path_role(kind, path), path, previous, current)
+        elif not control:
+            for path, previous, current in _structural_changes(before_params.get(section, MISSING), after_params.get(section, MISSING), section):
+                add("处理动作", path, previous, current)
+    for key in ("elementKey", "depth") if control else ("elementKey", "depth", "title", "description"):
+        for path, previous, current in _structural_changes(before_node.get(key, MISSING), after_node.get(key, MISSING), key):
+            add("执行条件" if control or key == "depth" else "处理动作", path, previous, current)
+    return rows
+
+
+def flow_comparison(before, after, target, *, display_context=None):
+    """Complete before/after rows for this node and the controls it depends on.
+
+    This is a display model, independent of approval reports and runtime checks.
+    Raw configuration values are retained alongside their readable text.
+    """
+    if display_context is None:
+        previous, current = canvas_node_locations(before or {}), canvas_node_locations(after or {})
+        previous_triggers = current_triggers = None
+    else:
+        previous, current = display_context["before_locations"], display_context["after_locations"]
+        previous_triggers, current_triggers = display_context["before_triggers"], display_context["after_triggers"]
+    baseline = flow_lane(before, target, locations=previous, triggers_by_group=previous_triggers)
+    candidate = flow_lane(after, target, locations=current, triggers_by_group=current_triggers)
+    identity = target.get("group_key"), target.get("node_key")
+    old_node, new_node = (previous.get(identity) or {}).get("node"), (current.get(identity) or {}).get("node")
+    location = {"group_key": identity[0], "node_key": identity[1]}
+    changes = _change_rows(old_node, new_node, location)
+    old_controls, new_controls = dict(_control_nodes(before, target)), dict(_control_nodes(after, target))
+    for key in dict.fromkeys([*old_controls, *new_controls]):
+        if key == identity[1]:
+            continue
+        changes.extend(_change_rows(old_controls.get(key), new_controls.get(key),
+                                    {"group_key": identity[0], "node_key": key}, control=True))
+    for lane in (baseline, candidate):
+        for card in lane["cards"]:
+            card["changes"] = [row for row in changes if row["role"] == card["role"]]
+    return {"baseline": baseline, "candidate": candidate, "changes": changes}
+
+
+def field_names(before, after, *, display_context=None):
     result = {}
-    for data in (before, after):
-        for side in canvas_node_locations(data or {}).values():
+    for version, data in (("before", before), ("after", after)):
+        locations = canvas_node_locations(data or {}) if display_context is None else display_context[version + "_locations"]
+        for side in locations.values():
             params = side["node"].get("paramsValue") or {}
             inputs, outputs = params.get("inputParams") or {}, params.get("outputParams") or {}
             values = list(inputs.values()) + list(outputs.values())

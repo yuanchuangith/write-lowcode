@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from .approval_display import _condition, _parameter_summary
-from .component_preview import canvas_node_locations, control_flow_impacts, plain_description
+from .component_preview import canvas_node_locations, component_changes, control_flow_impacts, plain_description
 
 
 def operation_rule(node):
@@ -90,12 +90,18 @@ def event_triggers(data):
 
 
 def review_display_context(before, after):
+    """Derive display data once per report; consumers never alter its canvases."""
+    before, after = before or {}, after or {}
+    previous, current = canvas_node_locations(before), canvas_node_locations(after)
+    changes = component_changes(before, after)
+    impacts = control_flow_impacts(before, after, changes=changes,
+                                   before_locations=previous, after_locations=current)
     controlled = {}
-    for item in control_flow_impacts(before or {}, after or {}):
+    for item in impacts:
         for parent in item["affected_by"]:
             controlled.setdefault((parent["group_key"], parent["node_key"]), []).append(item)
-    return {"before_locations": canvas_node_locations(before or {}), "after_locations": canvas_node_locations(after or {}),
-            "before_triggers": event_triggers(before or {}), "after_triggers": event_triggers(after or {}),
+    return {"changes": changes, "impacts": impacts, "before_locations": previous, "after_locations": current,
+            "before_triggers": event_triggers(before), "after_triggers": event_triggers(after),
             "controlled": controlled, "rule_cache": {}}
 
 

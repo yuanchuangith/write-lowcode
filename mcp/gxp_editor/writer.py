@@ -83,6 +83,9 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
                 raise WriteExecutionError("The draft content changed after planning; transaction was not executed")
             if str(current["last_modification_time"]) != artifact["baseline_last_modification_time"]:
                 raise WriteExecutionError("The draft modification timestamp changed after planning")
+            current_relations = repository._relations(artifact["design_id"], session, for_update=True)
+            if relation_snapshot_hash(current_relations) != artifact.get("old_relation_hash"):
+                raise WriteExecutionError("The draft relations changed after planning; transaction was not executed")
             for statement in artifact["statements"]:
                 write_attempted = True
                 affected = session.execute(statement["sql"], statement["params"])

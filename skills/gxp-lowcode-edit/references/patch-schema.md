@@ -28,11 +28,62 @@ set_event_callback_contract fields: action_group_key, component_type, event_name
 - append_node: action_group_key, element_key, input_params, output_params. Adds native generated nodes at the end of the group, including an empty group, without an anchor. Paired blocks are generated and validated by the native compiler.
 - insert_before / insert_after: action_group_key, anchor_node_key, element_key, input_params, output_params.
 - replace_params: action_group_key, target_node_key, input_params, output_params.
+- set_parameter: action_group_key, target_node_key, expected_element_key, path, expected_old_value, value.
 - replace_block: action_group_key, target_node_key, element_key, input_params, output_params.
 - delete_block: action_group_key, target_node_key.
 - move_block: action_group_key, target_node_key, anchor_node_key, position (before or after).
 
 Node input_params and output_params remain the actual element's parameter dictionaries. Inspect the registry and its real parameter editor; nested table fields are not interchangeable with plain ParamInput records. A block operation addresses its complete levelMarker/endMarker range. Anchors and targets must exist in the selected group. New node keys, depth, raw title/description, generated code, SQL and relation data are forbidden.
+
+`replace_params` replaces the node's **complete** input and output parameter dictionaries; it does not merge a partial update. Omitting a section produces an empty dictionary, and omitted fields are not preserved. Read the exact target's current `paramsValue`, copy both dictionaries, and change only the requested leaves before submitting them. Keep unrelated filters, AND/OR structure, output mappings, and native parameter records intact. For example, when adding a query filter, submit all original filters plus the new filter and the unchanged output dictionary; do not submit only the new filter. Inspect the returned field diff for unintended deletions before requesting approval.
+
+## Guarded parameter updates
+
+Prefer `set_parameter` when changing an existing parameter. It copies the target's current input/output dictionaries, changes exactly the requested value, and uses the native `replace_params` generator. Unrelated parameters and outputs need not be repeated in the operation. This leaves the complete-replacement behavior of `replace_params` unchanged.
+
+Required fields:
+
+- `action_group_key`, `target_node_key`: exact current group and existing node keys (group aliases remain batch-local).
+- `expected_element_key`: the target's exact native element type; a mismatch or ambiguous target blocks compilation.
+- `path`: JSON pointer relative to `paramsValue`, starting with `/inputParams/` or `/outputParams/`. Every selected dictionary key must already exist. Escape `~` as `~0` and `/` as `~1`. Roots, complete input/output dictionaries, canvas metadata, malformed pointers and `__proto__`, `constructor`, or `prototype` keys are forbidden.
+- `expected_old_value`: the complete current value at that path, including its exact JSON type and contents. This field is mandatory even when the value is `null`. A stale value blocks the operation.
+- `value`: the replacement JSON value. Existing records keep all their dictionary keys; replacing a scalar with a container, removing record fields, or introducing dictionary keys is unsupported. Expressions stay native parameter values; callers cannot supply generated source artifacts.
+
+Array indexes are unsupported in this operation. To add/remove/update a filter row, submit the **complete existing array parameter** as `expected_old_value` and its complete replacement as `value`. Include all unchanged rows and the intended native AND/OR structure. Other input parameters and the output dictionary remain preserved. A record inside an array cannot be addressed through its numeric position.
+
+For known `SetVariable` (`inputParams.variableValue`, `outputParams.variableName`) and `SetVariableValue` (`inputParams.attributeValue`) ParamInput fields, submit the whole existing record, including synchronized `value` and `code` for `paramTypes: "custom"`. Changing only one member is blocked; the adapter never guesses how to synchronize arbitrary components. Updating an expression may still require updating its display metadata intentionally in that record.
+
+Each operation checks the current value **after previous operations in the batch**. A second update of the same path must therefore expect the first update's result. The service's existing complete-draft fingerprint separately guards against concurrent draft changes. Native regeneration must preserve the complete projected parameters; an omitted empty unused dictionary is equivalent to an empty dictionary. Any other native normalization that changes an unrelated parameter blocks this operation. Inspect the real native contract and use an explicit complete replacement when coordinated changes are required. Static parameter checks and compilation do not establish runtime behavior; preserve the normal business review and human approval gates.
+
+~~~json
+{
+  "operation": "set_parameter",
+  "action_group_key": "<verified-group-key>",
+  "target_node_key": "<verified-node-key>",
+  "expected_element_key": "<verified-element-type>",
+  "path": "/inputParams/status",
+  "expected_old_value": "active",
+  "value": "freeze"
+}
+~~~
+
+The example applies only if the real element has that exact existing scalar parameter. Read its current record and native contract; do not infer parameter shapes from this example.
+
+For an existing `SetVariable` expression, update the complete native record:
+
+~~~json
+{
+  "operation": "set_parameter",
+  "action_group_key": "<verified-group-key>",
+  "target_node_key": "<verified-node-key>",
+  "expected_element_key": "SetVariable",
+  "path": "/inputParams/variableValue",
+  "expected_old_value": {"paramTypes": "custom", "value": "1", "code": "1", "label": "value", "dataType": "number"},
+  "value": {"paramTypes": "custom", "value": "2", "code": "2", "label": "value", "dataType": "number"}
+}
+~~~
+
+Use the actual record's complete keys and values. For an array-valued filter parameter, select that array's path, use the entire current array as `expected_old_value`, and supply all retained rows plus the new row as `value`; do not select a numeric array index. Add fixed configuration assertions for the intended filter structure and unchanged output as described in [business-review.md](business-review.md).
 
 ## Component event binding
 

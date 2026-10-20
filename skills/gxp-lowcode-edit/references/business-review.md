@@ -84,6 +84,78 @@ covers the quoted request. Add the relevant creation/empty/boundary cases.
   adding whitespace does not count. Never remove a failing scenario simply to
   obtain approval.
 
+## Check canvas configuration directly
+
+Use optional `canvas_assertions` for fixed, data-only checks of the actual native
+parameters. They are useful for C# queries whose business execution cannot be
+verified by the local JS runner, and for preserving filters and outputs when
+changing one parameter. Establish the expected values from the user's request
+and current draft before generating the patch; never change an assertion just
+to make a failed plan pass.
+
+```json
+"canvas_assertions": [
+  {
+    "id": "frozen-status",
+    "requirement_ids": ["query-filter"],
+    "target": {"group_key": "existing-group", "node_key": "existing-query", "element_key": "GetData"},
+    "path": "/inputParams/conditions",
+    "operator": "contains",
+    "value": {"field": "status", "operator": "eq", "value": "freeze"}
+  },
+  {
+    "id": "keep-output",
+    "requirement_ids": ["query-filter"],
+    "target": {"group_key": "existing-group", "node_key": "existing-query", "element_key": "GetData"},
+    "path": "/outputParams",
+    "operator": "unchanged"
+  }
+]
+```
+
+This is a schema example, not a definition of any native query component's
+parameter names. Inspect the actual node first. `element_key` must be its current
+`elementKey`; use the exact native JSON values, including wrappers and AND/OR
+structure. Each linked requirement must match the assertion's group and node,
+with overlapping field scope in its `targets`. An `equals` or `unchanged`
+assertion may check an entire parent value that includes the targeted field.
+Requirement `field_path` uses the existing native path
+format such as `paramsValue/inputParams`; assertion `path` is a JSON pointer
+relative to `paramsValue`, restricted to `/inputParams` or `/outputParams`.
+Escape literal `~` and `/` in pointer tokens as `~0` and `~1`; array indices are
+zero-based decimal numbers.
+
+- `equals` requires `value` and compares the entire value with exact JSON types.
+- `contains` requires `value` and checks one exact member of an array. It does
+  not match partial objects, substrings or predicates. Check an entire filter
+  with `equals`, or preserve its surrounding structure with `unchanged`, when
+  AND/OR structure matters.
+- `unchanged` forbids `value` and compares against the session baseline. A missing
+  baseline stays unverified. Missing targets, changed component/code types and
+  missing candidate parameter paths fail; missing baseline paths also fail for
+  `unchanged`. JSON null is different from an absent path.
+
+At most 100 assertions are allowed, within the overall 2 MiB review specification.
+JSON nesting is bounded; non-finite numbers and executable expressions are not
+supported. A changed or removed existing assertion, including its requirement
+links, needs a new `revision` and new user evidence in `source_text` or
+`change_source_text`. Omitted review specifications inherit these assertions.
+
+Reports include `canvas_checks` only when this optional specification is present.
+Each check shows its target, expected value where applicable, before/after
+presence and values, status and reason. The report binds these checks to the
+specification, baseline and candidate hashes; planning and approval recompute
+against the real canvases. Any failed configuration check blocks approval and
+write. Linked requirements receive `configuration_status`,
+`configuration_check_ids` and `configuration_reason`. A requirement's
+configuration passes only when every declared target has an explicit node and
+field path covered by an `equals` or `unchanged` check at that path or a parent
+path. Broad group/node targets, partly covered target lists and `contains` checks
+alone stay unverified with “关联断言已通过；配置范围尚未完整核对”. Check failures
+still fail the configuration regardless of coverage. These fields do not
+promote the requirement's execution `status`. “配置已核对” can therefore coexist
+with “运行待验证”. Neither result claims a browser or backend run.
+
 ## Read results and route the next step
 
 Planning returns `plan_id`, `review_status`, `review_report` and

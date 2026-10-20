@@ -108,7 +108,8 @@ def canvas_node_locations(data: dict[str, Any]) -> dict[tuple[str, str], dict[st
     return locations
 
 
-def control_flow_impacts(before: dict[str, Any], after: dict[str, Any], *, changes=None) -> list[dict[str, Any]]:
+def control_flow_impacts(before: dict[str, Any], after: dict[str, Any], *, changes=None,
+                         before_locations=None, after_locations=None) -> list[dict[str, Any]]:
     """Show scope effects separately from actual node edits; never infer execution."""
     direct = component_changes(before, after) if changes is None else changes
     controllers = {}
@@ -133,6 +134,8 @@ def control_flow_impacts(before: dict[str, Any], after: dict[str, Any], *, chang
             "field_path": "inputParams.condition" if "condition" in old_inputs or "condition" in new_inputs else "inputParams",
             "potential": node.get("elementKey") not in {"If", "IfCondition", "ElseIfCondition", "Else"},
         }
+    if not controllers:
+        return []
     # Native Else/ElseIf both close the previous branch (endMarker) and
     # open their own (levelMarker). Their depth therefore ends in the previous
     # branch key; children only contain the new branch key. Follow that chain.
@@ -152,7 +155,8 @@ def control_flow_impacts(before: dict[str, Any], after: dict[str, Any], *, chang
                     earlier_exits.append(node["key"])
         return result
     old_dependencies, new_dependencies = dependencies(before), dependencies(after)
-    previous, current = canvas_node_locations(before), canvas_node_locations(after)
+    previous = canvas_node_locations(before) if before_locations is None else before_locations
+    current = canvas_node_locations(after) if after_locations is None else after_locations
     result = []
     for identity in dict.fromkeys([*current, *previous]):
         old, new = previous.get(identity), current.get(identity)

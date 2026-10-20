@@ -164,7 +164,9 @@ FROM cpm_bizflows_design
         with self.database.read_session() as session:
             return self._relations(design_id, session)
 
-    def _relations(self, design_id: str, session: DatabaseSession) -> list[dict[str, Any]]:
+    def _relations(
+        self, design_id: str, session: DatabaseSession, *, for_update: bool = False,
+    ) -> list[dict[str, Any]]:
         rows = session.query(
             """
 SELECT id, isDeleted, creatorId, creationTime, department, lastModifierId,
@@ -174,7 +176,7 @@ FROM cpm_bizflows_design_relation_data
 WHERE design_Id=%(design_id)s
 ORDER BY action_data_Id, id
 LIMIT 1001
-""",
+""" + (" FOR UPDATE" if for_update else ""),
             {"design_id": design_id},
             max_rows=1000,
         )

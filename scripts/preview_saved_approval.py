@@ -84,8 +84,13 @@ def main():
     parser.add_argument("--state-path", type=Path, default=Path(os.environ["LOCALAPPDATA"]) / "GxpLowcodeEditor/state/editor.sqlite3")
     parser.add_argument("--screenshot", type=Path)
     parser.add_argument("--close-after-capture", action="store_true")
+    parser.add_argument("--view", choices=("flow", "evidence", "code"), default="flow")
     args = parser.parse_args()
     window = SavedApprovalPreview(*load_snapshot(args.transaction_id, args.state_path))
+    if args.view == "evidence":
+        window.logic_review.views.setCurrentIndex(1)
+    elif args.view == "code":
+        window.notebook.setCurrentWidget(window.code_review)
     if args.screenshot:
         def capture():
             try:

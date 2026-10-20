@@ -45,7 +45,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.folder = tempfile.TemporaryDirectory()
         self.addCleanup(self.folder.cleanup)
         self.root = Path(self.folder.name)
-        self.canvas = {"actionData": [{"key": "main", "data": [
+        self.canvas = {"actionData": [{"key": "main", "actionType": "js", "data": [
             {"key": "assign", "elementKey": "SetField", "paramsValue": {"value": "old"}, "depth": 0},
         ]}], "globalVariables": []}
         self.draft = baseline(data=json.dumps(self.canvas), csharp_code="")
@@ -82,7 +82,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         return {"compiler_binding": binding, "validation": {"valid": True,
                     "registry_hash": binding["registry_hash"], "rule_source_sha256": binding["rule_source_sha256"]},
                 "event_binding_validation": {"binding_node_keys": [], "checks": [],
-                    "javascript_syntax_checked": True, "javascript_lexical_scope": "all_js_groups", "javascript_group_keys": []},
+                    "javascript_syntax_checked": True, "javascript_lexical_scope": "all_js_groups", "javascript_group_keys": ["main"]},
                 "code_generation_complete": True, "generated_code_consistency_verified": True}
 
     def run_pair(self, old_js, new_js, spec):
@@ -124,7 +124,8 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.compiler.compile_patch.return_value = native_result
         result = self.plan(review_spec())
         self.assertEqual(result["review_report"]["scenarios"]["cases"][0]["candidate"]["status"], "passed")
-        self.assertEqual(result["review_report"]["requirements"][0]["status"], "passed")
+        self.assertEqual(result["review_report"]["requirements"][0]["status"], "unverified")
+        self.assertIn("节点未验证", result["review_report"]["requirements"][0]["reason"])
         pending = self.service.prepare_write(result["plan_id"])
         tx = self.service.state.get_transaction(pending["transaction_id"])
         artifact = load_artifact(tx["artifact_path"])
@@ -146,6 +147,21 @@ class BusinessReviewServiceTests(unittest.TestCase):
         changed["scenarios"]["cases"][0]["title"] = "改后的说明"
         with self.assertRaisesRegex(EditorServiceError, "revision"):
             self.plan(changed)
+
+    def test_target_changes_need_new_user_evidence_including_scope_expansion(self):
+        original = review_spec()
+        self.plan(original)
+        for targets in ([{"group_key": "main"}], [{"group_key": "main", "node_key": "other"}], [],
+                        [{"group_key": "other", "node_key": "assign"}],
+                        [{"group_key": "main", "node_key": "assign", "field_path": "paramsValue"}]):
+            with self.subTest(targets=targets):
+                changed = copy.deepcopy(original)
+                changed["revision"] = "request-2"
+                changed["requirements"][0]["targets"] = targets
+                with self.assertRaisesRegex(EditorServiceError, "新的用户依据"):
+                    self.plan(changed)
+        changed["change_source_text"] = "用户补充：只核对这个元件的参数配置"
+        self.assertTrue(self.plan(changed)["ready_for_approval"])
 
     def test_changed_expectation_requires_new_user_basis(self):
         self.plan(review_spec())
@@ -219,6 +235,55 @@ class BusinessReviewServiceTests(unittest.TestCase):
         changed = review_spec()
         changed["revision"] = "request-2"
         changed["scenarios"]["cases"][0]["expect"]["fields"]["target"]["value"] = "new"
+        with self.assertRaisesRegex(EditorServiceError, "用户依据"):
+            self.plan(changed)
+
+    def assertion_spec(self, expected="new"):
+        spec = review_spec()
+        spec["canvas_assertions"] = [{"id": "configured-value", "requirement_ids": ["retain"],
+            "target": {"group_key": "main", "node_key": "assign", "element_key": "SetField"},
+            "path": "/inputParams/value", "operator": "equals", "value": expected}]
+        self.canvas["actionData"][0]["data"][0]["paramsValue"]["inputParams"] = {"value": "new"}
+        return spec
+
+    def test_canvas_assertion_failure_blocks_plan_and_omission_inherits_it(self):
+        spec = self.assertion_spec("expected")
+        result = self.plan(spec)
+        self.assertEqual(result["review_status"], "failed")
+        self.assertFalse(result["ready_for_approval"])
+        self.assertEqual(result["review_report"]["canvas_checks"][0]["status"], "failed")
+        inherited = self.plan()
+        self.assertEqual(inherited["review_report"]["spec"], result["review_report"]["spec"])
+        self.assertFalse(self.service.prepare_write(inherited["plan_id"])["approval_window_opened"])
+        self.launch.assert_not_called()
+
+    def test_changing_or_removing_canvas_assertion_needs_revision_and_new_basis(self):
+        original = self.assertion_spec()
+        self.plan(original)
+        changed = copy.deepcopy(original)
+        changed["canvas_assertions"][0]["value"] = "other"
+        with self.assertRaisesRegex(EditorServiceError, "revision"):
+            self.plan(changed)
+        changed["revision"] = "request-2"
+        with self.assertRaisesRegex(EditorServiceError, "用户依据"):
+            self.plan(changed)
+        removed = copy.deepcopy(original)
+        removed["revision"] = "request-2"
+        del removed["canvas_assertions"]
+        with self.assertRaisesRegex(EditorServiceError, "用户依据"):
+            self.plan(removed)
+        changed["change_source_text"] = "用户补充：配置改为 other"
+        self.assertEqual(self.plan(changed)["review_status"], "failed")
+
+    def test_relinking_canvas_assertion_needs_new_basis(self):
+        original = self.assertion_spec()
+        extra = copy.deepcopy(original["requirements"][0])
+        extra.update(id="second", text="第二项配置要求")
+        original["requirements"].append(extra)
+        self.plan(original)
+        changed = copy.deepcopy(original)
+        changed["revision"] = "request-2"
+        changed["canvas_assertions"][0]["requirement_ids"] = ["second"]
         with self.assertRaisesRegex(EditorServiceError, "用户依据"):
             self.plan(changed)
 

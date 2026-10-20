@@ -7,7 +7,7 @@ from pathlib import Path
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
-from tests.helpers import baseline, editor_config, transaction
+from tests.helpers import baseline, editor_config, relation, transaction
 from gxp_editor.approval import approve_statement, load_artifact, save_artifact
 from gxp_editor.approval import approval_signature, statement_hash, transaction_binding_hash
 from gxp_editor.hashing import design_content_hash
@@ -66,10 +66,12 @@ class FakeDatabase:
 
 
 class FakeRepository:
-    def __init__(self, current, saved, relations=None, grants_sha256="c" * 64):
+    def __init__(self, current, saved, relations=None, grants_sha256="c" * 64, current_relations=None):
         self.current = current
         self.saved = saved
         self.relations = list(relations or [])
+        self.current_relations = list(self.relations if current_relations is None else current_relations)
+        self.relation_reads = []
         self.grants_sha256 = grants_sha256
         self.loads = 0
 
@@ -84,8 +86,9 @@ class FakeRepository:
         self.loads += 1
         return dict(self.current if self.loads == 1 else self.saved)
 
-    def _relations(self, design_id, session):
-        return list(self.relations)
+    def _relations(self, design_id, session, *, for_update=False):
+        self.relation_reads.append(for_update)
+        return list(self.current_relations if for_update else self.relations)
 
     def check_statement_targets(self, statements, session):
         from gxp_editor.single_row_checker import check_statement_list
@@ -156,6 +159,69 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(session.executed, [])
         self.assertEqual(repository.loads, 0)
         self.assertEqual(self.state.transaction["state"], "awaiting_approval")
+
+    def save_approved_artifact(self, artifact):
+        self.artifact = artifact
+        with patch("gxp_editor.approval.approval_secret", return_value="test-secret"):
+            for statement in self.artifact["statements"]:
+                approve_statement(self.config, self.artifact, statement["id"])
+        save_artifact(self.path, self.artifact)
+        self.state = FakeState(str(self.path))
+
+    def test_relation_changes_after_approval_block_every_write(self):
+        original = relation()
+        changed_snapshots = [
+            [relation(data='{"external":true}')],
+            [relation(lastModificationTime="2026-08-01 00:00:00.000")],
+            [],
+            [original, relation(id="external-relation", action_data_id="external-node")],
+        ]
+        for snapshot in changed_snapshots:
+            with self.subTest(snapshot=snapshot):
+                self.save_approved_artifact(transaction(
+                    current_relations=[original], desired_relations={"node-1": '{"planned":true}'},
+                ))
+                session = FakeSession(affected_rows=1)
+                repository = FakeRepository(
+                    baseline(), self.saved_row(), self.artifact["expected_relation_rows"],
+                    current_relations=snapshot,
+                )
+                with self.patches(repository, session):
+                    with self.assertRaisesRegex(WriteExecutionError, "relations changed after planning"):
+                        execute_approved_transaction("transaction-1")
+                self.assertEqual(session.executed, [])
+                self.assertEqual(repository.relation_reads, [True])
+                self.assertEqual(self.state.transaction["state"], "failed_no_write")
+
+    def test_matching_relation_snapshot_can_save_unchanged_or_updated_relations(self):
+        original = relation()
+        for desired_data, expected_statement_count in ((original["data"], 1), ('{"planned":true}', 2)):
+            with self.subTest(desired_data=desired_data):
+                self.save_approved_artifact(transaction(
+                    current_relations=[original], desired_relations={"node-1": desired_data},
+                ))
+                session = FakeSession(affected_rows=1)
+                repository = FakeRepository(
+                    baseline(), self.saved_row(), self.artifact["expected_relation_rows"],
+                    current_relations=[original],
+                )
+                with self.patches(repository, session):
+                    result = execute_approved_transaction("transaction-1")
+                self.assertEqual(result["state"], "saved")
+                self.assertEqual(len(session.executed), expected_statement_count)
+                self.assertEqual(repository.relation_reads, [True, False])
+
+    def test_missing_prewrite_relation_snapshot_cannot_execute(self):
+        artifact = transaction()
+        artifact.pop("old_relation_hash")
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        self.save_approved_artifact(artifact)
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session):
+            with self.assertRaisesRegex(WriteExecutionError, "relations changed after planning"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(session.executed, [])
 
     def test_cancelled_transaction_cannot_write(self):
         self.state.transaction["state"] = "cancelled"

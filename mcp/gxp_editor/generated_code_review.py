@@ -15,6 +15,12 @@ _TOKENS = re.compile(
     re.DOTALL,
 )
 _IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*\Z")
+_OPAQUE_IDENTIFIER = re.compile(r"[A-Za-z_$][\w$]*")
+_READONLY_NAMES = tuple((prefix, re.compile(prefix + r"[A-Za-z0-9]{8}\Z"))
+                        for prefix in ("setFormReadOnlyTableCom_", "setFormReadOnlyOtherCom_"))
+_SELECT_RESULT = re.compile(r"result[A-Za-z0-9]{8}\Z")
+_SELECT_WHERE = re.compile(r"where[A-Za-z0-9]{8}\Z")
+_CALL_OUTPUT = re.compile(r"([A-Za-z_$][\w$]*)_[A-Za-z0-9]{8}_Output\Z")
 
 
 def canvas_context(before, after):
@@ -51,22 +57,24 @@ def _names(tokens, context):
             continue
         family = None
         if "SetFormReadOnly" in elements and tail[:5] == ["inbiz", ".", "getFields", "(", ")"]:
-            for prefix in ("setFormReadOnlyTableCom_", "setFormReadOnlyOtherCom_"):
-                if re.fullmatch(re.escape(prefix) + r"[A-Za-z0-9]{8}", name):
+            for prefix, pattern in _READONLY_NAMES:
+                if pattern.fullmatch(name):
                     family = prefix
-        elif "SelectModelData" in elements and re.fullmatch(r"result[A-Za-z0-9]{8}", name):
+        elif "SelectModelData" in elements and _SELECT_RESULT.fullmatch(name):
             if tail[:5] == ["await", "relatedAttributes", ".", "getSelectModelData", "("]:
                 family = "SelectModelData.result"
                 # The known generator passes its where variable as the last
                 # argument; only that linked declaration can be normalized.
                 for j in range(5, len(tail) - 2):
                     where = tail[j]
-                    if re.fullmatch(r"where[A-Za-z0-9]{8}", where) and tail[j - 1] == "," and tail[j + 1:j + 3] == [")", ";"] and declarations[where] == 1:
+                    if _SELECT_WHERE.fullmatch(where) and tail[j - 1] == "," and tail[j + 1:j + 3] == [")", ";"] and declarations[where] == 1:
                         names[where] = "SelectModelData.where"
                         break
         elif "CallAction" in elements:
-            for action in actions:
-                if re.fullmatch(re.escape(action) + r"_[A-Za-z0-9]{8}_Output", name):
+            match = _CALL_OUTPUT.fullmatch(name)
+            if match:
+                action = match[1]
+                if action in actions:
                     if tail[:5] in (["await", "self", ".", action, "("], ["await", "this", ".", action, "("]):
                         family = "CallAction." + action
                     elif tail[:5] == ["await", "relatedAttributes", ".", "CallCsharpAction", "("]:
@@ -75,8 +83,13 @@ def _names(tokens, context):
                             family = "CallAction." + action
         if family:
             names[name] = family
+    if not names:
+        return names
     # String/comment references and member names could have different meaning.
-    opaque_names = {identifier for token in tokens if not _IDENTIFIER.fullmatch(token) for identifier in re.findall(r"[A-Za-z_$][\w$]*", token)}
+    # Only literal/comment tokens can contain identifiers without themselves
+    # being identifiers. Whitespace and single punctuation need no regex scan.
+    opaque_names = {identifier for token in tokens if token.startswith(('"', "'", '@"', "//", "/*"))
+                    for identifier in _OPAQUE_IDENTIFIER.findall(token)}
     member_names = {token for i, token in enumerate(code) if i and code[i - 1] == "."}
     for name in opaque_names | member_names:
         names.pop(name, None)

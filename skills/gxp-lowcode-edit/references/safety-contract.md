@@ -18,10 +18,14 @@ an inferred per-node source map; node expressions remain in the component detail
 Copy buttons retain the exact original code, including line endings. Full SQL and
 raw nodes remain available.
 
-- Each dialogue uses its own registered `conversation_id` and owns at most one
-  existing active draft. Different dialogues may edit different drafts concurrently;
-  the same design primary key or RefId remains exclusive. Every tool checks the
-  owner, and local mutations also check ownership and revision atomically.
+- Each dialogue uses its own registered `conversation_id` and, without an explicit
+  `create_edit_queue`, owns at most one existing active draft. An explicit queue
+  may contain multiple existing drafts owned by that dialogue, each with its own
+  backup, plan, approvals and transaction. Every action is saved independently;
+  a later failure cannot roll back an earlier save or inherit its approvals.
+  Different dialogues may edit different drafts concurrently; the same design
+  primary key or RefId remains exclusive. Every tool checks the owner, and local
+  mutations also check ownership and revision atomically.
 - Each approval transaction has one OS window lock held for the window's lifetime.
   Different transactions may open simultaneously. Handoff uses the shared
   `session_marker` (session ID) and a new dialogue's own marker after the original
@@ -45,7 +49,7 @@ raw nodes remain available.
 - All approvals bind the statement hash, parameters, design ID, old/new content hashes, expiry, transaction ID, blocking compiler evidence, candidate C# compilation evidence, and complete transaction metadata hash.
 - Approval tokens are consumed when execution is first attempted; a failed or interrupted attempt requires a newly generated transaction and new per-statement approvals.
 - All approvals are collected before the database transaction starts.
-- The transaction locks the draft by primary key, rechecks draft state and optimistic-lock values, and rolls back unless all row counts match.
+- The transaction locks the draft by primary key, rechecks draft state and optimistic-lock values, then locks and compares the complete relation snapshot with the signed pre-write relation hash before any business update. Concurrent relation changes block the save even when the design row is unchanged. It rolls back unless all row counts match.
 - Full design payloads remain on the local machine. MCP responses expose bounded semantic diffs and hashes.
 - Backup files have per-file SHA-256 values and a Credential Manager backed HMAC manifest; altered files or manifests cannot be restored.
 - Compiler metadata includes the configured frontend Git commit/workspace fingerprint, frontend version, ActionDesign source-rule hash, stable registry hash, compiled bridge hash, and a complete binding hash. Any drift invalidates the current session or plan.

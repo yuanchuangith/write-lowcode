@@ -113,6 +113,27 @@ class NativeSourceBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(CompilerError, 'Compiler bridge changed'):
             self.bridge.compiler_binding()
 
+    def test_cached_registry_cannot_hide_adapter_replacement(self):
+        self.cache_registry()
+        read_text = Path.read_text
+        for adapter in ('compiler_runner.cjs', 'canvas_operations.cjs', 'event_contracts.cjs',
+                        'event_contracts.json', 'event_binding_checks.cjs'):
+            with self.subTest(adapter=adapter):
+                def changed_text(path, *args, **kwargs):
+                    content = read_text(path, *args, **kwargs)
+                    return content + '\n' if path.name == adapter else content
+
+                with patch.object(Path, 'read_text', autospec=True, side_effect=changed_text):
+                    with self.assertRaisesRegex(CompilerError, 'Compiler adapter changed'):
+                        self.bridge.compiler_binding()
+
+    def test_unchanged_adapter_keeps_cached_registry_binding(self):
+        self.cache_registry()
+        with patch.object(self.bridge, '_call', side_effect=AssertionError('Registry should stay cached')):
+            first = self.bridge.compiler_binding()
+            second = self.bridge.compiler_binding()
+        self.assertEqual(first, second)
+
     def test_missing_source_and_tampered_hash_are_blocked(self):
         self.manifest()
         original = self.path.read_text(encoding='utf-8')
