@@ -66,7 +66,47 @@ class EditorRepository:
             raise RepositoryError(f"Action {identifier!r} was not found")
         if len(rows) != 1:
             raise RepositoryError(f"Action identifier {identifier!r} is ambiguous")
-        return _clean(rows[0])
+        metadata = _clean(rows[0])
+        if metadata.get("action_type") == "form":
+            metadata.update(self._page_context(str(metadata.get("page_id") or ""), session))
+        return metadata
+
+    @staticmethod
+    def _page_context(page_identifier: str, session: DatabaseSession) -> dict[str, Any]:
+        if not page_identifier:
+            return {"page_resolution": "missing"}
+        # Catalog identity is exact (ID/OutId/Route), never a fuzzy name match.
+        # Resolve translations in a subquery so duplicate language rows cannot
+        # make one page appear to be multiple different pages.
+        sql = """
+SELECT page.Id AS page_record_id, page.Route AS page_route, page.AppId AS application_id,
+       page.Name AS raw_name,
+       COALESCE(NULLIF((
+           SELECT language.LangText FROM inbiz_language language
+           WHERE language.`Key` = CASE
+               WHEN page.Name LIKE %(multilingual_name_pattern)s
+               THEN SUBSTRING_INDEX(page.Name,'global.',-1) ELSE page.Name END
+             AND language.KindCode='zh-cn' AND language.InUse=1
+             AND (language.AppId=page.AppId OR language.AppId IS NULL OR language.AppId='')
+           ORDER BY CASE WHEN language.AppId=page.AppId THEN 0 ELSE 1 END LIMIT 1
+       ), ''), page.Name) AS form_name
+FROM inbiz_page page
+WHERE page.IsDeleted=0
+  AND (page.Id=%(page_id)s OR page.OutId=%(page_id)s OR page.Route=%(page_id)s)
+LIMIT 2
+"""
+        try:
+            rows = session.query(sql, {"page_id": page_identifier, "multilingual_name_pattern": "{multilingual}global.%"}, max_rows=2)
+        except Exception:
+            # A missing catalog read grant must not turn a name guess into fact.
+            # Keep this optional display lookup independent of draft edit rights.
+            return {"page_resolution": "unavailable"}
+        if len(rows) != 1:
+            return {"page_resolution": "ambiguous" if rows else "missing"}
+        page = _clean(rows[0])
+        if str(page.get("form_name") or "").startswith("{multilingual}"):
+            page["form_name"] = ""
+        return {**page, "page_resolution": "resolved" if page.get("form_name") else "unknown"}
 
     def _draft_select(self) -> str:
         return """

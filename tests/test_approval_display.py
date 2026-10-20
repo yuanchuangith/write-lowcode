@@ -214,8 +214,9 @@ class ApprovalWindowTests(unittest.TestCase):
             state.get_transaction.return_value = {"artifact_path": str(Path(folder) / "approval.json"), "state": "awaiting_approval"}
             window = app.ApprovalWindow("transaction-1")
             try:
-                self.assertEqual(window.notebook.count(), 4)
-                self.assertEqual(window.notebook.tabText(window.notebook.currentIndex()), "元件预览")
+                self.assertEqual(window.notebook.count(), 5)
+                self.assertEqual(window.notebook.tabText(0), "业务逻辑验收")
+                self.assertEqual(window.notebook.tabText(window.notebook.currentIndex()), "业务逻辑验收")
                 self.assertTrue(window.text.isReadOnly())
                 self.assertEqual(window.text.toPlainText(), render_full_sql(artifact["statements"][0]))
                 self.assertFalse(window.execute_button.isEnabled())

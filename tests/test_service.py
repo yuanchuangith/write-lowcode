@@ -4,11 +4,12 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
 from tests.helpers import baseline, editor_config
 from gxp_editor.compiler import CompilerError
 from gxp_editor.hashing import sha256_json
+from gxp_editor.logic_review import build_business_review, plan_binding_hash
 from gxp_editor.service import EditorService
 
 
@@ -205,6 +206,82 @@ class ServiceStatusTests(unittest.TestCase):
         self.assertFalse(status["gates"]["runtime_snapshot"]["blocking"])
         self.assertIn("must pass", status["gates"]["runtime_snapshot"]["warning"])
 
+    def test_status_probes_runtime_by_default(self):
+        config = editor_config()
+        service = object.__new__(EditorService)
+        service.state = FakeState()
+        runtime = Mock()
+        runtime.status.return_value = {"available": True, "production_compatible": True}
+        with patch.object(service, "_components", return_value=(
+            config, FakeDatabase(), FakeRepository(), FakeCompiler(), runtime,
+        )), patch("gxp_editor.service.approval_secret", return_value="test-secret"):
+            status = service.editor_status()
+        runtime.status.assert_called_once_with()
+        self.assertTrue(status["runtime_validation"]["available"])
+        self.assertFalse(status["runtime_compatibility_verified"])
+
+    def test_skipped_runtime_probe_still_checks_all_write_gates(self):
+        config = editor_config()
+        service = object.__new__(EditorService)
+        service.state = FakeState()
+        database = Mock(wraps=FakeDatabase())
+        repository = Mock(wraps=FakeRepository())
+        compiler = Mock(wraps=FakeCompiler())
+        runtime = Mock()
+        with patch.object(service, "_components", return_value=(
+            config, database, repository, compiler, runtime,
+        )), patch("gxp_editor.service.approval_secret", return_value="test-secret") as key:
+            status = service.editor_status(probe_runtime=False)
+        runtime.status.assert_not_called()
+        database.status.assert_called_once_with()
+        repository.index_status.assert_called_once_with()
+        repository.grant_status.assert_called_once_with(
+            account_mode=config.database.account_mode,
+            expected_grants_sha256=config.database.expected_grants_sha256,
+        )
+        compiler.describe_registry.assert_called_once_with()
+        compiler.compiler_binding.assert_called_once_with()
+        key.assert_called_once_with(config)
+        self.assertTrue(status["write_ready"])
+        self.assertTrue(status["runtime_validation"]["probe_skipped"])
+        self.assertFalse(status["runtime_validation"]["available"])
+        self.assertFalse(status["runtime_compatibility_verified"])
+        self.assertFalse(status["gates"]["runtime_snapshot"]["ready"])
+        self.assertFalse(status["gates"]["runtime_snapshot"]["blocking"])
+
+    def test_begin_reuses_its_runtime_probe_including_failed_probe(self):
+        config = editor_config()
+        draft = baseline()
+        draft["data_json"] = json.loads(draft["data"])
+        for available in (True, False):
+            with self.subTest(available=available):
+                service = object.__new__(EditorService)
+                service.state = Mock()
+                service.state.active_session.return_value = None
+                service.state.target_session.return_value = None
+                service.state.create_session.return_value = {
+                    "id": "session-1", "ref_id": draft["ref_id"], "design_id": draft["id"],
+                    "action_code": draft["code"], "action_name": draft["name"],
+                }
+                repository = FakeRepository()
+                repository.load_draft_by_identifier = Mock(return_value=draft)
+                compiler = FakeCompiler()
+                compiler.validate_design = Mock(return_value={"validation": {"valid": True}})
+                runtime = Mock()
+                runtime.status.return_value = {"available": True}
+                if not available:
+                    runtime.status.side_effect = RuntimeError("runtime references unavailable")
+                with patch.object(service, "_components", return_value=(
+                    config, FakeDatabase(), repository, compiler, runtime,
+                )), patch("gxp_editor.service.approval_secret", return_value="test-secret"), patch(
+                    "gxp_editor.service.BackupStore",
+                ) as backup_store:
+                    backup_store.return_value.create.return_value = {"backup_id": "backup-1", "files": {}}
+                    result = service.begin_edit_session("action")
+                runtime.status.assert_called_once_with()
+                self.assertTrue(result["write_ready"])
+                self.assertEqual("runtime_snapshot" in result["failed_gates"], not available)
+
     def test_empty_csharp_never_claims_runtime_compatibility(self):
         from unittest.mock import Mock
         runtime=Mock();runtime.validate.return_value={"available":True,"success":True,
@@ -295,8 +372,14 @@ class ServiceStatusTests(unittest.TestCase):
                         "compiler_binding": binding,
                         "desired": desired,
                         "validation": {"valid": True},
+                        "event_binding_validation": {},
                         "code_generation_complete": True,
+                        "generated_code_consistency_verified": True,
                         "hashes": hashes,
+                        "business_review": build_business_review(
+                            review_spec=None, baseline_design=draft, candidate_design=desired,
+                            compiler_binding=binding,
+                        ),
                     }
                 ),
                 encoding="utf-8",
@@ -307,7 +390,7 @@ class ServiceStatusTests(unittest.TestCase):
                 "status": "ready",
                 "artifact_path": str(artifact_path),
                 "base_hash": draft["content_hash"],
-                "new_hash": sha256_json(hashes),
+                "new_hash": plan_binding_hash(json.loads(artifact_path.read_text(encoding="utf-8"))),
                 "compiler_hash": binding["compiler_binding_sha256"],
             }
             session = {
@@ -328,11 +411,25 @@ class ServiceStatusTests(unittest.TestCase):
                 compiler,
                 object(),
             )
-            with patch.object(service, "editor_status", return_value={"write_ready": True, "gates": {}}), patch.object(
+            with patch.object(service, "editor_status", return_value={"write_ready": True, "gates": {}}) as status_probe, patch.object(
                 service, "_components", return_value=components
             ), patch.object(service, "_launch_approval") as launch:
                 with self.assertRaisesRegex(CompilerError, "Candidate canvas is invalid"):
                     service.prepare_write("plan-1")
+                compiler.verify_candidate_artifact = Mock(return_value={
+                    "validation": {"valid": True}, "event_binding_validation": {},
+                    "compiler_binding": binding, "code_generation_complete": True,
+                    "generated_code_consistency_verified": True,
+                })
+                from gxp_editor.service import EditorServiceError
+                with patch.object(service, "_runtime_validation_evidence", return_value={
+                    "available": True, "success": False, "failure_kind": "compilation_failed",
+                }) as candidate_validation:
+                    with self.assertRaisesRegex(EditorServiceError, "C# validation did not pass"):
+                        service.prepare_write("plan-1")
+                candidate_validation.assert_called_once_with(components[-1], draft["code"], "new-csharp")
+                self.assertEqual(status_probe.call_count, 2)
+                status_probe.assert_called_with(probe_runtime=False)
 
         self.assertFalse(state.transaction_created)
         launch.assert_not_called()

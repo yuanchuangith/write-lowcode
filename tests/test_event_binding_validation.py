@@ -83,6 +83,43 @@ rows=[];await handler({id:'AP5l67Gn',action:'custom',name:'按钮',innerInbiz:ch
         with self.assertRaisesRegex(CompilerError,"Hidden event arguments"):
             self.bridge.compile_patch(self.design,operations('arguments[0]?.id ?? ""'))
 
+    def test_existing_in_flight_wrapper_is_not_mistaken_for_callback_declaration(self):
+        original = self.bridge.compile_patch(self.design, operations())
+        key = original["design"]["actionData"][1]["key"]
+        wrapper = """(() => {
+            self.KEY = (function(original) {
+                let pending;
+                return function(action) {
+                    if (pending) return pending;
+                    pending = Promise.resolve().then(() => original.call(this, action)).finally(() => { pending = null; });
+                    return pending;
+                };
+            })(self.KEY);
+            return true;
+        })()""".replace("KEY", key)
+        operation = variable("wrapped", wrapper, "boolean")
+        operation["action_group_key"] = "main"
+        compiled = self.bridge.compile_patch(original["design"], [operation])
+        evidence = self.bridge.verify_compiled_result(compiled)
+        self.assertTrue(evidence["generated_code_consistency_verified"])
+        desired = {name: compiled[name] for name in ("js_code", "csharp_code", "relation_data")}
+        self.bridge.verify_candidate_artifact(compiled["design"], desired, baseline_design=original["design"])
+        script = r'''
+const fs=require('node:fs'),vm=require('node:vm'),assert=require('node:assert/strict');
+let metadataWrites=0,fail=false;
+const table={getSelectedRows:()=>{if(fail)throw new Error('generation failed');return [{topic:'培训甲'}];},configEvent:()=>{},on:()=>{}};
+const inbiz=()=>table;inbiz.configEvent=()=>{metadataWrites++;};
+const self=vm.runInNewContext('('+fs.readFileSync(0,'utf8')+')')(inbiz,{});
+(async()=>{await self.main();const action={id:'AP5l67Gn',innerInbiz:()=>{}};
+ const first=self.KEY(action),same=self.KEY(action);assert.equal(first,same);assert.equal(await first,true);assert.equal(metadataWrites,1);
+ assert.equal(await self.KEY(action),true);assert.equal(metadataWrites,2);
+ fail=true;await assert.rejects(self.KEY(action),/generation failed/);fail=false;
+ assert.equal(await self.KEY(action),true);assert.equal(metadataWrites,3);
+})().catch(error=>{console.error(error);process.exitCode=1;});
+'''.replace("KEY", key)
+        ran = subprocess.run(["node", "-e", script], input=compiled["js_code"], encoding="utf-8", capture_output=True, timeout=15)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+
     def test_undeclared_parameter_read_is_rejected(self):
         with self.assertRaisesRegex(CompilerError,"Undeclared callback identifier missingContext"):
             self.bridge.compile_patch(self.design,operations('missingContext.id'))

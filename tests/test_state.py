@@ -33,6 +33,54 @@ class StateTests(unittest.TestCase):
         self.assertEqual(self.store.get_plan(second)["status"], "ready")
         self.assertEqual(self.store.get_session(session["id"])["plan_id"], second)
 
+    def test_blocked_plan_atomically_supersedes_ready_plan_and_can_be_replaced(self):
+        session = self.store.create_session(baseline(), "backup-1", "compiler-1")
+        first = self.store.create_plan(session["id"], "one.json", "old", "new-1", "compiler-1", expected_plan_id=None)
+        blocked = self.store.create_plan(session["id"], "blocked.json", "old", "new-2", "compiler-1",
+                                         initial_status="blocked", expected_plan_id=first)
+        self.assertEqual(self.store.get_plan(first)["status"], "superseded")
+        self.assertEqual(self.store.get_plan(blocked)["status"], "blocked")
+        self.assertEqual(self.store.get_session(session["id"])["state"], "planned")
+        with self.assertRaisesRegex(StateError, "Plan is no longer ready"):
+            self.store.create_transaction(session["id"], blocked, "write", "tx.json")
+        self.assertEqual(self.store.session_transactions(session["id"]), [])
+        self.assertEqual(self.store.get_session(session["id"])["plan_id"], blocked)
+        fixed = self.store.create_plan(session["id"], "fixed.json", "old", "new-3", "compiler-1", expected_plan_id=blocked)
+        self.assertEqual(self.store.get_plan(blocked)["status"], "superseded")
+        self.assertEqual(self.store.get_plan(fixed)["status"], "ready")
+
+    def test_late_plan_cannot_overwrite_a_newer_blocked_result(self):
+        session = self.store.create_session(baseline(), "backup-1", "compiler-1")
+        ready = self.store.create_plan(session["id"], "one.json", "old", "new-1", "compiler-1")
+        blocked = self.store.create_plan(session["id"], "blocked.json", "old", "new-2", "compiler-1",
+                                         initial_status="blocked", expected_plan_id=ready)
+        with self.assertRaisesRegex(StateError, "Current plan changed"):
+            self.store.create_plan(session["id"], "late.json", "old", "late", "compiler-1", expected_plan_id=ready)
+        self.assertEqual(self.store.get_session(session["id"])["plan_id"], blocked)
+        self.assertEqual(self.store.get_plan(blocked)["status"], "blocked")
+
+    def test_abort_cancels_blocked_plan(self):
+        session = self.store.create_session(baseline(), "backup-1", "compiler-1")
+        blocked = self.store.create_plan(session["id"], "blocked.json", "old", "new", "compiler-1", initial_status="blocked")
+        self.store.abort_session(session["id"])
+        self.assertEqual(self.store.get_plan(blocked)["status"], "cancelled")
+
+    def test_two_concurrent_first_plans_only_allow_one_compare_and_swap(self):
+        session = self.store.create_session(baseline(), "backup-1", "compiler-1")
+        barrier = Barrier(2)
+
+        def plan(index):
+            barrier.wait(timeout=5)
+            try:
+                return self.store.create_plan(session["id"], f"{index}.json", "old", str(index), "compiler-1", expected_plan_id=None)
+            except StateError:
+                return None
+
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            results = list(pool.map(plan, (1, 2)))
+        self.assertEqual(sum(result is not None for result in results), 1)
+        self.assertIn(self.store.get_session(session["id"])["plan_id"], results)
+
     def test_session_rejects_second_active_approval_transaction(self):
         session = self.store.create_session(baseline(), "backup-1", "compiler-1")
         plan = self.store.create_plan(session["id"], "one.json", "old", "new", "compiler-1")

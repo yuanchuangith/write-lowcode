@@ -55,10 +55,13 @@ example, the old 95-element bundle omitted SyncLock, SyncLockEnd, AddChangeData,
 VersionFormat, FileRelease, FileCopyVersion and FileEditingCheck. Do not remove
 these nodes, invent generators, or downgrade Unknown elementKey to a warning.
 
-Compiler maintenance is separate from a business draft edit. Before starting a
-new edit session, run `node scripts/build_compiler_bridge.cjs <frontend_repo>`
-from this plugin to rebuild the offline bridge from the complete native registry,
-node generators, code generators and relation generators. The optional second
+Compiler maintenance is separate from a business draft edit. Rebuild only when
+the bridge is missing or rejected for stale source/manifest or incomplete native
+registry coverage; a normal new edit session does not require rebuilding. For
+that maintenance, before starting a new session, run
+`node scripts/build_compiler_bridge.cjs <frontend_repo>` from this plugin to rebuild
+the offline bridge from the complete native registry, node generators, code
+generators and relation generators. The optional second
 argument stages the build in another directory; compiler acceptance still
 requires the bridge to reside within the configured frontend Git root.
 

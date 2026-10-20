@@ -144,7 +144,7 @@ class ComponentReview:
             old, new = (side(data) for data in self._canvas_sources)
             if old is None and new is None:
                 return
-            self._context_item = {"kind": "未修改", "before": old, "after": new}
+            self._context_item = self.canvas_review.impacts.get((group_key, node_key)) or {"kind": "未修改", "before": old, "after": new}
         self._select_from_canvas = True
         try:
             self.select()

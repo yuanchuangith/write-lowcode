@@ -55,6 +55,10 @@ def transaction_binding_hash(artifact: dict[str, Any]) -> str:
     # Keep old signed artifacts verifiable; new snapshots bind recovery evidence.
     if "old_relation_hash" in artifact:
         binding["old_relation_hash"] = artifact["old_relation_hash"]
+    if "business_review" in artifact:
+        binding["business_review"] = artifact["business_review"]
+    if "action_context" in artifact:
+        binding["action_context"] = artifact["action_context"]
     return sha256_json(binding)
 
 

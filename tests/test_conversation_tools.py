@@ -25,9 +25,12 @@ class ConversationToolContractTests(unittest.TestCase):
             with self.subTest(tool=name):
                 schema = tool.inputSchema
                 self.assertEqual(schema["properties"]["conversation_id"]["type"], "string")
-                if name == "attach_edit_session":
+                if name in {"attach_edit_session", "create_edit_queue", "get_edit_queue"}:
                     self.assertIn("conversation_id", schema["required"])
-                    self.assertIn("session_id", schema["required"])
+                    if name == "attach_edit_session":
+                        self.assertIn("session_id", schema["required"])
+                    if name == "get_edit_queue":
+                        self.assertIn("queue_id", schema["required"])
                 else:
                     self.assertEqual(schema["properties"]["conversation_id"]["default"], "")
                     self.assertNotIn("conversation_id", schema.get("required", []))

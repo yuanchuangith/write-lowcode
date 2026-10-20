@@ -7,8 +7,10 @@ from datetime import datetime
 from typing import Any
 
 from .approval import statement_hash, transaction_binding_hash
+from .action_context import action_context
 from .hashing import compiler_binding_payload, design_content_hash, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
 from .single_row_checker import SingleRowCheckError, check_statement_list
+from .logic_review import LogicReviewError, require_write_business_review, validate_business_review
 
 
 class TransactionPlanError(RuntimeError):
@@ -133,6 +135,7 @@ def build_transaction_artifact(
     database_safety: dict[str, Any],
     runtime_validation: dict[str, Any],
     compiler_evidence: dict[str, Any] | None = None,
+    business_review: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     restore = kind == "restore"
     design_id = str(baseline["id"])
@@ -262,6 +265,7 @@ def build_transaction_artifact(
         "design_id": design_id,
         "ref_id": str(baseline["ref_id"]),
         "action_code": str(baseline.get("code") or ""),
+        "action_context": action_context(baseline),
         "old_content_hash": old_hash,
         "old_relation_hash": relation_snapshot_hash(current_relations),
         "new_content_hash": new_hash,
@@ -288,6 +292,15 @@ def build_transaction_artifact(
         "executed": False,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
+    if business_review is not None:
+        artifact["business_review"] = business_review
+        if not restore:
+            try:
+                validate_business_review(business_review, baseline_design=baseline, candidate_design=desired_design,
+                                         compiler_binding=(compiler_evidence or {}).get("compiler_binding"))
+                require_write_business_review(artifact)
+            except LogicReviewError as exc:
+                raise TransactionPlanError(str(exc)) from exc
     artifact["transaction_hash"] = transaction_binding_hash(artifact)
     validate_transaction_artifact(artifact)
     return artifact
@@ -366,6 +379,10 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         raise TransactionPlanError("Transaction execution state is invalid")
     if artifact.get("transaction_hash") != transaction_binding_hash(artifact):
         raise TransactionPlanError("Transaction metadata hash is invalid")
+    context = artifact.get("action_context")
+    if "action_context" in artifact and (not isinstance(context, dict) or context.get("schema_version") != 1
+        or context.get("design_id") != str(design_id) or context.get("ref_id") != str(artifact.get("ref_id") or "")):
+        raise TransactionPlanError("Transaction form/action context does not match its target")
     database_safety = artifact.get("database_safety")
     if not isinstance(database_safety, dict):
         raise TransactionPlanError("Transaction database safety binding is missing")
@@ -490,3 +507,10 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
             raise TransactionPlanError("Compiler relation hash is invalid")
     elif compiler_evidence is not None:
         raise TransactionPlanError("Restore transactions must not claim new compiler evidence")
+    if "business_review" in artifact:
+        try:
+            validate_business_review(artifact["business_review"], candidate_design=artifact.get("desired_design"),
+                                     candidate_hashes=(artifact.get("compiler_evidence") or {}).get("hashes"),
+                                     compiler_binding=(artifact.get("compiler_evidence") or {}).get("compiler_binding"))
+        except LogicReviewError as exc:
+            raise TransactionPlanError(str(exc)) from exc

@@ -16,8 +16,14 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets) {
   const standard = load('globals');
   const allowed = new Set([...GLOBALS, ...Object.keys(standard.browser || {}), ...Object.keys(standard.es2021 || {})]);
   const ast = parser.parse('(' + code + ')', {sourceType:'script'});
+  const factory = ast.program.body[0]?.expression;
   const pending = new Map(groups.map(group=>[group.key, group]));
   traverse(ast, {AssignmentExpression(p) {
+    // Native group declarations belong to the generated factory. Assignments
+    // inside an action (including an IIFE wrapping another group for in-flight
+    // request reuse) are business code, not that group's declaration. They are
+    // still traversed by the owning group's lexical identifier checks below.
+    if (p.getFunctionParent()?.node !== factory) return;
     const left = p.node.left;
     if (left.type !== 'MemberExpression' || left.computed || left.object.type !== 'Identifier' || left.object.name !== 'self' || left.property.type !== 'Identifier') return;
     const group = pending.get(left.property.name);

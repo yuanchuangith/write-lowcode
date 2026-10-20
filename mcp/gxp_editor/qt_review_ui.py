@@ -5,7 +5,7 @@ import json
 import re
 from pathlib import Path
 
-from PySide6.QtCore import QSignalBlocker, QSize, Qt
+from PySide6.QtCore import QSignalBlocker, QSize, Qt, Signal
 from PySide6.QtGui import QColor, QIcon, QTextCursor, QTextFormat
 from PySide6.QtWidgets import (
     QApplication, QComboBox, QDialog, QHBoxLayout, QHeaderView, QPushButton,
@@ -14,11 +14,11 @@ from PySide6.QtWidgets import (
 
 from .canvas_review_model import review_groups
 from .code_review_model import aligned_code_rows
-from .component_preview import component_changes, parameter_rows, plain_description
+from .component_preview import component_changes, control_flow_impacts, parameter_rows, plain_description
 from .generated_code_review import canvas_context
 from .qt_theme import label, text_view
 
-COLORS = {"新增": "#248a3d", "删除": "#d70015", "修改": "#b36b00", "移动": "#0066cc", "修改并移动": "#b36b00"}
+COLORS = {"新增": "#248a3d", "删除": "#d70015", "修改": "#b36b00", "移动": "#0066cc", "修改并移动": "#b36b00", "受条件影响": "#7656ab", "可能受控制流影响": "#7656ab"}
 ICON_DIRECTORY = Path(__file__).resolve().parents[2] / "assets/action-icons"
 
 
@@ -41,6 +41,7 @@ def highlight_lines(view, rows, side):
 
 
 class ComponentReview(QWidget):
+    group_changed = Signal(str, str)
     def __init__(self, registry=None, registry_note="", parent=None):
         super().__init__(parent)
         self.registry = registry or {}
@@ -57,6 +58,10 @@ class ComponentReview(QWidget):
         self.details_button.setEnabled(False)
         self.details_button.clicked.connect(self.open_details)
         toolbar.addWidget(self.details_button)
+        self.control_button = QPushButton("定位上级条件")
+        self.control_button.setEnabled(False)
+        self.control_button.clicked.connect(self.select_controller)
+        toolbar.addWidget(self.control_button)
         layout.addLayout(toolbar)
         self.views = QTabWidget()
         layout.addWidget(self.views, 1)
@@ -91,6 +96,8 @@ class ComponentReview(QWidget):
 
     def render(self, before, after, *, changes=None):
         self.items = component_changes(before, after) if changes is None else changes
+        self.impacts = control_flow_impacts(before, after, changes=self.items)
+        self.impact_map = {self.identity(item["after"] or item["before"]): item for item in self.impacts}
         self.canvases = {"before": before, "after": after}
         change_map = {self.identity(item["after"] or item["before"]): item for item in self.items}
         for side, tree in self.trees.items():
@@ -110,9 +117,11 @@ class ComponentReview(QWidget):
                     for index, node in enumerate(group[side]):
                         identity = group["key"], node["key"]
                         change = change_map.get(identity)
-                        kind = change["kind"] if change else ""
+                        impact = self.impact_map.get(identity)
+                        kind = change["kind"] if change else impact["kind"] if impact else ""
+                        display_kind = kind + (" · " + impact["kind"] if impact and change else "")
                         parent = next((nodes[key] for key in reversed(node.get("depth") or []) if key in nodes), group_item)
-                        entry = QTreeWidgetItem(parent, [node.get("title") or node["elementKey"], f"第 {index + 1} 行" + (f" · {kind}" if kind else "")])
+                        entry = QTreeWidgetItem(parent, [node.get("title") or node["elementKey"], f"第 {index + 1} 行" + (f" · {display_kind}" if display_kind else "")])
                         entry.setData(0, Qt.ItemDataRole.UserRole, identity)
                         entry.setIcon(0, node_icon(node["elementKey"]))
                         description = plain_description(node)
@@ -126,6 +135,10 @@ class ComponentReview(QWidget):
             first = self.items[0]
             self.select_canvas_node(*self.identity(first["after"] or first["before"]))
         else:
+            self.selected_change = None
+            self.details_button.setEnabled(False)
+            self.control_button.setEnabled(False)
+            self.parameters.clear()
             self.note.setText("画布参数未变更。仍可选择元件核对配置。")
 
     def select(self, side):
@@ -135,8 +148,13 @@ class ComponentReview(QWidget):
             self.select_canvas_node(*identity)
 
     def select_canvas_node(self, group_key, node_key):
+        if not node_key:
+            node_key = next((key[1] for side in ("after", "before") for key in self.lookup[side] if key[0] == group_key), "")
         identity = group_key, node_key
         change = next((item for item in self.items if self.identity(item["after"] or item["before"]) == identity), None)
+        impact = self.impact_map.get(identity)
+        if change is None and impact:
+            change = impact
         for side, tree in self.trees.items():
             with QSignalBlocker(tree):
                 entry = self.lookup[side].get(identity)
@@ -167,17 +185,33 @@ class ComponentReview(QWidget):
                         if (group["key"], node["key"]) == identity:
                             change[side] = {"group": group["title"], "group_key": group["key"], "line": index + 1, "node": node,
                                             "parents": [names.get(key, key) for key in node.get("depth") or []]}
+        if change["after"] is None and change["before"] is None:
+            return
         self.selected_change = change
+        selected_side = change["after"] or change["before"]
+        self.group_changed.emit(str(selected_side.get("group_key") or group_key), str(selected_side.get("group") or group_key))
         self.details_button.setEnabled(True)
         side = change["after"] or change["before"]
-        self.note.setText(f"{side['group']} · 第 {side.get('line') or '—'} 行 · {side['node'].get('title') or side['node']['elementKey']} · {change['kind']}")
+        notice = "；控制流依赖已改变，执行结果仍需场景验证" if impact else ""
+        self.note.setText(f"{side['group']} · 第 {side.get('line') or '—'} 行 · {side['node'].get('title') or side['node']['elementKey']} · {change['kind']}{notice}")
+        self.control_button.setEnabled(bool(impact))
         self.parameters.clear()
         for row in parameter_rows(change, self.registry):
             entry = QTreeWidgetItem(self.parameters, [row["heading"] + " · " + row["after_title"], row["before"], row["after"]])
+            entry.setData(0, Qt.ItemDataRole.UserRole, row["key"])
             for column, key in ((1, "before"), (2, "after")):
                 entry.setToolTip(column, row[key])
                 if row["changed"]:
                     entry.setBackground(column, QColor("#fff4e0"))
+
+    def select_controller(self):
+        if not self.selected_change:
+            return
+        identity = self.identity(self.selected_change["after"] or self.selected_change["before"])
+        impact = self.impact_map.get(identity)
+        if impact:
+            target = impact["affected_by"][-1]
+            self.select_canvas_node(target["group_key"], target["node_key"])
 
     def open_details(self):
         if not self.selected_change:

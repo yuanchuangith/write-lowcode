@@ -123,8 +123,9 @@ class CompilerBridge:
 
     def _verify_native_sources(self) -> str:
         """Reject stale native rules before a session can report compiler readiness."""
-        rules_root = self.frontend_repo / "src/core/common/ActionDesign"
-        rebuild = 'Run node scripts/build_compiler_bridge.cjs "' + str(self.frontend_repo) + '" before starting a new session'
+        frontend_repo = self.frontend_repo
+        rules_root = frontend_repo / "src/core/common/ActionDesign"
+        rebuild = 'Run node scripts/build_compiler_bridge.cjs "' + str(frontend_repo) + '" before starting a new session'
         prefix = "// GXP_COMPILER_SOURCES_V1="
         try:
             with self.path.open(encoding="utf-8") as stream:
@@ -141,15 +142,15 @@ class CompilerBridge:
             rule_entries = []
             for item in entries:
                 relative = item["path"]
-                file = (self.frontend_repo / relative).resolve()
-                if file == self.frontend_repo or not file.is_relative_to(self.frontend_repo) or relative in seen:
+                file = (frontend_repo / relative).resolve()
+                if file == frontend_repo or not file.is_relative_to(frontend_repo) or relative in seen:
                     raise ValueError("invalid or duplicate source path")
                 seen.add(relative)
                 if hashlib.sha256(file.read_bytes()).hexdigest() != item["sha256"]:
                     raise CompilerError(f"Compiler native source changed: {relative}. {rebuild}")
                 if file.is_relative_to(rules_root) and not file.is_relative_to(rules_root / "compiler"):
                     rule_entries.append(item)
-            current_rules = {file.relative_to(self.frontend_repo).as_posix()
+            current_rules = {file.relative_to(frontend_repo).as_posix()
                              for file in rules_root.rglob("*") if file.is_file()
                              and re.search(r"\.[cm]?[jt]sx?$", file.name)
                              and not file.is_relative_to(rules_root / "compiler")}
@@ -237,7 +238,9 @@ class CompilerBridge:
             if validation.get(field) != registry.get(field):
                 raise CompilerError(f"Compiler validation {field} does not match the active registry")
         validation["registry_hash"] = registry["registry_hash"]
-        result["compiler_binding"] = self.compiler_binding()
+        binding = self._binding_fields(registry)
+        binding["compiler_binding_sha256"] = sha256_json(binding)
+        result["compiler_binding"] = binding
         return result
 
     @staticmethod

@@ -8,6 +8,7 @@ from pathlib import Path
 from typing import Any
 
 from .approval import load_artifact, save_artifact
+from .action_context import action_context
 from .backup import BackupStore
 from .compiler import CompilerBridge
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
@@ -19,6 +20,11 @@ from .state import StateError, StateStore
 from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
 from .recovery import recover_session
+from .logic_review import (
+    build_business_review, normalize_review_spec, plan_binding_hash,
+    require_write_business_review, validate_business_review,
+)
+from .logic_scenarios import LogicScenarioRunner
 
 
 class EditorServiceError(RuntimeError):
@@ -50,6 +56,18 @@ class EditorService:
 
     def create_conversation(self, label: str = "") -> dict[str, str]:
         return self.state.create_conversation(label)
+
+    def create_edit_queue(self) -> dict[str, Any]:
+        return {"queue_id": self.state.create_edit_queue(self.conversation_id),
+                "conversation_id": self.conversation_id, "write_executed": False}
+
+    def get_edit_queue(self, queue_id: str) -> dict[str, Any]:
+        items = self.state.edit_queue(queue_id, self.conversation_id)
+        return {"queue_id": queue_id, "items": [
+            {**self._session_summary(item), "position": item["position"], "plan_id": item.get("plan_id"),
+             "plan_status": item.get("plan_status"), "transaction_state": item.get("transaction_state"),
+             "owned": item["conversation_id"] == self.conversation_id and item["owner_revision"] == item["queued_owner_revision"],
+             "action_context": item["action_context"]} for item in items], "write_executed": False}
 
     def attach_edit_session(self, session_id: str) -> dict[str, Any]:
         from contextlib import ExitStack
@@ -132,7 +150,9 @@ class EditorService:
             reason = evidence.get("warning") or evidence.get("failure_kind") or "C# compilation did not succeed"
             raise EditorServiceError("Candidate C# validation did not pass; no approval can be created. " + str(reason))
 
-    def editor_status(self) -> dict[str, Any]:
+    def editor_status(
+        self, *, runtime_artifacts: dict[str, Any] | None = None, probe_runtime: bool = True,
+    ) -> dict[str, Any]:
         result: dict[str, Any] = {
             "configured": False,
             "planning_ready": False,
@@ -211,7 +231,17 @@ class EditorService:
         except Exception as exc:
             result["gates"]["compiler"] = {"ready": False, "error": str(exc)}
         try:
-            runtime_status = dict(runtime_validator.status())
+            if runtime_artifacts is not None:
+                runtime_status = dict(runtime_artifacts)
+            elif probe_runtime:
+                runtime_status = dict(runtime_validator.status())
+            else:
+                runtime_status = {
+                    "available": False,
+                    "production_compatible": False,
+                    "probe_skipped": True,
+                    "zero_backend_mode": True,
+                }
             runtime_verified = False  # A status probe verifies no candidate or deployed action.
             runtime_status["reference_snapshot_available"] = bool(runtime_status.get("available"))
             runtime_status["advisory_only"] = True
@@ -228,6 +258,7 @@ class EditorService:
                 "blocking": False,
                 "candidate_compilation_required": True,
                 "advisory": True,
+                "probe_skipped": bool(runtime_status.get("probe_skipped")),
                 "runtime_compatibility_verified": runtime_verified,
                 "warning": runtime_status.get("warning"),
             }
@@ -345,15 +376,17 @@ class EditorService:
     def _compiler_binding_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
         return isinstance(expected, dict) and expected == actual
 
-    def begin_edit_session(self, identifier: str) -> dict[str, Any]:
-        return self._begin_session(identifier, repair=False)
+    def begin_edit_session(self, identifier: str, *, queue_id: str = "") -> dict[str, Any]:
+        return self._begin_session(identifier, repair=False, queue_id=queue_id)
 
-    def begin_reference_repair_session(self, identifier: str) -> dict[str, Any]:
-        return self._begin_session(identifier, repair=True)
+    def begin_reference_repair_session(self, identifier: str, *, queue_id: str = "") -> dict[str, Any]:
+        return self._begin_session(identifier, repair=True, queue_id=queue_id)
 
-    def _begin_session(self, identifier: str, *, repair: bool) -> dict[str, Any]:
+    def _begin_session(self, identifier: str, *, repair: bool, queue_id: str = "") -> dict[str, Any]:
+        if queue_id:
+            self.state.edit_queue(queue_id, self.conversation_id)
         active = self.state.active_session(self.conversation_id)
-        if active:
+        if active and not (queue_id and active.get("queue_id") == queue_id):
             result = self.abort_edit_session(active["id"])
             return {
                 **result,
@@ -407,10 +440,12 @@ class EditorService:
             binding["compiler_binding_sha256"],
             session_mode="reference_repair" if repair else "edit",
             conversation_id=self.conversation_id,
+            queue_id=queue_id,
         )
-        status = self.editor_status()
+        status = self.editor_status(runtime_artifacts=runtime_artifacts)
         return {
             "session_id": session["id"],
+            "queue_id": queue_id or None,
             "session_marker": session["id"],
             "conversation_id": self.conversation_id,
             "owner_revision": session.get("owner_revision", 0),
@@ -418,6 +453,7 @@ class EditorService:
             "design_id": session["design_id"],
             "action_code": session["action_code"],
             "action_name": session["action_name"],
+            "action_context": action_context(draft),
             "backup_id": backup["backup_id"],
             "backup_manifest": backup["files"],
             "baseline_content_hash": draft["content_hash"],
@@ -441,11 +477,13 @@ class EditorService:
         _, _, _, compiler, _ = self._components()
         return compiler.describe_component_contract(component_type)
 
-    def plan_canvas_patch(self, session_id: str, operations: list[dict[str, Any]]) -> dict[str, Any]:
+    def plan_canvas_patch(
+        self, session_id: str, operations: list[dict[str, Any]], review_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         session = self._owned_session(session_id)
         if session.get("session_mode", "edit") != "edit":
             raise EditorServiceError("Reference repair sessions require plan_reference_repairs")
-        return self._plan_patch(session_id, operations)
+        return self._plan_patch(session_id, operations, review_spec=review_spec)
 
     def inspect_reference_repairs(self, session_id: str, *, offset: int = 0, limit: int = 30) -> dict[str, Any]:
         if offset < 0 or not 1 <= limit <= 100:
@@ -469,22 +507,79 @@ class EditorService:
         design = self._compiler_design(session["baseline"])
         return design, scan_references(design, compiler.describe_registry()), compiler
 
-    def plan_reference_repairs(self, session_id: str, choices: list[dict[str, str]] | None = None) -> dict[str, Any]:
+    def plan_reference_repairs(
+        self, session_id: str, choices: list[dict[str, str]] | None = None,
+        review_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
         design, report, _ = self._reference_report(session_id)
         repaired = build_repair(design, report, [] if choices is None else choices)
         if repaired["blocked"]:
             return {"session_id": session_id, "blocked": True, "summary": report["summary"],
                     "unresolved": repaired["unresolved"], "plan_created": False, "write_executed": False}
-        return self._plan_patch(session_id, repaired["operations"], repaired=repaired)
+        return self._plan_patch(session_id, repaired["operations"], repaired=repaired, review_spec=review_spec)
 
-    def _plan_patch(self, session_id: str, operations: list[dict[str, Any]], *, repaired=None) -> dict[str, Any]:
-        _, _, repository, compiler, runtime_validator = self._components()
+    def _resolve_review_spec(self, session: dict[str, Any], supplied: dict[str, Any] | None) -> dict[str, Any]:
+        previous = None
+        if session.get("plan_id"):
+            old_plan = self.state.get_plan(session["plan_id"])
+            old_artifact = load_artifact(old_plan["artifact_path"])
+            if old_artifact.get("business_review") is not None:
+                self._validate_plan_review(old_plan, session, old_artifact)
+                previous = old_artifact["business_review"]["spec"]
+            elif old_plan.get("new_hash") != sha256_json(old_artifact.get("hashes")):
+                raise EditorServiceError("已有计划的业务验收证据被移除或损坏，不能清空预期后重试。")
+        if supplied is None and previous is not None:
+            return previous
+        spec = normalize_review_spec(supplied)
+        if previous is not None and sha256_json(spec) != sha256_json(previous):
+            if spec.get("revision") == previous.get("revision"):
+                raise EditorServiceError("修改验收规则或场景时必须提供新的 revision。")
+            old_rules = {item["id"]: item["text"] for item in previous.get("requirements", [])}
+            new_rules = {item["id"]: item["text"] for item in spec.get("requirements", [])}
+            old_cases = {item["id"]: item for item in previous["scenarios"]["cases"]}
+            new_cases = {item["id"]: item for item in spec["scenarios"]["cases"]}
+            changed_existing_cases = any(
+                case_id not in new_cases or any(
+                    sha256_json(old_case.get(field)) != sha256_json(new_cases[case_id].get(field))
+                    for field in ("environment", "steps", "expect", "requirement_ids")
+                ) for case_id, old_case in old_cases.items()
+            )
+            if old_rules != new_rules or changed_existing_cases:
+                old_sources = {str(item.get("source_text") or "").strip() for item in previous.get("requirements", [])}
+                new_sources = {str(item.get("source_text") or "").strip() for item in spec.get("requirements", [])}
+                change_source = str(spec.get("change_source_text") or "").strip()
+                previous_change_source = str(previous.get("change_source_text") or "").strip()
+                if not (change_source and change_source != previous_change_source) and not (new_sources - old_sources - {""}):
+                    raise EditorServiceError("修改或移除业务预期、已有场景时必须附新的用户依据 source_text 或 change_source_text。")
+        return spec
+
+    @staticmethod
+    def _validate_plan_review(plan: dict[str, Any], session: dict[str, Any], artifact: dict[str, Any]) -> None:
+        if not isinstance(artifact.get("business_review"), dict):
+            raise EditorServiceError("此计划缺少业务验收证据，请重新生成计划。")
+        if plan.get("new_hash") != plan_binding_hash(artifact):
+            raise EditorServiceError("计划或业务验收报告已变化，请重新生成计划。")
+        if artifact.get("base_content_hash") != session["baseline"]["content_hash"] or plan.get("base_hash") != artifact.get("base_content_hash"):
+            raise EditorServiceError("业务验收的修改前版本与会话备份不一致。")
+        if "action_context" in artifact and artifact["action_context"] != action_context(session["baseline"]):
+            raise EditorServiceError("计划的表单或动作归属与会话备份不一致，请重新生成计划。")
+        validate_business_review(
+            artifact["business_review"], baseline_design=session["baseline"],
+            candidate_design=artifact.get("desired"), compiler_binding=artifact.get("compiler_binding"),
+        )
+
+    def _plan_patch(
+        self, session_id: str, operations: list[dict[str, Any]], *, repaired=None,
+        review_spec: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        config, _, repository, compiler, runtime_validator = self._components()
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned"}:
             raise StateError(f"Session state {session['state']!r} cannot be planned")
         current = repository.load_draft_by_id(session["design_id"])
         if current["content_hash"] != session["baseline"]["content_hash"]:
             raise EditorServiceError("Draft changed after the edit session began")
+        spec = self._resolve_review_spec(session, review_spec)
         registry = compiler.describe_registry()
         binding = compiler.compiler_binding()
         if binding["compiler_binding_sha256"] != session["compiler_hash"]:
@@ -515,8 +610,16 @@ class EditorService:
             desired["csharp_code"],
         )
         self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
+        scenario_report = LogicScenarioRunner(config).run_pair(
+            str(session["baseline"].get("js_code") or ""), desired["js_code"], spec["scenarios"],
+        )
+        business_review = build_business_review(
+            review_spec=spec, baseline_design=session["baseline"], candidate_design=desired,
+            compiler_binding=binding, scenario_report=scenario_report,
+        )
         plan_artifact = {
             "session_id": session_id,
+            "action_context": action_context(session["baseline"]),
             "base_content_hash": current["content_hash"],
             "compiler_hash": binding["compiler_binding_sha256"],
             "compiler_binding": binding,
@@ -533,8 +636,9 @@ class EditorService:
             "diff": result.get("diff") or [],
             "hashes": self._desired_hashes(desired),
             "reference_repairs": result.get("reference_repairs") or [],
+            "business_review": business_review,
         }
-        new_hash = sha256_json(plan_artifact["hashes"])
+        new_hash = plan_binding_hash(plan_artifact)
         plan_dir = runtime_root() / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
         artifact_path = plan_dir / f"{uuid.uuid4().hex}.json"
@@ -547,11 +651,14 @@ class EditorService:
             binding["compiler_binding_sha256"],
             conversation_id=self.conversation_id,
             owner_revision=session.get("owner_revision", 0),
+            initial_status="blocked" if business_review["status"] == "failed" else "ready",
+            expected_plan_id=session.get("plan_id"),
         )
         return {
             "plan_id": plan_id,
             "session_id": session_id,
             "operation_count": len(operations),
+            "action_context": plan_artifact["action_context"],
             "diff": plan_artifact["diff"],
             "validation": plan_artifact["validation"],
             "event_binding_validation": plan_artifact["event_binding_validation"],
@@ -562,15 +669,65 @@ class EditorService:
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
             "reference_repairs": plan_artifact["reference_repairs"],
+            "review_status": business_review["status"],
+            "review_report": business_review,
+            "ready_for_approval": business_review["status"] != "failed",
+            "blocked_reasons": ["修改后的业务行为不符合已确认预期，请查看场景结果。"] if business_review["status"] == "failed" else [],
+        }
+
+    def open_plan_review(self, plan_id: str) -> dict[str, Any]:
+        """Open an immutable plan report without creating or approving a transaction."""
+        plan = self.state.get_plan(plan_id)
+        session = self._owned_session(plan["session_id"])
+        artifact = load_artifact(plan["artifact_path"])
+        self._validate_plan_review(plan, session, artifact)
+        report = artifact["business_review"]
+        review_dir = runtime_root() / "plan-reviews"
+        review_dir.mkdir(parents=True, exist_ok=True)
+        review_path = review_dir / f"{plan_id}-{uuid.uuid4().hex}.json"
+        save_artifact(review_path, {
+            "plan_id": plan_id, "business_review": report,
+            "action_context": action_context(session["baseline"]),
+            "before": session["baseline"].get("data_json") or json.loads(session["baseline"]["data"]),
+            "after": json.loads(artifact["desired"]["data"]), "validation": artifact.get("validation"),
+        })
+        plugin_root = Path(__file__).resolve().parents[2]
+        python = Path(sys.executable)
+        pythonw = python.with_name("pythonw.exe")
+        try:
+            subprocess.Popen([
+                str(pythonw if pythonw.exists() else python), str(plugin_root / "scripts" / "approval_app.py"),
+                "--plan-review", str(review_path),
+            ], cwd=plugin_root)
+            window = {"review_window_opened": True}
+        except OSError as exc:
+            window = {"review_window_opened": False, "review_window_error": str(exc)}
+        return {
+            "plan_id": plan_id, "review_status": report["status"], "review_report": report,
+            "ready_for_approval": plan["status"] == "ready" and session.get("plan_id") == plan_id,
+            "action_context": action_context(session["baseline"]),
+            "read_only": True, "write_executed": False, **window,
         }
 
     def _launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> None:
-        from .execution_lock import approval_window_lock
+        from .execution_lock import approval_queue_lock, approval_window_lock
         transaction = self.state.get_transaction(transaction_id)
         session = self._owned_session(transaction["session_id"])
         revision = session.get("owner_revision", 0)
         if owner_revision is not None and owner_revision != revision:
             raise EditorServiceError("会话归属已变化，原请求不能打开审批。")
+        queue_id = session.get("queue_id") or ""
+        if queue_id:
+            # A transferred session must not rejoin its former queue implicitly.
+            try:
+                items = self.state.edit_queue(queue_id, self.conversation_id)
+            except StateError:
+                items = []
+            if not any(item["id"] == session["id"] and item["queued_owner_revision"] == revision for item in items):
+                queue_id = ""
+        if queue_id:
+            with approval_queue_lock(queue_id):
+                pass
         with approval_window_lock(transaction["artifact_path"]):
             if transaction["state"] != "awaiting_approval":
                 raise EditorServiceError("只有尚未执行的审批可以打开。")
@@ -579,7 +736,8 @@ class EditorService:
         python = Path(sys.executable)
         pythonw = python.with_name("pythonw.exe")
         executable = pythonw if pythonw.exists() else python
-        subprocess.Popen([str(executable), str(script), transaction_id, self.conversation_id, str(revision)], cwd=plugin_root)
+        arguments = ["--queue", queue_id, self.conversation_id] if queue_id else [transaction_id, self.conversation_id, str(revision)]
+        subprocess.Popen([str(executable), str(script), *arguments], cwd=plugin_root)
 
     def _try_launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
         from .execution_lock import ApprovalWindowBusyError
@@ -595,14 +753,21 @@ class EditorService:
     def prepare_write(self, plan_id: str) -> dict[str, Any]:
         plan = self.state.get_plan(plan_id)
         session = self._owned_session(plan["session_id"])
-        status = self.editor_status()
+        artifact = load_artifact(plan["artifact_path"])
+        self._validate_plan_review(plan, session, artifact)
+        if plan["status"] == "blocked" or artifact["business_review"]["status"] == "failed":
+            return {
+                "plan_id": plan_id, "review_status": "failed", "review_report": artifact["business_review"],
+                "ready_for_approval": False, "approval_window_opened": False, "write_executed": False,
+                "blocked_reasons": ["修改后的业务行为不符合已确认预期，请修正后重新规划。"],
+            }
+        status = self.editor_status(probe_runtime=False)
         if not status["write_ready"]:
             raise EditorServiceError("Database write safety gates are not ready: " + json.dumps(status["gates"], ensure_ascii=False))
         config, _, repository, compiler, runtime_validator = self._components()
         database_safety = self._database_safety_binding(config, repository)
         if plan["status"] != "ready" or session["state"] != "planned" or session.get("plan_id") != plan_id:
             raise EditorServiceError("Only the current ready plan can enter approval")
-        artifact = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
         current = repository.load_draft_by_id(session["design_id"])
         if (
             current["content_hash"] != artifact.get("base_content_hash")
@@ -621,7 +786,7 @@ class EditorService:
         if not isinstance(desired, dict):
             raise EditorServiceError("Plan artifact is missing the desired ActionDesign")
         hashes = self._desired_hashes(desired)
-        if artifact.get("hashes") != hashes or plan.get("new_hash") != sha256_json(hashes):
+        if artifact.get("hashes") != hashes or plan.get("new_hash") != plan_binding_hash(artifact):
             raise EditorServiceError("Candidate design or generated-code hashes changed after planning")
         candidate_design = self._candidate_design(session["baseline"], desired)
         if session.get("session_mode") == "reference_repair":
@@ -674,7 +839,7 @@ class EditorService:
             session_id=session["id"],
             plan_id=plan_id,
             kind="write",
-            baseline=current,
+            baseline={**current, "metadata": session["baseline"].get("metadata") or {}},
             desired_design=desired,
             current_relations=repository.load_relations(session["design_id"]),
             desired_relations=desired["relation_data"],
@@ -689,7 +854,9 @@ class EditorService:
                 "hashes": hashes,
                 "reference_repairs": artifact.get("reference_repairs") or [],
             },
+            business_review=artifact["business_review"],
         )
+        require_write_business_review(transaction_artifact)
         tx_dir = runtime_root() / "transactions"
         tx_dir.mkdir(parents=True, exist_ok=True)
         tx_path = tx_dir / f"{transaction_id}.json"
@@ -700,12 +867,15 @@ class EditorService:
         return {
             "transaction_id": transaction_id,
             "state": "awaiting_approval",
+            "queue_id": session.get("queue_id") or None,
             "statement_count": len(transaction_artifact["statements"]),
             **approval_window,
             "write_executed": False,
             "runtime_validation": runtime_validation,
             "compiler_evidence": compiler_evidence,
             "manual_publication_required": True,
+            "review_status": artifact["business_review"]["status"],
+            "review_report": artifact["business_review"],
         }
 
     def get_write_status(self, transaction_id: str) -> dict[str, Any]:
@@ -745,6 +915,7 @@ class EditorService:
             raise EditorServiceError("会话归属已变化，原窗口不能重新打开审批。")
         artifact = load_artifact(transaction["artifact_path"])
         validate_transaction_artifact(artifact)
+        require_write_business_review(artifact)
         if transaction["state"] != "awaiting_approval" or artifact.get("execution_started"):
             raise EditorServiceError("只有尚未执行的审批可以重新打开。")
         window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
@@ -784,7 +955,7 @@ class EditorService:
             session_id=session_id,
             plan_id=None,
             kind="restore",
-            baseline=current,
+            baseline={**current, "metadata": session["baseline"].get("metadata") or {}},
             desired_design={
                 "data": original["data"],
                 "js_code": original.get("js_code") or "",

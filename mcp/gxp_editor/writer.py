@@ -11,6 +11,7 @@ from .repository import EditorRepository, _flag
 from .state import StateStore
 from .transaction import validate_transaction_artifact
 from .execution_lock import execution_lock
+from .logic_review import LogicReviewError, require_write_business_review
 
 
 class WriteExecutionError(RuntimeError):
@@ -35,6 +36,10 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     if artifact.get("executed"):
         raise WriteExecutionError("This approval transaction has already been executed")
     validate_transaction_artifact(artifact)
+    try:
+        require_write_business_review(artifact)
+    except LogicReviewError as exc:
+        raise WriteExecutionError(str(exc)) from exc
     verify_approvals(config, artifact)
 
     # Persist protocol identity before claiming execution, so a process crash

@@ -70,7 +70,35 @@ def _label(value: Any) -> str:
     return str(value)
 
 
+def _parameter_summary(value: Any) -> str:
+    """Keep picker labels readable without hiding the executable identity."""
+    if not isinstance(value, dict):
+        return _label(value)
+    name = _label(value)
+    code = value.get("code")
+    kind = str(value.get("paramTypes") or "")
+    kinds = {"custom": "自定义表达式", "localVariable": "局部变量", "inputParam": "本分组输入参数",
+             "outputParam": "本分组输出参数", "globalVariable": "全局变量", "componentsVariable": "页面组件"}
+    details = []
+    if kind:
+        details.append(kinds.get(kind, kind))
+    if code is not None and str(code) != name:
+        details.append("表达式：" + str(code))
+    configured = value.get("value")
+    if configured is not None and configured != code and str(configured) != kind + "-" + str(code):
+        details.append("配置值：" + str(configured))
+    if value.get("objectAttribute"):
+        details.append("属性：" + str(value["objectAttribute"]))
+    return name + ("（" + "；".join(details) + "）" if details else "")
+
+
 def _condition(condition: dict[str, Any]) -> str:
+    if not isinstance(condition, dict):
+        return _parameter_summary(condition)
+    if "Filters" not in condition and any(key in condition for key in ("target", "Field")):
+        condition = {"Filters": [condition]}
+    if "paramTypes" in condition:
+        return _parameter_summary(condition)
     operators = {"Equal": "等于", "NotEqual": "不等于", "EqualNull": "为空", "NotEqualNull": "不为空",
                  "GreaterThan": "大于", "LessThan": "小于", "GreaterThanOrEqual": "大于等于", "LessThanOrEqual": "小于等于"}
     parts = []
@@ -79,45 +107,62 @@ def _condition(condition: dict[str, Any]) -> str:
             parts.append("（" + _condition(item) + "）")
         else:
             op = str(item.get("equalTo") or item.get("Operator") or "")
-            phrase = f"{_label(item.get('target') or item.get('Field'))} {operators.get(op, op)}"
+            phrase = f"{_parameter_summary(item.get('target') or item.get('Field'))} {operators.get(op, op)}"
             if op not in {"EqualNull", "NotEqualNull"}:
-                phrase += " " + _label(item.get("value"))
+                phrase += " " + _parameter_summary(item.get("value"))
             parts.append(phrase)
     return ("，并且 " if str(condition.get("Logic", "And")).lower() == "and" else "，或者 ").join(parts) or "未设置条件"
 
 
 def canvas_change_summary(before: dict[str, Any], after: dict[str, Any], *, changes=None) -> str:
     """Summarize real parameter/position changes, excluding generated metadata."""
-    queries: dict[str, str] = {}
-    new_flags: set[str] = set()
-    for data in (before, after):
+    def source_context(data, side):
+        # A source belongs to one version, group and preceding lexical scope.
+        # Do not attribute a same-named output from a later/other branch.
+        queries, new_flags, declarations = {}, set(), {}
+        if not side:
+            return queries, new_flags
         for group in data.get("actionData", []):
+            if group["key"] != side.get("group_key"):
+                continue
+            consumer_depth = side["node"].get("depth") or []
             for node in group.get("data", []):
+                if node["key"] == side["node"]["key"]:
+                    break
+                depth = node.get("depth") or []
+                if depth and depth[-1] not in consumer_depth:
+                    continue
                 params = node.get("paramsValue", {})
                 inputs, outputs = params.get("inputParams", {}), params.get("outputParams", {})
+                for output in outputs.values():
+                    if isinstance(output, dict) and output.get("code"):
+                        name = str(output["code"])
+                        declarations[name] = declarations.get(name, 0) + 1
                 if node.get("elementKey") == "QueryData":
                     name = outputs.get("parameterResults", {}).get("code")
                     if name:
-                        queries[name] = str(inputs.get("paramName"))
+                        queries[name] = _label(inputs.get("paramName"))
                 variable_value = inputs.get("variableValue")
                 if isinstance(variable_value, dict) and variable_value.get("code") == '(inbiz.getPageMode()=="add")':
                     new_flags.add(str(outputs.get("variableName", {}).get("code")))
+        # Review must not resolve ambiguous legacy declarations by dict order.
+        return ({name: source for name, source in queries.items() if declarations.get(name) == 1},
+                {name for name in new_flags if declarations.get(name) == 1})
 
-    def source(value: Any, target: str) -> str:
+    def source(value: Any, target: str, context, output_code: str) -> str:
+        queries, new_flags = context
         if isinstance(value, dict):
             code = str(value.get("code") or "")
             if code in queries:
                 return f"直接使用页面参数“{queries[code]}”覆盖“{target}”"
             match = re.fullmatch(r"\((\w+) && !relatedAttributes\.isEmpty\((\w+)\)\)\s*\?\s*(\w+)\s*:\s*(.+)", code)
             if match and match[1] in new_flags and match[2] == match[3] and match[2] in queries:
-                output_code = target_codes.get(target)
                 if match[4] == output_code:
                     return f"仅在新增申请、且页面参数“{queries[match[2]]}”非空时赋值；重新打开已有申请时保留“{target}”原值"
             if value.get("paramTypes") == "custom" and len(code) > 100:
                 return "使用新的自定义计算规则（完整表达式见“原始节点详情”）"
-        return _label(value)
+        return _parameter_summary(value)
 
-    target_codes: dict[str, str] = {}
     chunks: list[str] = []
     items = component_changes(before, after) if changes is None else changes
     for count, item in enumerate(items, 1):
@@ -156,8 +201,11 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any], *, chan
             if node["elementKey"] in {"SetVariable", "SetVariableValue"} and "variableValue" in inputs:
                 target_value = node.get("paramsValue", {}).get("outputParams", {}).get("variableName", {})
                 target = _label(target_value)
-                target_codes[target] = str(target_value.get("code") or "")
-                detail = f"修改字段：{target}\n修改前：{source(old_inputs.get('variableValue'), target)}\n修改后：{source(inputs.get('variableValue'), target)}"
+                old_target_value = old.get("paramsValue", {}).get("outputParams", {}).get("variableName", {})
+                old_target = _label(old_target_value)
+                old_rule = source(old_inputs.get('variableValue'), old_target, source_context(before, old_side), str(old_target_value.get("code") or ""))
+                new_rule = source(inputs.get('variableValue'), target, source_context(after, new_side), str(target_value.get("code") or ""))
+                detail = f"修改字段：{target}\n修改前：{old_rule}\n修改后：{new_rule}"
                 if old.get("paramsValue", {}).get("outputParams") != node.get("paramsValue", {}).get("outputParams"):
                     old_target = _label(old.get("paramsValue", {}).get("outputParams", {}).get("variableName"))
                     detail += f"\n赋值目标：{old_target} → {target}"
@@ -172,7 +220,7 @@ def canvas_change_summary(before: dict[str, Any], after: dict[str, Any], *, chan
                     current = node.get("paramsValue", {}).get(section, {})
                     for field in sorted(set(previous) | set(current)):
                         if previous.get(field) != current.get(field):
-                            changes.append(f"字段“{field}”\n修改前：{_label(previous.get(field))}\n修改后：{_label(current.get(field))}")
+                            changes.append(f"字段“{field}”\n修改前：{_parameter_summary(previous.get(field))}\n修改后：{_parameter_summary(current.get(field))}")
                 detail = "\n".join(changes) or "节点类型发生变更，完整配置见“原始节点详情”。"
             if node["elementKey"] == "SetVariable":
                 previous, following = new_side["previous"], new_side["next"]

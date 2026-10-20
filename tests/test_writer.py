@@ -4,11 +4,12 @@ import contextlib
 import tempfile
 import unittest
 from pathlib import Path
+from datetime import datetime, timedelta
 from unittest.mock import patch
 
 from tests.helpers import baseline, editor_config, transaction
 from gxp_editor.approval import approve_statement, load_artifact, save_artifact
-from gxp_editor.approval import transaction_binding_hash
+from gxp_editor.approval import approval_signature, statement_hash, transaction_binding_hash
 from gxp_editor.hashing import design_content_hash
 from gxp_editor.writer import WriteExecutionError, execute_approved_transaction
 
@@ -133,6 +134,28 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(session.executed, [])
         self.assertTrue(load_artifact(self.path)["execution_started"])
         self.assertEqual(self.state.session_state, "failed_no_write")
+
+    def test_legacy_human_signature_cannot_bypass_new_business_review_gate(self):
+        self.artifact.pop("business_review")
+        self.artifact["transaction_hash"] = transaction_binding_hash(self.artifact)
+        self.artifact["approvals"] = {}
+        with patch("gxp_editor.approval.approval_secret", return_value="test-secret"):
+            for statement in self.artifact["statements"]:
+                expires = (datetime.now() + timedelta(minutes=15)).isoformat(timespec="seconds")
+                self.artifact["approvals"][statement["id"]] = {
+                    "expires_at": expires, "statement_hash": statement_hash(statement),
+                    "transaction_hash": self.artifact["transaction_hash"],
+                    "signature": approval_signature(self.config, self.artifact, statement, expires),
+                }
+        save_artifact(self.path, self.artifact)
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session):
+            with self.assertRaisesRegex(WriteExecutionError, "旧审批"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(session.executed, [])
+        self.assertEqual(repository.loads, 0)
+        self.assertEqual(self.state.transaction["state"], "awaiting_approval")
 
     def test_cancelled_transaction_cannot_write(self):
         self.state.transaction["state"] = "cancelled"

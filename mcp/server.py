@@ -17,8 +17,9 @@ mcp = FastMCP(
     instructions=(
         "Guarded editing of existing unpublished GXP ActionDesign drafts. "
         "Create one registered conversation_id per dialogue and supply it on every call. "
-        "Different dialogues may edit different drafts concurrently; each dialogue and draft "
-        "has at most one active flow. An omitted conversation_id accesses only legacy flows. "
+        "Different dialogues may edit different drafts concurrently. Each draft has one active flow; "
+        "use create_edit_queue and queue_id to review multiple drafts in one dialogue/window. "
+        "Without a queue each dialogue has one active flow. An omitted conversation_id accesses only legacy flows. "
         "A session marker may be transferred to another dialogue after its approval window "
         "closes; transfer revokes the former dialogue's access. "
         "The MCP creates plans and opens a separate human approval application; "
@@ -51,15 +52,27 @@ def editor_status(conversation_id: str = "") -> dict[str, Any]:
 
 
 @mcp.tool()
-def begin_edit_session(identifier: str, conversation_id: str = "") -> dict[str, Any]:
-    """Back up and lock one draft for this dialogue; other dialogues may edit different drafts concurrently."""
-    return service(conversation_id).begin_edit_session(identifier)
+def create_edit_queue(conversation_id: str) -> dict[str, Any]:
+    """Create an explicit multi-form/action review queue. No approval or database write occurs."""
+    return service(conversation_id).create_edit_queue()
 
 
 @mcp.tool()
-def begin_reference_repair_session(identifier: str, conversation_id: str = "") -> dict[str, Any]:
+def get_edit_queue(queue_id: str, conversation_id: str) -> dict[str, Any]:
+    """List this dialogue's queued actions and preparation/save states without approving anything."""
+    return service(conversation_id).get_edit_queue(queue_id)
+
+
+@mcp.tool()
+def begin_edit_session(identifier: str, conversation_id: str = "", queue_id: str = "") -> dict[str, Any]:
+    """Back up one draft. An explicit queue_id allows multiple distinct drafts in this dialogue's review window."""
+    return service(conversation_id).begin_edit_session(identifier, queue_id=queue_id)
+
+
+@mcp.tool()
+def begin_reference_repair_session(identifier: str, conversation_id: str = "", queue_id: str = "") -> dict[str, Any]:
     """Back up one draft, diagnose invalid parameter bindings, and validate its non-reference structure."""
-    return service(conversation_id).begin_reference_repair_session(identifier)
+    return service(conversation_id).begin_reference_repair_session(identifier, queue_id=queue_id)
 
 
 @mcp.tool()
@@ -72,10 +85,11 @@ def inspect_reference_repairs(
 
 @mcp.tool()
 def plan_reference_repairs(
-    session_id: str, choices: list[dict[str, str]] | None = None, conversation_id: str = ""
+    session_id: str, choices: list[dict[str, str]] | None = None, conversation_id: str = "",
+    review_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Batch repair unique bindings; supply repair_id/candidate_id only for confirmed ambiguities. Compile the whole candidate before creating a plan."""
-    return service(conversation_id).plan_reference_repairs(session_id, choices)
+    return service(conversation_id).plan_reference_repairs(session_id, choices, review_spec=review_spec)
 
 
 @mcp.tool()
@@ -86,10 +100,22 @@ def inspect_component_contract(component_type: str, conversation_id: str = "") -
 
 @mcp.tool()
 def plan_canvas_patch(
-    session_id: str, operations: list[dict[str, Any]], conversation_id: str = ""
+    session_id: str, operations: list[dict[str, Any]], conversation_id: str = "",
+    review_spec: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
-    """Compile node edits, create_action_group, append_node and bind_component_event. New groups use @group_alias in the same batch. No database write."""
-    return service(conversation_id).plan_canvas_patch(session_id, operations)
+    """Compile a canvas batch and compare original/candidate JS against declarative business expectations.
+
+    review_spec contains schema_version=1, revision, requirements with id/text/source_text/targets,
+    and scenarios with schema_version=1/cases. Omission reuses this session's previous expectations.
+    Failed scenarios create a blocked plan with a readable report; no database write.
+    """
+    return service(conversation_id).plan_canvas_patch(session_id, operations, review_spec=review_spec)
+
+
+@mcp.tool()
+def open_plan_review(plan_id: str, conversation_id: str = "") -> dict[str, Any]:
+    """Open the business expectation/difference/scenario report read-only, including blocked plans. Never approves or writes."""
+    return service(conversation_id).open_plan_review(plan_id)
 
 
 @mcp.tool()

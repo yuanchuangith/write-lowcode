@@ -13,7 +13,7 @@ from unittest.mock import Mock, patch
 from PySide6.QtCore import QCoreApplication, QEvent, QRect, QThread, Qt
 from PySide6.QtTest import QTest
 
-from tests.helpers import PLUGIN_ROOT, baseline, editor_config, transaction
+from tests.helpers import PLUGIN_ROOT, baseline, editor_config, relation, transaction
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_window_lock
 
 
@@ -62,6 +62,7 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.execute_approved_transaction.assert_not_called()
 
     def test_small_window_keeps_action_buttons_visible_and_clickable(self):
+        self.use_multiple_statements()
         self.messagebox.askyesno.return_value = False
         self.window.header.setText("一个很长的业务动作名称" * 12)
         for width, height in ((640, 420), (850, 620)):
@@ -104,6 +105,99 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.execute_approved_transaction.assert_not_called()
         self.assertTrue(self.window.execute_button.isEnabled())
         self.assertFalse(self.window.approve_button.isEnabled())
+
+    def use_multiple_statements(self):
+        self.artifact.clear()
+        self.artifact.update(transaction(current_relations=[relation()], desired_relations={"new-node": "{}"}))
+        self.window.render()
+        self.assertEqual(len(self.artifact["statements"]), 3)
+
+    def test_each_click_approves_one_row_and_continues_in_same_window(self):
+        self.use_multiple_statements()
+        self.messagebox.askyesno.return_value = True
+        shell = self.window.root
+        shell.show()
+        self.window.qt_app.processEvents()
+        statements = self.artifact["statements"]
+        self.assertTrue(all(item["expected_rows"] == 1 for item in statements))
+        for index, statement in enumerate(statements):
+            with self.subTest(index=index):
+                self.assertEqual(self.window.index, index)
+                self.assertIn("批准最后一条" if index == 2 else "继续下一条", self.window.approve_button.text())
+                QTest.mouseClick(self.window.approve_button, Qt.MouseButton.LeftButton)
+                self.assertEqual(set(self.artifact["approvals"]), {item["id"] for item in statements[:index + 1]})
+                self.assertEqual(self.save_artifact.call_count, index + 1)
+                self.assertIs(self.window.root, shell)
+                self.assertTrue(shell.isVisible())
+                self.assertEqual(self.window.statement_list.currentRow(), min(index + 1, 2))
+                self.assertEqual(self.window.execute_button.isEnabled(), index == 2)
+                self.execute_approved_transaction.assert_not_called()
+        self.assertFalse(self.window.approve_button.isEnabled())
+        self.assertIn("请确认保存草稿", self.window.progress.text())
+        self.messagebox.askyesno.return_value = False
+        self.window.execute()
+        self.execute_approved_transaction.assert_not_called()
+        self.assertTrue(shell.isVisible())
+
+    def test_continuation_skips_current_approvals(self):
+        self.use_multiple_statements()
+        middle = self.artifact["statements"][1]
+        approved = copy.deepcopy(self.app.approve_statement(editor_config(), self.artifact, middle["id"]))
+        self.window.render()
+        self.messagebox.askyesno.return_value = True
+        self.window.approve_current()
+        self.assertEqual(self.window.index, 2)
+        self.assertEqual(self.artifact["approvals"][middle["id"]], approved)
+        self.assertEqual(len(self.artifact["approvals"]), 2)
+        self.assertIn("批准最后一条", self.window.approve_button.text())
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_continuation_returns_to_an_earlier_expired_approval(self):
+        self.use_multiple_statements()
+        statements = self.artifact["statements"]
+        for statement in statements[:2]:
+            self.app.approve_statement(editor_config(), self.artifact, statement["id"])
+        self.window.select_statement(2)
+        self.artifact["approvals"][statements[0]["id"]]["expires_at"] = "2000-01-01T00:00:00"
+        self.window.refresh_approval_state()
+        self.messagebox.askyesno.return_value = True
+        self.window.approve_current()
+        self.assertEqual(self.window.index, 0)
+        self.assertEqual(self.window.statement_list.currentRow(), 0)
+        self.assertFalse(self.window.execute_button.isEnabled())
+        self.window.approve_current()
+        self.assertTrue(self.window.execute_button.isEnabled())
+        self.assertEqual(self.save_artifact.call_count, 2)
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_cancelled_approval_does_not_advance_or_sign_next_item(self):
+        self.use_multiple_statements()
+        self.messagebox.askyesno.return_value = False
+        original = copy.deepcopy(self.artifact)
+        self.window.approve_current()
+        self.assertEqual(self.window.index, 0)
+        self.assertEqual(self.artifact, original)
+        self.save_artifact.assert_not_called()
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_reopening_resumes_at_pending_or_expired_statement(self):
+        self.use_multiple_statements()
+        statements = self.artifact["statements"]
+        for index in (0, 2):
+            self.app.approve_statement(editor_config(), self.artifact, statements[index]["id"])
+        for expected_index in (1, 0):
+            with self.subTest(expected_index=expected_index):
+                if expected_index == 0:
+                    self.artifact["approvals"][statements[0]["id"]]["expires_at"] = "2000-01-01T00:00:00"
+                self.window.close()
+                original = copy.deepcopy(self.artifact)
+                self.window = self.app.ApprovalWindow("test", "review", 1)
+                self.addCleanup(self.dispose_window, self.window)
+                self.assertEqual(self.window.index, expected_index)
+                self.assertEqual(self.window.statement_list.currentRow(), expected_index)
+                self.assertEqual(self.artifact, original)
+        self.save_artifact.assert_not_called()
+        self.execute_approved_transaction.assert_not_called()
 
     def test_transfer_while_confirmation_is_open_blocks_signature(self):
         def transfer(*args, **kwargs):

@@ -1,0 +1,339 @@
+"""Pure business-review evidence and write gates; never execute candidate code."""
+from __future__ import annotations
+
+import json
+import re
+from copy import deepcopy
+from typing import Any
+
+from .hashing import canonical_json, design_content_hash, sha256_json, sha256_text
+
+
+class LogicReviewError(ValueError):
+    pass
+
+
+REVIEW_SCHEMA_VERSION = 1
+REVIEW_ENGINE_VERSION = "business-review-v1"
+_STATUSES = {"passed", "failed", "unverified"}
+_HASH = re.compile(r"[0-9a-f]{64}")
+_MISSING = object()
+
+
+def _text(value: Any, name: str, *, limit: int = 20000, empty: bool = False) -> str:
+    if not isinstance(value, str) or len(value) > limit or (not empty and not value.strip()):
+        raise LogicReviewError(f"{name} 须为{'可空' if empty else '非空'}文本，长度不超过 {limit}。")
+    return value
+
+
+def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
+    from .logic_scenarios import validate_scenario_spec
+    if spec is None:
+        spec = {"schema_version": 1, "revision": "unspecified", "requirements": [],
+                "scenarios": {"schema_version": 1, "cases": []}}
+    if not isinstance(spec, dict) or type(spec.get("schema_version")) is not int or spec.get("schema_version") != REVIEW_SCHEMA_VERSION:
+        raise LogicReviewError("review_spec.schema_version 必须为 1。")
+    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text"}
+    if unknown:
+        raise LogicReviewError("review_spec 包含未知字段：" + ", ".join(sorted(unknown)))
+    revision = _text(spec.get("revision"), "review_spec.revision", limit=128)
+    requirements = spec.get("requirements")
+    if not isinstance(requirements, list) or len(requirements) > 100:
+        raise LogicReviewError("review_spec.requirements 须为不超过 100 条规则的数组。")
+    seen = set()
+    normalized = []
+    for item in requirements:
+        if not isinstance(item, dict) or set(item) - {"id", "text", "source_text", "targets"}:
+            raise LogicReviewError("预期规则须包含 id、text、source_text 和 targets，不能包含未知字段。")
+        identifier = _text(item.get("id"), "requirement.id", limit=128)
+        if identifier in seen:
+            raise LogicReviewError("预期规则 id 不能重复。")
+        seen.add(identifier)
+        targets = item.get("targets", [])
+        if not isinstance(targets, list) or len(targets) > 100:
+            raise LogicReviewError("requirement.targets 须为不超过 100 项的数组。")
+        checked_targets = []
+        for target in targets:
+            if not isinstance(target, dict) or set(target) - {"group_key", "node_key", "field_path"}:
+                raise LogicReviewError("规则目标只允许 group_key、node_key、field_path。")
+            checked = {"group_key": _text(target.get("group_key"), "target.group_key", limit=256)}
+            for field in ("node_key", "field_path"):
+                if field in target:
+                    checked[field] = _text(target[field], "target." + field, limit=512, empty=True)
+            checked_targets.append(checked)
+        normalized.append({"id": identifier, "text": _text(item.get("text"), "requirement.text"),
+                           "source_text": _text(item.get("source_text"), "requirement.source_text"),
+                           "targets": checked_targets})
+    try:
+        scenarios = validate_scenario_spec(spec.get("scenarios", {"schema_version": 1, "cases": []}))
+    except ValueError as exc:
+        raise LogicReviewError(str(exc)) from exc
+    for case in scenarios["cases"]:
+        if any(identifier not in seen for identifier in case.get("requirement_ids", [])):
+            raise LogicReviewError("场景关联了不存在的预期规则。")
+    result = {"schema_version": 1, "revision": revision, "requirements": normalized, "scenarios": scenarios}
+    if "change_source_text" in spec:
+        result["change_source_text"] = _text(spec["change_source_text"], "review_spec.change_source_text")
+    if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 2 * 1024 * 1024:
+        raise LogicReviewError("review_spec 超过 2 MiB 限制。")
+    return result
+
+
+def _canvas(design: dict[str, Any]) -> dict[str, Any]:
+    try:
+        value = json.loads(design["data"]) if "data" in design else deepcopy(design.get("data_json", design))
+    except (TypeError, ValueError) as exc:
+        raise LogicReviewError("审查画布不是有效 JSON。") from exc
+    if not isinstance(value, dict) or not isinstance(value.get("actionData"), list) or not isinstance(value.get("globalVariables"), list):
+        raise LogicReviewError("审查画布须包含 actionData 和 globalVariables 数组。")
+    return value
+
+
+def _candidate_hashes(design: dict[str, Any]) -> dict[str, str]:
+    result = {name + "_sha256": sha256_text(str(design.get(field) or ""))
+              for name, field in (("data", "data"), ("js", "js_code"), ("csharp", "csharp_code"))}
+    if "relation_data" in design:
+        result["relation_sha256"] = sha256_json(design["relation_data"])
+    return result
+
+
+def _base_hash(design: dict[str, Any]) -> str:
+    return str(design.get("content_hash") or design_content_hash(design))
+
+
+def _matches(target: dict[str, Any], group_key: str, node_key: str, field_path: str) -> bool:
+    path = target.get("field_path") or ""
+    return (target["group_key"] == group_key and (not target.get("node_key") or target["node_key"] == node_key)
+            and (not path or field_path == path or field_path.startswith(path + "/")))
+
+
+def _canvas_changes(before: dict[str, Any], after: dict[str, Any], spec: dict[str, Any]) -> list[dict[str, Any]]:
+    changes: list[dict[str, Any]] = []
+    has_scope = any(rule["targets"] for rule in spec["requirements"])
+
+    def add(old, new, group_key="", node_key="", path="", targets=None):
+        actual_targets = targets or [{"group_key": group_key, "node_key": node_key, "field_path": path}]
+        requirement_ids = [rule["id"] for rule in spec["requirements"] if any(
+            _matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", path))
+            for target in rule["targets"] for actual in actual_targets)]
+        covered = has_scope and all(any(_matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", path))
+            for rule in spec["requirements"] for target in rule["targets"]) for actual in actual_targets)
+        status = "covered" if covered else "unverified"
+        kind = "新增" if old is _MISSING else "删除" if new is _MISSING else "修改"
+        changes.append({"kind": kind, "group_key": group_key, "node_key": node_key, "field_path": path,
+                        "before": None if old is _MISSING else deepcopy(old), "after": None if new is _MISSING else deepcopy(new),
+                        "before_present": old is not _MISSING, "after_present": new is not _MISSING,
+                        "before_rule": None if old is _MISSING else deepcopy(old), "after_rule": None if new is _MISSING else deepcopy(new),
+                        "impact": "已关联预期规则，结果仍需场景核对" if covered else "额外变更，需人工判断" if has_scope else "未声明修改范围，需人工判断",
+                        "targets": actual_targets, "requirement_ids": requirement_ids,
+                        "in_scope": covered if has_scope else None, "status": status})
+
+    def walk(old, new, group_key="", node_key="", path=""):
+        if old is not _MISSING and new is not _MISSING and canonical_json(old) == canonical_json(new):
+            return
+        if isinstance(old, dict) and isinstance(new, dict):
+            for key in sorted(set(old) | set(new)):
+                walk(old.get(key, _MISSING), new.get(key, _MISSING), group_key, node_key, path + "/" + key)
+        else:
+            add(old, new, group_key, node_key, path.lstrip("/"))
+
+    def keyed(items, name):
+        result = {}
+        for item in items:
+            if not isinstance(item, dict) or not isinstance(item.get("key"), str) or item["key"] in result:
+                raise LogicReviewError(f"{name} 中出现缺失或重复的 key。")
+            result[item["key"]] = item
+        return result
+
+    old_groups, new_groups = keyed(before["actionData"], "动作分组"), keyed(after["actionData"], "动作分组")
+    old_order = [key for key in old_groups if key in new_groups]
+    new_order = [key for key in new_groups if key in old_groups]
+    if old_order != new_order:
+        affected = [key for index, key in enumerate(new_order) if old_order[index] != key]
+        add(old_order, new_order, path="actionData/$order", targets=[{"group_key": key, "node_key": "", "field_path": "$order"} for key in affected])
+    for group_key in dict.fromkeys([*old_groups, *new_groups]):
+        old, new = old_groups.get(group_key, _MISSING), new_groups.get(group_key, _MISSING)
+        if old is _MISSING or new is _MISSING:
+            add(old, new, group_key, path="$group")
+            continue
+        walk({k: v for k, v in old.items() if k != "data"}, {k: v for k, v in new.items() if k != "data"}, group_key)
+        old_nodes, new_nodes = keyed(old.get("data", []), "节点"), keyed(new.get("data", []), "节点")
+        old_common = [key for key in old_nodes if key in new_nodes]
+        new_common = [key for key in new_nodes if key in old_nodes]
+        if old_common != new_common:
+            for index, node_key in enumerate(new_common):
+                if old_common[index] != node_key:
+                    add(old_common.index(node_key), index, group_key, node_key, "$order")
+        for node_key in dict.fromkeys([*old_nodes, *new_nodes]):
+            walk(old_nodes.get(node_key, _MISSING), new_nodes.get(node_key, _MISSING), group_key, node_key)
+    for key in sorted((set(before) | set(after)) - {"actionData"}):
+        walk(before.get(key, _MISSING), after.get(key, _MISSING), key, "", key)
+    return changes
+
+
+def _scenario_report(spec, baseline, candidate, report):
+    scenario_spec = spec["scenarios"]
+    if report is None:
+        report = {"schema_version": 1, "spec_sha256": sha256_json(scenario_spec),
+                  "baseline_source_sha256": sha256_text(str(baseline.get("js_code") or "")),
+                  "candidate_source_sha256": sha256_text(str(candidate.get("js_code") or "")),
+                  "runner_version": "not_run", "cases": [
+                      {"id": case["id"], "title": case.get("title", case["id"]), "expected": deepcopy(case.get("expect", {})),
+                       "requirement_ids": deepcopy(case.get("requirement_ids", [])),
+                       "baseline": {"status": "unverified", "reason": "场景未执行", "actual": {}, "trace": []},
+                       "candidate": {"status": "unverified", "reason": "场景未执行", "actual": {}, "trace": []}}
+                      for case in scenario_spec["cases"]], "browser_verified": False, "runtime_verified": False}
+    return deepcopy(report)
+
+
+def _requirements_evidence(spec, report):
+    evidence = []
+    for requirement in spec["requirements"]:
+        linked = [case for case in report["cases"] if requirement["id"] in case.get("requirement_ids", [])]
+        statuses = {case["candidate"]["status"] for case in linked}
+        status = "failed" if "failed" in statuses else "unverified" if not linked or "unverified" in statuses else "passed"
+        evidence.append({**deepcopy(requirement), "status": status, "case_ids": [case["id"] for case in linked],
+                         "reason": "没有关联执行场景，需人工判断" if not linked else "关联场景存在失败" if status == "failed" else
+                         "关联场景仍有未验证项" if status == "unverified" else "关联场景均通过；覆盖范围限于这些场景"})
+    return evidence
+
+
+def _has_expectations(expect):
+    return bool(expect.get("fields") or expect.get("call_counts")) or any(
+        field in expect for field in ("metadata", "metadata_registrations", "last_return", "last_return_undefined", "call_order"))
+
+
+def _review_summary(spec, changes, report):
+    counts = {status: sum(case["candidate"]["status"] == status for case in report["cases"]) for status in _STATUSES}
+    scope_unknown = sum(change["status"] == "unverified" for change in changes)
+    requirements = _requirements_evidence(spec, report)
+    requirement_counts = {"requirements_" + status: sum(item["status"] == status for item in requirements) for status in _STATUSES}
+    failures = counts["failed"]
+    unknowns = counts["unverified"] + scope_unknown + requirement_counts["requirements_unverified"] + int(not spec["requirements"])
+    summary = {**counts, **requirement_counts, "scope_failed": 0, "scope_unverified": scope_unknown}
+    gate = {"blocked": bool(failures), "fail_count": failures, "unknown_count": unknowns,
+            "pass_count": counts["passed"]}
+    return summary, gate, "failed" if failures else "unverified" if unknowns else "passed"
+
+
+def build_business_review(*, review_spec, baseline_design, candidate_design, compiler_binding, scenario_report=None):
+    spec = normalize_review_spec(review_spec)
+    hashes = _candidate_hashes(candidate_design)
+    if "relation_sha256" not in hashes:
+        raise LogicReviewError("候选业务审查缺少 relation_data。")
+    changes = _canvas_changes(_canvas(baseline_design), _canvas(candidate_design), spec)
+    scenarios = _scenario_report(spec, baseline_design, candidate_design, scenario_report)
+    try:
+        summary, gate, status = _review_summary(spec, changes, scenarios)
+    except (KeyError, TypeError) as exc:
+        raise LogicReviewError("场景执行报告结构无效。") from exc
+    review = {"schema_version": 1, "engine_version": REVIEW_ENGINE_VERSION, "spec": spec,
+              "changes": changes, "scenarios": scenarios, "requirements": _requirements_evidence(spec, scenarios),
+              "bindings": {"baseline_content_hash": _base_hash(baseline_design),
+                           "baseline_js_sha256": sha256_text(str(baseline_design.get("js_code") or "")),
+                           "candidate_hashes": hashes, "compiler_binding_sha256": compiler_binding.get("compiler_binding_sha256"),
+                           "review_spec_sha256": sha256_json(spec)},
+              "summary": summary, "candidate_gate": gate, "status": status,
+              "browser_verified": False, "runtime_verified": False}
+    review["review_sha256"] = sha256_json(review)
+    validate_business_review(review, baseline_design=baseline_design, candidate_design=candidate_design, compiler_binding=compiler_binding)
+    return review
+
+
+def validate_business_review(review, *, baseline_design=None, candidate_design=None, candidate_hashes=None, compiler_binding=None):
+    if not isinstance(review, dict) or type(review.get("schema_version")) is not int or review.get("schema_version") != REVIEW_SCHEMA_VERSION or review.get("engine_version") != REVIEW_ENGINE_VERSION:
+        raise LogicReviewError("业务审查版本缺失或不受支持，请重新生成计划。")
+    if review.get("review_sha256") != sha256_json({k: v for k, v in review.items() if k != "review_sha256"}):
+        raise LogicReviewError("业务审查报告摘要无效，请重新生成计划。")
+    spec = normalize_review_spec(review.get("spec"))
+    if spec != review.get("spec"):
+        raise LogicReviewError("业务审查预期规则未规范化。")
+    binding = review.get("bindings")
+    if not isinstance(binding, dict) or binding.get("review_spec_sha256") != sha256_json(spec):
+        raise LogicReviewError("业务审查未绑定当前预期规则。")
+    for field in ("baseline_content_hash", "baseline_js_sha256", "compiler_binding_sha256", "review_spec_sha256"):
+        if not isinstance(binding.get(field), str) or not _HASH.fullmatch(binding[field]):
+            raise LogicReviewError("业务审查绑定摘要无效：" + field)
+    hashes = binding.get("candidate_hashes")
+    if not isinstance(hashes, dict) or set(hashes) != {"data_sha256", "js_sha256", "csharp_sha256", "relation_sha256"} or any(
+        not isinstance(value, str) or not _HASH.fullmatch(value) for value in hashes.values()
+    ):
+        raise LogicReviewError("业务审查候选摘要不完整。")
+    if candidate_hashes is not None and hashes != candidate_hashes:
+        raise LogicReviewError("业务审查不属于当前候选内容。")
+    if candidate_design is not None and any(hashes.get(key) != value for key, value in _candidate_hashes(candidate_design).items()):
+        raise LogicReviewError("业务审查与当前画布或生成代码不一致。")
+    if baseline_design is not None and (binding["baseline_content_hash"] != _base_hash(baseline_design)
+        or binding["baseline_js_sha256"] != sha256_text(str(baseline_design.get("js_code") or ""))):
+        raise LogicReviewError("业务审查基线已变化。")
+    if compiler_binding is not None and binding["compiler_binding_sha256"] != compiler_binding.get("compiler_binding_sha256"):
+        raise LogicReviewError("业务审查编译器已变化。")
+    changes, report = review.get("changes"), review.get("scenarios")
+    if not isinstance(changes, list) or not isinstance(report, dict) or not isinstance(report.get("cases"), list):
+        raise LogicReviewError("业务审查差异或场景报告缺失。")
+    if any(not isinstance(change, dict) or change.get("status") not in {"covered", "unverified"} for change in changes):
+        raise LogicReviewError("业务审查差异状态无效。")
+    if baseline_design is not None and candidate_design is not None and changes != _canvas_changes(_canvas(baseline_design), _canvas(candidate_design), spec):
+        raise LogicReviewError("业务审查未包含真实完整画布差异。")
+    if type(report.get("schema_version")) is not int or report.get("schema_version") != 1 or report.get("spec_sha256") != sha256_json(spec["scenarios"]):
+        raise LogicReviewError("场景报告未绑定当前预期。")
+    _text(report.get("runner_version"), "scenario_report.runner_version", limit=128)
+    if report.get("baseline_source_sha256") != binding["baseline_js_sha256"] or report.get("candidate_source_sha256") != hashes["js_sha256"]:
+        raise LogicReviewError("场景报告未绑定实际生成代码。")
+    cases = spec["scenarios"]["cases"]
+    if len(report["cases"]) != len(cases):
+        raise LogicReviewError("场景报告覆盖范围不完整。")
+    for expected, actual in zip(cases, report["cases"]):
+        if not isinstance(actual, dict) or actual.get("id") != expected["id"] or actual.get("expected") != expected.get("expect", {}) or actual.get("requirement_ids", []) != expected.get("requirement_ids", []):
+            raise LogicReviewError("场景报告与固定预期不一致。")
+        for side in ("baseline", "candidate"):
+            if not isinstance(actual.get(side), dict) or actual[side].get("status") not in _STATUSES:
+                raise LogicReviewError("场景结果状态无效。")
+            if actual[side]["status"] == "passed" and not _has_expectations(expected.get("expect", {})):
+                raise LogicReviewError("没有显式预期断言的场景不能声明通过。")
+            assertions = actual[side].get("assertions")
+            if actual[side]["status"] == "passed" and assertions is not None and (
+                not isinstance(assertions, list) or not assertions or any(not isinstance(item, dict) or item.get("passed") is not True for item in assertions)
+            ):
+                raise LogicReviewError("场景通过状态与实际断言结果不一致。")
+    summary, gate, status = _review_summary(spec, changes, report)
+    if review.get("requirements") != _requirements_evidence(spec, report):
+        raise LogicReviewError("业务审查逐条需求状态与关联场景不一致。")
+    if review.get("summary") != summary or review.get("candidate_gate") != gate or review.get("status") != status:
+        raise LogicReviewError("业务审查汇总与实际场景结果不一致。")
+    if review.get("browser_verified") is not False or review.get("runtime_verified") is not False:
+        raise LogicReviewError("本地业务审查不能声明浏览器或运行环境验收通过。")
+
+
+def plan_binding_hash(artifact: dict[str, Any]) -> str:
+    binding = {"schema_version": 1, "base_content_hash": artifact.get("base_content_hash"),
+                        "compiler_binding": artifact.get("compiler_binding"), "hashes": artifact.get("hashes"),
+                        "business_review": artifact.get("business_review")}
+    if "action_context" in artifact:
+        binding["action_context"] = artifact["action_context"]
+    return sha256_json(binding)
+
+
+def require_write_business_review(artifact: dict[str, Any]) -> None:
+    if artifact.get("kind") != "write":
+        return
+    review = artifact.get("business_review")
+    if not isinstance(review, dict):
+        raise LogicReviewError("旧审批缺少业务审查，请取消旧审批并重新生成计划。")
+    compiler = artifact.get("compiler_evidence")
+    if not isinstance(compiler, dict) or not isinstance(compiler.get("hashes"), dict) or not isinstance(compiler.get("compiler_binding"), dict) or not isinstance(artifact.get("desired_design"), dict):
+        raise LogicReviewError("写入业务审查缺少候选内容或编译器绑定。")
+    validate_business_review(review, candidate_design=artifact.get("desired_design"),
+                             candidate_hashes=compiler.get("hashes"), compiler_binding=compiler.get("compiler_binding"))
+    if review["bindings"]["baseline_content_hash"] != artifact.get("old_content_hash"):
+        raise LogicReviewError("业务审查不属于当前事务基线。")
+    if review["candidate_gate"]["blocked"]:
+        raise LogicReviewError("场景核对失败，不能进入审批或执行。")
+    report = review["scenarios"]
+    if report["cases"]:
+        from .logic_scenarios import RUNNER_VERSION
+        if report["runner_version"] == "not_run":
+            if any(case["candidate"]["status"] != "unverified" for case in report["cases"]):
+                raise LogicReviewError("未运行场景不能声明通过或失败。")
+        elif report["runner_version"] != RUNNER_VERSION:
+            raise LogicReviewError("场景验证器版本已变化，请重新生成计划。")

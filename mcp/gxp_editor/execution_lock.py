@@ -56,3 +56,12 @@ def approval_window_lock(artifact_path: str | Path):
         artifact_path, ".approval-window.lock", ApprovalWindowBusyError,
         "该审批流程已有窗口打开。同一个审批流程只能打开一个窗口；请关闭原窗口后再打开。",
     )
+
+
+def approval_queue_lock(queue_id: str):
+    from .config import runtime_root
+    from .hashing import sha256_text
+    return _os_lock(
+        runtime_root() / "queues" / sha256_text(queue_id), ".approval-queue.lock", ApprovalWindowBusyError,
+        "该队列已在审批窗口中；新动作会在同一窗口内显示。",
+    )

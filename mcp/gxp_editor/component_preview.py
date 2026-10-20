@@ -5,6 +5,8 @@ import json
 from html.parser import HTMLParser
 from typing import Any
 
+from .hashing import canonical_json
+
 
 class _PlainDescription(HTMLParser):
     def __init__(self):
@@ -51,7 +53,7 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
     for group in after.get("actionData", []):
         previous_group = old_groups.pop(group["key"], {})
         previous_meta, current_meta = group_side(previous_group), group_side(group)
-        if previous_meta != current_meta:
+        if canonical_json(previous_meta) != canonical_json(current_meta):
             result.append({"kind": "修改" if previous_group else "新增", "before": previous_meta, "after": current_meta})
         old_nodes, new_nodes = previous_group.get("data", []), group.get("data", [])
         old_names, new_names = names_for(old_nodes), names_for(new_nodes)
@@ -66,7 +68,9 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
                 kind = "新增"
             else:
                 old = old_nodes[old_index]
-                changed = any(old.get(key) != node.get(key) for key in ("elementKey", "paramsValue")) or (old.get("depth") or []) != (node.get("depth") or [])
+                fields = ("elementKey", "paramsValue")
+                changed = (canonical_json({key: old[key] for key in fields if key in old})
+                           != canonical_json({key: node[key] for key in fields if key in node})) or (old.get("depth") or []) != (node.get("depth") or [])
                 if not changed and node["key"] not in moved:
                     continue
                 kind = "修改并移动" if changed and node["key"] in moved else "修改" if changed else "移动"
@@ -80,11 +84,86 @@ def component_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dic
         names = names_for(group.get("data", []))
         for index in range(len(group.get("data", []))):
             result.append({"kind": "删除", "before": side(group, group["data"], index, names), "after": None})
-    if before.get("globalVariables") != after.get("globalVariables"):
+    if canonical_json(before.get("globalVariables")) != canonical_json(after.get("globalVariables")):
         def variables(data):
             return {"group": "全局变量", "line": None, "node": {"title": "全局变量", "elementKey": "globalVariables",
                     "paramsValue": {"inputParams": {"globalVariables": data.get("globalVariables", [])}}}, "previous": None, "next": None}
         result.append({"kind": "修改", "before": variables(before), "after": variables(after)})
+    return result
+
+
+def canvas_node_locations(data: dict[str, Any]) -> dict[tuple[str, str], dict[str, Any]]:
+    """Stable identities and real scope, shared by direct and indirect review."""
+    locations = {}
+    for group in data.get("actionData", []):
+        nodes = group.get("data", [])
+        names = {node["key"]: node.get("title") or node["elementKey"] for node in nodes}
+        for index, node in enumerate(nodes):
+            neighbor = lambda i: {"line": i + 1, "name": names[nodes[i]["key"]]} if 0 <= i < len(nodes) else None
+            locations[(group["key"], node["key"])] = {
+                "group": group.get("title") or group["key"], "group_key": group["key"], "line": index + 1,
+                "node": node, "parents": [names.get(key, key) for key in node.get("depth") or []],
+                "previous": neighbor(index - 1), "next": neighbor(index + 1),
+            }
+    return locations
+
+
+def control_flow_impacts(before: dict[str, Any], after: dict[str, Any], *, changes=None) -> list[dict[str, Any]]:
+    """Show scope effects separately from actual node edits; never infer execution."""
+    direct = component_changes(before, after) if changes is None else changes
+    controllers = {}
+    control_elements = {"If", "IfCondition", "ElseIfCondition", "Else", "ForLoop", "ForEachArray",
+                        "ForEachObject", "ForEachDynamicArray", "WhileLoop", "ExitAction"}
+    for item in direct:
+        old, new = item.get("before"), item.get("after")
+        side = new or old
+        node = side["node"]
+        if node.get("elementKey") not in control_elements:
+            continue
+        old_inputs = ((old or {}).get("node", {}).get("paramsValue") or {}).get("inputParams") or {}
+        new_inputs = ((new or {}).get("node", {}).get("paramsValue") or {}).get("inputParams") or {}
+        if (old and new and canonical_json(old_inputs) == canonical_json(new_inputs)
+                and old["node"].get("elementKey") == new["node"].get("elementKey")
+                and (old["node"].get("depth") or []) == (new["node"].get("depth") or [])):
+            continue
+        controllers[(side["group_key"], node["key"])] = {
+            "group_key": side["group_key"], "node_key": node["key"], "title": node.get("title") or node["elementKey"],
+            "before_condition": old_inputs.get("condition", old_inputs),
+            "after_condition": new_inputs.get("condition", new_inputs),
+            "field_path": "inputParams.condition" if "condition" in old_inputs or "condition" in new_inputs else "inputParams",
+            "potential": node.get("elementKey") not in {"If", "IfCondition", "ElseIfCondition", "Else"},
+        }
+    # Native Else/ElseIf both close the previous branch (endMarker) and
+    # open their own (levelMarker). Their depth therefore ends in the previous
+    # branch key; children only contain the new branch key. Follow that chain.
+    def dependencies(data):
+        result = {}
+        for group in data.get("actionData", []):
+            earlier_exits = []
+            branches = {}
+            for node in group.get("data", []):
+                depth = node.get("depth") or []
+                if node.get("elementKey") in {"ElseIfCondition", "Else"} and depth:
+                    previous_branch = depth[-1]
+                    branches[node["key"]] = [previous_branch, *branches.get(previous_branch, [])]
+                scope = list(dict.fromkeys(key for parent in depth for key in (parent, *branches.get(parent, []))))
+                result[(group["key"], node["key"])] = list(dict.fromkeys([*scope, *earlier_exits]))
+                if node.get("elementKey") == "ExitAction" and (group["key"], node["key"]) in controllers:
+                    earlier_exits.append(node["key"])
+        return result
+    old_dependencies, new_dependencies = dependencies(before), dependencies(after)
+    previous, current = canvas_node_locations(before), canvas_node_locations(after)
+    result = []
+    for identity in dict.fromkeys([*current, *previous]):
+        old, new = previous.get(identity), current.get(identity)
+        if (new or old)["node"].get("elementKey", "").endswith("End"):
+            continue
+        parent_keys = dict.fromkeys([*old_dependencies.get(identity, []), *new_dependencies.get(identity, [])])
+        affected_by = [controllers[(identity[0], key)] for key in parent_keys if (identity[0], key) in controllers]
+        if affected_by:
+            kind = "可能受控制流影响" if any(item["potential"] for item in affected_by) else "受条件影响"
+            result.append({"kind": kind, "group_key": identity[0], "node_key": identity[1],
+                           "before": old, "after": new, "affected_by": affected_by})
     return result
 
 
@@ -126,5 +205,6 @@ def parameter_rows(change: dict[str, Any], registry: dict[str, Any]) -> list[dic
                          "required": bool(new_meta.get(key, old_meta.get(key, {})).get("required")),
                          "before": parameter_text(previous[key]) if key in previous else "未配置",
                          "after": parameter_text(current[key]) if key in current else "未配置",
-                         "changed": (key in previous) != (key in current) or previous.get(key) != current.get(key)})
+                         "changed": (key in previous) != (key in current)
+                         or canonical_json(previous.get(key)) != canonical_json(current.get(key))})
     return rows

@@ -6,12 +6,13 @@ from tkinter import font, ttk
 from typing import Any, Callable
 
 from .canvas_review_model import aligned_rows, caption_runs, review_groups
+from .component_preview import control_flow_impacts
 from .action_icons import native_icon
 
 
 COLORS = {"新增": ("#ecfdf3", "#16834a"), "删除": ("#fff1f2", "#c43e4e"),
           "修改": ("#fff8e8", "#b77916"), "移动": ("#eff4ff", "#5965bd"),
-          "修改并移动": ("#fff8e8", "#b77916")}
+          "修改并移动": ("#fff8e8", "#b77916"), "受条件影响": ("#f4effc", "#7656ab"), "可能受控制流影响": ("#f4effc", "#7656ab")}
 
 
 def draw_icon(canvas: tk.Canvas, x: float, y: float, kind: str, tag: str) -> None:
@@ -35,6 +36,7 @@ class CanvasReview:
         self.on_select, self.on_details = on_select, on_details
         self.groups: list[dict[str, Any]] = []
         self.changes: dict[tuple[str, str], dict] = {}
+        self.impacts: dict[tuple[str, str], dict] = {}
         self.collapsed: dict[str, set[str]] = {}
         self.active_group = ""
         self.selected_key = None
@@ -88,15 +90,19 @@ class CanvasReview:
         self.selection_label.pack(side="left", fill="x", expand=True)
         self.details_button = ttk.Button(footer, text="查看参数差异…", command=on_details, state="disabled")
         self.details_button.pack(side="right")
+        self.condition_button = ttk.Button(footer, text="定位上级条件", command=self.select_controller, state="disabled")
+        self.condition_button.pack(side="right", padx=6)
         legend = ttk.Frame(self.frame, padding=(6, 0, 6, 4))
         legend.pack(fill="x")
-        for label in ("新增", "删除", "修改", "移动"):
+        for label in ("新增", "删除", "修改", "移动", "受条件影响"):
             ttk.Label(legend, text="● " + label, foreground=COLORS[label][1]).pack(side="left", padx=(0, 18))
         ttk.Label(legend, text="点击三角折叠分支 · 两侧同步滚动 · 灰色空位表示此侧没有对应节点", foreground="#748196").pack(side="left")
 
     def set_data(self, before, after, changes):
         self.groups = review_groups(before, after)
         self.changes = {}
+        self.impacts = {(item["group_key"], item["node_key"]): item
+                        for item in control_flow_impacts(before, after, changes=changes)}
         for change in changes:
             side = change["after"] or change["before"]
             self.changes[(side.get("group_key", "globalVariables"), side["node"].get("key", "globalVariables"))] = change
@@ -154,6 +160,7 @@ class CanvasReview:
 
     def highlight(self, group_key, node_key, *, reveal=True):
         key = (group_key, node_key)
+        self.condition_button.configure(state="normal" if key in self.impacts else "disabled")
         if self.selected_key == key and not reveal:
             return
         self.selected_key = key
@@ -184,6 +191,13 @@ class CanvasReview:
                         return
                     self.scroll("moveto", target / max(1, len(self.rows) * self.ROW_HEIGHT + 24))
 
+    def select_controller(self):
+        impact = self.impacts.get(self.selected_key)
+        if impact:
+            target = impact["affected_by"][-1]
+            self.on_select(target["group_key"], target["node_key"])
+            self.highlight(target["group_key"], target["node_key"])
+
     def draw(self):
         self._pending_redraw = None
         group = self.current_group()
@@ -211,7 +225,8 @@ class CanvasReview:
         node_key = node["key"]
         tag = f"node:{index}"
         change = self.changes.get((group["key"], node_key))
-        kind = change["kind"] if change else ""
+        impact = self.impacts.get((group["key"], node_key))
+        kind = change["kind"] if change else impact["kind"] if impact else ""
         bg, color = COLORS.get(kind, ("#ffffff", "#8a96a6"))
         selected = self.selected_key == (group["key"], node_key)
         canvas.create_rectangle(12, y, width - 12, y + 68, fill=bg,

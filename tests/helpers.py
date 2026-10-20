@@ -12,6 +12,7 @@ if str(MCP_ROOT) not in sys.path:
 from gxp_editor.config import DatabaseConfig, EditorConfig, RuntimeReferenceConfig
 from gxp_editor.hashing import design_content_hash, sha256_json, sha256_text
 from gxp_editor.transaction import build_transaction_artifact
+from gxp_editor.logic_review import build_business_review
 
 
 def editor_config() -> EditorConfig:
@@ -82,8 +83,8 @@ def runtime_validation(csharp_code: str) -> dict[str, Any]:
     }
 
 
-def transaction(*, kind: str = "write", current_relations=None, desired_relations=None, database_safety=None):
-    base = baseline()
+def transaction(*, kind: str = "write", current_relations=None, desired_relations=None, database_safety=None, draft=None):
+    base = baseline() if draft is None else draft
     current_relations = list(current_relations or [])
     desired_relations = {} if desired_relations is None else desired_relations
     desired = {
@@ -123,6 +124,7 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
         "compiler_binding_sha256": sha256_json(binding_payload),
     }
     compiler_evidence = None
+    business_review = None
     if kind == "write":
         compiler_evidence = {
             "compiler_binding": compiler_binding,
@@ -145,6 +147,10 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
                 "relation_sha256": sha256_json(desired_relations),
             },
         }
+        business_review = build_business_review(
+            review_spec=None, baseline_design=base,
+            candidate_design={**desired, "relation_data": desired_relations}, compiler_binding=compiler_binding,
+        )
     return build_transaction_artifact(
         transaction_id="transaction-1",
         session_id="session-1",
@@ -157,4 +163,5 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
         database_safety=database_safety,
         runtime_validation=runtime_validation(desired["csharp_code"]),
         compiler_evidence=compiler_evidence,
+        business_review=business_review,
     )
