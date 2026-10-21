@@ -10,6 +10,7 @@ PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 
 from gxp_editor.service import EditorService
+from gxp_editor.compiler import CompilerError
 
 
 mcp = FastMCP(
@@ -46,9 +47,9 @@ def attach_edit_session(session_id: str, conversation_id: str) -> dict[str, Any]
 
 
 @mcp.tool()
-def editor_status(conversation_id: str = "") -> dict[str, Any]:
-    """Check readiness and only this dialogue's active session; an omitted marker accesses legacy flows."""
-    return service(conversation_id).editor_status()
+def editor_status(conversation_id: str = "", probe_runtime: bool = False) -> dict[str, Any]:
+    """Check readiness and this dialogue's session. Set probe_runtime only for SDK/reference diagnostics."""
+    return service(conversation_id).editor_status(probe_runtime=probe_runtime)
 
 
 @mcp.tool()
@@ -87,9 +88,22 @@ def inspect_reference_repairs(
 def plan_reference_repairs(
     session_id: str, choices: list[dict[str, str]] | None = None, conversation_id: str = "",
     review_spec: dict[str, Any] | None = None,
+    response_detail: str = "summary",
 ) -> dict[str, Any]:
-    """Batch repair unique bindings; supply repair_id/candidate_id only for confirmed ambiguities. Compile the whole candidate before creating a plan."""
-    return service(conversation_id).plan_reference_repairs(session_id, choices, review_spec=review_spec)
+    """Repair unique bindings with confirmed choices and compile the whole candidate. Return bounded review evidence by default."""
+    try:
+        return service(conversation_id).plan_reference_repairs(
+            session_id, choices, review_spec=review_spec, response_detail=response_detail)
+    except CompilerError as exc:
+        return _compiler_failure(exc)
+
+
+@mcp.tool()
+def inspect_edit_context(
+    session_id: str, targets: list[dict[str, str]], conversation_id: str = "",
+) -> dict[str, Any]:
+    """Read backup-bound parameters, canvas lines, parents, visible variables and native contracts for 1–10 exact group_key/node_key targets. No writes."""
+    return service(conversation_id).inspect_edit_context(session_id, targets)
 
 
 @mcp.tool()
@@ -102,26 +116,49 @@ def inspect_component_contract(component_type: str, conversation_id: str = "") -
 def plan_canvas_patch(
     session_id: str, operations: list[dict[str, Any]], conversation_id: str = "",
     review_spec: dict[str, Any] | None = None,
+    response_detail: str = "summary",
 ) -> dict[str, Any]:
     """Compile a canvas batch and compare original/candidate JS against declarative business expectations.
 
     review_spec contains schema_version=1, revision, requirements with id/text/source_text/targets,
-    and scenarios with schema_version=1/cases. Omission reuses this session's previous expectations.
-    Failed scenarios create a blocked plan with a readable report; no database write.
+    scenarios with schema_version=1/cases and optional canvas_assertions. Default scope_policy=strict
+    requires targeted requirements and blocks changes outside them. manual_review is explicit.
+    Omission reuses previous expectations. Unchanged guarded parameters return no_changes without
+    creating a new plan. Summary responses retain report identity; use read_plan_review for details
+    or response_detail=full. Failed checks block approval. No database write.
     """
-    return service(conversation_id).plan_canvas_patch(session_id, operations, review_spec=review_spec)
+    try:
+        return service(conversation_id).plan_canvas_patch(
+            session_id, operations, review_spec=review_spec, response_detail=response_detail)
+    except CompilerError as exc:
+        return _compiler_failure(exc)
+
+
+def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
+    return {"blocked": True, "plan_created": False, "write_executed": False,
+            "error": str(exc)[:1000], "error_details": exc.details}
 
 
 @mcp.tool()
-def open_plan_review(plan_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Open the business expectation/difference/scenario report read-only, including blocked plans. Never approves or writes."""
-    return service(conversation_id).open_plan_review(plan_id)
+def read_plan_review(
+    plan_id: str, section: str = "summary", offset: int = 0, limit: int = 10,
+    item_id: str = "", conversation_id: str = "",
+) -> dict[str, Any]:
+    """Read bound report evidence without compiling or opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. Pages contain at most 20 complete records; item_id filters exact IDs."""
+    return service(conversation_id).read_plan_review(
+        plan_id, section=section, offset=offset, limit=limit, item_id=item_id)
 
 
 @mcp.tool()
-def prepare_write(plan_id: str, conversation_id: str = "") -> dict[str, Any]:
+def open_plan_review(plan_id: str, conversation_id: str = "", response_detail: str = "summary") -> dict[str, Any]:
+    """Optional standalone preview, only when explicitly requested by the user. Ready plans go directly to prepare_write; failed plans use read_plan_review without a window. Never approves or writes."""
+    return service(conversation_id).open_plan_review(plan_id, response_detail=response_detail)
+
+
+@mcp.tool()
+def prepare_write(plan_id: str, conversation_id: str = "", response_detail: str = "summary") -> dict[str, Any]:
     """Freeze a validated plan and open the separate per-statement human approval application."""
-    return service(conversation_id).prepare_write(plan_id)
+    return service(conversation_id).prepare_write(plan_id, response_detail=response_detail)
 
 
 @mcp.tool()

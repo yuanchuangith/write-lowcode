@@ -4,7 +4,7 @@ All operations edit one existing unpublished ActionDesign. Creating a child acti
 
 ## Capability discovery
 
-Check editor_status.compiler.supported_operations before planning extended operations. If create_action_group, append_node or bind_component_event is missing, reload the updated MCP plugin. Do not substitute arbitrary JSON or SQL. Read inspect_component_contract(component_type) for the compiled component's event names and callback input/output declarations. This query does not verify a component instance on a page; establish its current page, ID, type and visible title through readonly page evidence first.
+Check `supported_operations` from session entry or the latest readiness evidence before planning extended operations; call `editor_status` only if that evidence is missing. If the requested operation is absent, reload the updated MCP plugin. Do not substitute arbitrary JSON or SQL. Read inspect_component_contract(component_type) for the compiled component's event names and callback input/output declarations. This query does not verify a component instance on a page; establish its current page, ID, type and visible title through readonly page evidence first.
 
 ## Group creation
 
@@ -84,6 +84,27 @@ For an existing `SetVariable` expression, update the complete native record:
 ~~~
 
 Use the actual record's complete keys and values. For an array-valued filter parameter, select that array's path, use the entire current array as `expected_old_value`, and supply all retained rows plus the new row as `value`; do not select a numeric array index. Add fixed configuration assertions for the intended filter structure and unchanged output as described in [business-review.md](business-review.md).
+
+### Existing array rows with native identities
+
+Use `set_array_item` only when `supported_operations` advertises it and the
+actual array contains a unique native `id` or `key`. It uses the same target,
+element and path checks as `set_parameter`; `path` selects the existing array,
+not a numeric position. Supply `item_key: {"field": "id", "value": "<native-row-id>"}`
+or `field: "key"`. The identity value must be a nonblank string or safe integer
+that matches exactly one existing row. Never invent a row identity.
+
+`expected_old_value` and `value` are the **complete old and replacement row**.
+Preserve all existing row fields and every native `id`/`key`; changing identity,
+missing or duplicate matches, and stale old values block the operation. Other
+array rows and parameters remain intact. This changes an existing identified
+row; adding/removing rows still requires an explicit complete-array update.
+Native generation and complete projected-parameter checks remain mandatory.
+
+When planning returns `no_changes=true`, no new plan or approval was created;
+report that the requested parameter already matches and do not prepare a write.
+Any older plan and its expectations remain intact. This response does not cancel
+it or authorize submitting it to approval as the result of this no-change request.
 
 ## Component event binding
 

@@ -50,13 +50,16 @@ function adapt(source) {
   const ext = 'require(' + JSON.stringify(extensionPath) + ')';
   replaceOnce('function applyOperations(design, operations) {',
     'function applyOperations(design, operations) { return ' + ext + '.applyOperations(design, operations, nativeApplyOperations, ' + api + '); }\nfunction nativeApplyOperations(design, operations) {');
+  replaceOnce('error: error instanceof Error ? error.message : String(error),',
+    'error: error instanceof Error ? error.message : String(error), details: error && error.details,');
   replaceOnce('function executeCompilerCommand(payload) {',
     'function executeCompilerCommand(payload) {\n' +
     "if (payload && payload.command === 'describe_component_contract') return {command: payload.command, component: " + ext + '.componentContract(' + catalog + ', payload.component_type, ' + api + ')};\n' +
     "if (payload && payload.command === 'compile_design') { const validation = validateDesign(payload.design).validation; return Object.assign({command: payload.command, validation}, compileCode(payload.design)); }\n" +
-    "if (payload && payload.command === 'compile_patch') { const result = compilePatch(payload.design, payload.operations); " +
+    "if (payload && payload.command === 'compile_patch') { const result = compilePatch(payload.design, payload.operations); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
     checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code); return result; }\n' +
-    "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code)}; }\n');
+    "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code)}; }\n' +
+    "if (payload && payload.command === 'verify_candidate') { const validation = validateDesign(payload.design).validation; " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code); return Object.assign({command:payload.command, validation, event_binding_validation}, compileCode(payload.design)); }\n');
   return source;
 }
 function main() {
@@ -69,6 +72,6 @@ function main() {
 module.exports = {adapt, reproducibleCompile, uuidBytes};
 if (require.main === module) {
   try { main(); } catch (error) {
-    process.stdout.write(JSON.stringify({ok:false, error:error.message}), () => process.exit(1));
+    process.stdout.write(JSON.stringify({ok:false, error:error.message, details:error.details}), () => process.exit(1));
   }
 }

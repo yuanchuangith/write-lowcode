@@ -27,6 +27,7 @@ Both `plan_canvas_patch` and `plan_reference_repairs` accept an optional
 {
   "schema_version": 1,
   "revision": "request-1",
+  "scope_policy": "strict",
   "requirements": [
     {
       "id": "preserve-on-edit",
@@ -59,8 +60,16 @@ example does not define the GXP SDK's modes or certify that one scenario fully
 covers the quoted request. Add the relevant creation/empty/boundary cases.
 
 - A requirement target contains `group_key` and optionally `node_key` and
-  `field_path`. Targets associate differences with requirements; extra differences
-  remain visible for human review.
+  `field_path`. New plans default to `scope_policy: "strict"`: at least one
+  requirement is required, each requirement must have targets, and every real
+  change must fall within the declared targets. An extra change becomes failed
+  scope evidence and blocks approval. Include genuine required consequences in
+  the scope before generation; do not widen scope merely to accept an accident.
+- Explicit `scope_policy: "manual_review"` keeps extra changes unverified for
+  human judgment. Use it only with explicit user basis in `source_text` or
+  `change_source_text`, never as an automatic fallback. Changing policy requires
+  a new `revision` and new user basis. Old reports without a policy remain
+  viewable; preparing new approval requires replanning under the current policy.
 - Each case needs an `id`, 1–10 `steps`, and can have `title`, `requirement_ids`,
   `environment`, and `expect`. A requirement without linked executed cases stays
   unverified. There are at most 20 cases, within a 1 MiB scenario specification.
@@ -158,22 +167,54 @@ with “运行待验证”. Neither result claims a browser or backend run.
 
 ## Read results and route the next step
 
-Planning returns `plan_id`, `review_status`, `review_report` and
-`ready_for_approval`. Status values are `passed`, `failed`, `unverified`.
+The MCP calls `plan_canvas_patch`, `plan_reference_repairs` and `prepare_write`
+default to `response_detail="summary"`. Planning returns
+`plan_id`, `review_status`, `review_summary`, `ready_for_approval`, `report_id`,
+`report_sha256`, up to five `review_issues`, `additional_issue_count` and
+`evidence_tool="read_plan_review"`. Status values are `passed`, `failed`,
+`unverified`. This response projection does not change the complete signed
+report, validation or review UI. Request `response_detail="full"` only when the
+complete returned report is necessary; it adds the former `review_report`.
+
+Read details with `read_plan_review(plan_id, section, offset=0, limit=10,
+item_id="", conversation_id=...)`. Sections are `summary`, `requirements`,
+`changes`, `scenarios`, `canvas_checks`, `spec`. Limits are 1–20 items. Select an
+issue's section and ID when available; otherwise use its index as the offset.
+Follow `next_offset` because the 256 KiB page budget can shorten a page. If one
+item alone exceeds that budget, inspect the complete evidence in the formal
+approval window when eligible. A standalone `open_plan_review` window is only
+for an explicit user request; do not launch it automatically for oversized
+evidence or before approval. Do not interpret an empty oversized page as no evidence.
+
+`no_changes=true` means the requested state already matches: no new plan or
+approval was created. Stop that planning path without `prepare_write`.
+An existing plan is retained, not replaced or cancelled; inspect the returned
+`existing_plan_id` and `existing_plan_status` if present. Do not automatically
+prepare that older candidate merely because the latest request made no changes.
+Compiler errors expose `error_details` when available. Use the reported operation,
+target and reason to repair the specific mismatch; a compiler error is not a
+completed blocked business plan and does not create an approval transaction.
 
 - **Failed:** a candidate result contradicts an established expectation. The
-  plan exists in blocked state. Open it with `open_plan_review(plan_id)` and
-  correct the operations under the same expectations. No approval or write is
-  created by viewing it.
+  plan exists in blocked state. Use `review_issues` and `read_plan_review` to
+  locate the mismatch and correct operations under the same expectations.
+  Do not open a preview or approval window for this repair loop.
 - **Unverified:** missing expectations, unsupported APIs, unknown SDK behavior,
   unavailable runner or timeout. Show the reason and remaining manual check;
   human review remains available. Never describe this as passed.
 - **Passed:** the specified cases passed in the stated model. This establishes
   neither complete branch coverage nor live browser/backend behavior.
 
+When the plan is ready and write gates pass, call `prepare_write` directly.
+The formal approval window contains the comparison and evidence; a separate
+preview step adds no approval and is omitted from the normal workflow.
+
 The tab shows requirements and source text, before/after differences, affected
 locations and side-by-side scenario results. Select a row to inspect details and
 locate its canvas node. “受上级条件影响” is static impact, not proof that a branch ran.
+On report entry, failures select the first failed configuration, then candidate
+scenario, then scope change, in that priority order. Manual tab and scenario
+choices remain under the reviewer's control after loading.
 
 ## Evidence boundaries
 

@@ -326,6 +326,26 @@ class LogicReview(QWidget):
         self.flow.set_report(self.report, before=before, after=after, action_context=action_context, display_context=context)
         self.selected_payload = None
         self.update_navigation()
+        # Choose the first actionable failure only while loading this report;
+        # ordinary tab/case changes remain under the reviewer's control.
+        failed_configuration = next((index for index, check in enumerate(canvas_checks)
+                                     if check.get("status") == "failed"), None)
+        failed_scenario = next((index for index, case in enumerate(cases)
+                                if (case.get("candidate") or {}).get("status") == "failed"), None)
+        failed_change = next((index for index, change in enumerate(self.report.get("changes") or [])
+                              if change.get("status") == "failed"), None)
+        if any(index is not None for index in (failed_configuration, failed_scenario, failed_change)):
+            if failed_configuration is not None:
+                tree, index = self.configurations, failed_configuration
+            elif failed_scenario is not None:
+                tree, index = self.scenarios, failed_scenario
+            else:
+                tree, index = self.changes, failed_change
+            self.views.setCurrentIndex(1)
+            self.evidence_tabs.setCurrentWidget(tree)
+            entry = tree.topLevelItem(index)
+            tree.setCurrentItem(entry)
+            tree.scrollToItem(entry)
 
     def select(self, tree):
         entry = tree.currentItem()

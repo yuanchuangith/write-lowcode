@@ -148,7 +148,8 @@ def transaction(*, kind: str = "write", current_relations=None, desired_relation
             },
         }
         business_review = build_business_review(
-            review_spec=None, baseline_design=base,
+            review_spec={"schema_version": 1, "revision": "fixture-manual", "scope_policy": "manual_review",
+                         "requirements": [], "scenarios": {"schema_version": 1, "cases": []}}, baseline_design=base,
             candidate_design={**desired, "relation_data": desired_relations}, compiler_binding=compiler_binding,
         )
     return build_transaction_artifact(

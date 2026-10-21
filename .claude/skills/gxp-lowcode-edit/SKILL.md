@@ -1,161 +1,42 @@
 ---
 name: gxp-lowcode-edit
-description: Explicit-invocation-only, compiler-backed editing of existing unpublished GXP ActionDesign drafts, individually or in an explicit multi-action approval queue. Use only when the current user message explicitly invokes gxp-lowcode-edit to implement a canvas plan, modify real nodes/components, add child action groups or bind component events within a draft, prepare an approval-backed draft save, verify the saved draft, or restore its pre-edit snapshot. The workflow binds the real gxp2.components compiler source and blocks invalid canvases or incomplete generated JS/C#. Do not infer activation from a readonly diagnosis, a proposed plan, “continue”, or “apply the plan”. Do not use for creating or publishing designs, editing published rows, arbitrary SQL, or bypassing human approval.
+description: Explicitly activated, compiler-backed editing of existing unpublished GXP ActionDesign drafts, with native canvas generation and separate human approval. Use for real node changes, child actions, component event bindings, guarded draft saves, verification and snapshot restoration. Once explicitly activated, continue the same authorized dialogue and draft without requiring another invocation. Do not activate from readonly diagnosis or an uninvoked proposal; do not create or publish designs or execute arbitrary SQL.
 ---
 
 # GXP Low-Code Edit
 
-Use the gxp-lowcode-editor MCP in the exact order below. Treat every stop condition as mandatory.
-
 ## Explicit invocation gate
 
-- Enter this skill only when the current user message explicitly invokes `$gxp-lowcode-edit` or its plugin-qualified form. `agents/openai.yaml` must keep `policy.allow_implicit_invocation: false`.
-- A plan produced by `gxp-lowcode-debug`, a readonly skill suggesting this editor, or a later message that only says “继续”, “按方案改”, or “实施前面的方案” is not an invocation. Do not call `editor_status` or any editor MCP tool; ask the user to invoke `$gxp-lowcode-edit` explicitly and stop.
-- After explicit invocation, the readonly plan is only an input candidate. Verify its target evidence against the current draft and session backup, and independently pass every compiler, safety, backup, concurrency, and approval gate before using it. Reuse this dialogue's diagnosis only for the same draft design ID, content fingerprint and target parameters; if any differ or are missing, re-read the affected draft location.
-- Explicit skill invocation authorizes guarded planning and opening the local approval application for a validated plan. Once approval content is ready, open it directly without asking for a separate chat confirmation. Opening or reopening the window never approves SQL, executes a transaction, or publishes a design; retain per-statement human approval and final execution confirmation inside the application.
+- First activation requires that the current user message explicitly invokes `$gxp-lowcode-edit` or its plugin-qualified form. Keep `agents/openai.yaml` at `policy.allow_implicit_invocation: false`.
+- Before activation, a readonly diagnosis, proposed plan or "continue/apply the plan" is not an invocation. Do not call `editor_status` or other editor tools; explain the required explicit invocation and stop.
+- After activation, the same dialogue may continue its authorized draft: query status, revise its candidate under the fixed expectations, reopen requested review, verify, recover or finish. Do not demand another invocation for each continuation. A new target, another dialogue or revoked authorization is not covered; do not silently begin another draft. An explicitly requested multi-action queue covers only its identified targets.
+- The readonly plan is only an input candidate. Reuse its evidence only when draft design ID, content fingerprint and complete target parameters match the session backup. Re-read affected locations when any evidence is missing or changed.
+- Activation authorizes guarded planning and opening the local approval application. Open the formal approval directly, without another chat confirmation or standalone preview step. Only the human in that application approves statements and confirms execution.
 
-## Fixed workflow
+## Read only what the operation needs
 
-Before constructing operations, read the target-location section of [references/targeting-and-source.md](references/targeting-and-source.md) unless already read in this dialogue; read its repository/source sections only when source evidence is needed. Reuse matching current-draft evidence instead of repeating the diagnosis. Locate the target using current ActionDesign evidence and verify its parameter contract against the real element registry/source when needed. Repository paths support source inspection; they do not identify which business node is faulty.
+- Before constructing operations, read the target-location section of [targeting-and-source.md](references/targeting-and-source.md) once per dialogue. Its source sections are needed only for source inspection. Current ActionDesign evidence identifies the business node; repository searches do not.
+- Read the relevant operation section of [patch-schema.md](references/patch-schema.md) and the applicable sections of [business-review.md](references/business-review.md). Reuse already-read sections while their source binding is unchanged.
+- For new or changed callbacks, read event contracts in [frontend-compiler-contract.md](references/frontend-compiler-contract.md), inspect native component signatures and verify the exact page component and binding execution path. Read other compiler sections only for a readiness discrepancy, compilation failure or interpretation of generated-code review.
+- Use [session-workflows.md](references/session-workflows.md) only for reference repair, restore, recovery, dialogue transfer or multi-action queues. Use [safety-contract.md](references/safety-contract.md) for account or approval details that need clarification. Do not load all references for an ordinary edit.
 
-Read only the reference sections relevant to the requested operations. Batch independent read-only evidence queries in parallel after their prerequisites are known; keep session mutations, planning, approval and recovery calls sequential. Reuse readiness, compiler binding, source paths and supported operations from the latest tool response when present. Call `editor_status` once for missing status evidence, then again only after a relevant state change or for recovery; never substitute reused evidence for the tool's mandatory checks.
+Batch independent evidence reads after their prerequisites are known. Keep session mutations, planning, approval and recovery sequential. Session entry returns `supported_operations`, `source_repositories` and `readiness_snapshot`; reuse them instead of another status call. `editor_status` defaults to `probe_runtime=false`; request `true` only to diagnose SDK/reference availability. Reusing evidence never replaces mandatory checks inside the tools.
 
-1. On first use in this dialogue, call `create_conversation(label)` and retain its returned `conversation_id`. Reuse that marker for this dialogue; pass it on every subsequent editor tool call, including `editor_status`, planning, approval status, recovery and finish. Never reuse another dialogue's marker. `planning_ready` requires a verified compiler bridge and frontend Git provenance; `write_ready` is required before opening approval. Treat the compiler gate as blocking. Nonblank candidate C# must compile locally before planning or approval; checker unavailability, timeout or compilation failure blocks that candidate. Development-reference success does not establish production compatibility. `production_ready` stays false until separate deployment/runtime acceptance evidence exists. Prefer a dedicated least-privilege account. A shared application account may use `account_mode=shared_restricted` when it has no global/server-level privileges. A user may explicitly opt into `account_mode=shared_unrestricted` for a privileged shared account only through the local configuration confirmation. Both shared modes require a pinned, matching `SHOW GRANTS` fingerprint and a ready account-safety gate.
-2. Call begin_edit_session for one action code or RefId per call. Without an explicit queue this dialogue may own one active session; other dialogues may independently edit different drafts and open their own approval windows. The same design ID or RefId remains exclusive. If this dialogue already has a session outside the requested queue, the tool returns `blocked=true` and opens a local session handling window before any backup or compiler work. If another dialogue owns the target, entry reports the conflict without opening its handling window. To take over an existing flow, follow Dialogue handoff below. The user may retain a local session, cancel unexecuted approval, reopen approval, or reconcile completed/interrupted execution. Closing the window retains it. `abort_edit_session` opens this window and returns `aborted=false`, not a completed abort. Recheck `editor_status.active_session` before retrying. Cancellation invalidates its ready plans and pending transactions atomically while retaining backups and audit records. Confirmed no-write failures and rollbacks release ordinary edit sessions automatically; restore failures return to the preceding save. The window may also recover legacy pre-write failures recognized by their exact concurrency/grant rejection messages. Do not forcibly clear live execution or uncertain data; follow Session recovery below. Verified sessions use finish_edit_session.
+## Normal draft workflow
 
-For a request covering multiple forms/actions, call `create_edit_queue(conversation_id)` once and pass its `queue_id` to each `begin_edit_session` (or `begin_reference_repair_session`). Keep each draft's expectations, backup, plan and transaction separate. `prepare_write` opens the queue window for the first ready action; later ready actions join that same window automatically. The human approves one single-row SQL at a time, confirms saving each action, then sees the next action with its own form/action identity and no inherited approvals. Saves are independent transactions: a later failure does not roll back earlier saved actions. The window stays open for later preparations; do not call `reopen_approval` for each queued action. Use `get_edit_queue` to track all items, including preparations not yet submitted. Unknown execution outcomes pause the queue for recovery. A transferred session leaves its original queue and opens independently in its new dialogue. Closing the window preserves queued work; reopening pending approval resumes the queue without signing or writing anything.
-3. Confirm the returned draft is unpublished, active, backed up, fully covered by the compiler registry, and bound to the configured frontend commit/workspace, bridge hash, rule hash, and stable registry hash. Match reused diagnosis evidence to that backup before constructing operations. Compare the returned editor source paths with gxp-lowcode-readonly source_repository_status when both are available; reuse a comparison only while its repository paths and source binding match, and resolve different repository selections before planning.
-4. Check the returned compiler supported operations (`editor_status.compiler.supported_operations` when not already available). Read the relevant operation sections of [references/patch-schema.md](references/patch-schema.md), without loading unrelated examples. For component event binding, query `inspect_component_contract` for native event signatures and use readonly page evidence to verify the exact component instance. Creating a child group stays within the existing draft; page-designer event properties are outside this workflow. Express the requested change only as structured canvas operations. Never supply js_code, csharp_code, SQL, node keys for new nodes, or published design identifiers.
-For an existing parameter, prefer `set_parameter` with the verified element type, exact path and complete old value; it preserves the other parameters. Read its restrictions in the patch schema, especially whole-array and synchronized ParamInput updates. `replace_params` still replaces both complete dictionaries.
-For every new or changed event callback, first read the event-contract section in [references/frontend-compiler-contract.md](references/frontend-compiler-contract.md). Verify actual input payloads against runtime source when catalog entries are incomplete. Declare visible callback inputs; never work around missing parameters with group-level arguments or undeclared identifiers. Build a small scenario matrix from the current request: each button/branch, unmatched input, empty selection/value, and sequential events when registration or retained state matters. Describe expected metadata keys, values and side effects, not only whether the callback runs. Prefer native IF nodes for branch-specific side effects; ternaries assigning empty values do not skip event registration. Unknown expectations stay unresolved and must not be reported as passing.
+1. Call `create_conversation(label)` once. Retain its `conversation_id` locally to this dialogue and pass it on every later editor tool call. Never reuse another dialogue's marker.
+2. Call `begin_edit_session` for the requested action code or RefId. Confirm an active unpublished draft, immutable backup, exclusive ownership, complete element coverage and compiler source binding. Compare reused diagnosis evidence with that backup. Match configured source repositories with readonly source evidence when both are relevant. A blocked entry is not a new session: retain its returned state and use the appropriate [session procedure](references/session-workflows.md), without repeatedly retrying entry.
+3. Check supported operations. For verified target keys call `inspect_edit_context(session_id, targets=[{group_key,node_key}], conversation_id)` for 1–10 exact nodes. It checks ownership, draft fingerprint and compiler binding, and returns backup identity, native parameters, row, parents, visible variables and registry contract. Source bodies are not parsed; inspect source only when that structured contract is insufficient. For an existing parameter prefer `set_parameter`; use `set_array_item` only when advertised and the row has a verified native `id`/`key`. Follow complete-old-value and synchronized ParamInput rules. `replace_params` still replaces both complete dictionaries. For events verify payloads, visible callback inputs and execution path; use native IF nodes for branch-specific side effects.
+4. Before generation, fix `review_spec` from the user's original request: quoted source, exact targets, unchanged behavior and distinguishing scenarios. New plans default to `scope_policy="strict"`, requiring targets on every requirement and blocking extra changes. Use `manual_review` only with explicit user evidence; policy changes require a new revision and new basis. Include relevant static assertions for filters, AND/OR and outputs. Never derive expectations from candidate output or weaken a failed expectation. Batch confirmed operations for this draft into one `plan_canvas_patch`.
+5. Keep the default `response_detail="summary"` for planning and preparing approval. Read `review_status`, `review_summary`, `review_issues` and `ready_for_approval`; use `read_plan_review` only for the relevant section or issue ID. Full evidence remains in the bound report and formal approval UI. Do not call `open_plan_review` in the normal or failed-plan workflow; a standalone preview is available only if the user explicitly requests one. `no_changes=true` stops this planning path without new approval; it does not cancel an existing plan, and never authorizes sending that old plan to approval automatically. Compilation/tool errors before completion also create no plan. A returned failed plan exists but is blocked: read its failure evidence without opening a window, explain the mismatch and fix operations under the same expectations. Omitted specifications inherit those expectations. Summarize visible rules and unresolved verification; do not repeat full code, parameters or hashes in chat. Old reports without scope policy remain readable, but require replanning before new approval.
+6. Once `ready_for_approval` and `write_ready` are true, call `prepare_write` immediately. Report that the formal approval window is opening; skip standalone preview and another opening confirmation. The tool rechecks current draft, compiler binding, complete candidate and bound business evidence before creating a transaction. Unverified evidence remains available for human judgment, and is never reported as passing.
+7. The local approval application approves each single-row statement and executes the transaction. Poll only with `get_write_status`. A saved transaction is not yet verified: call `verify_saved_draft`, then `finish_edit_session` only after verification. Tell the user to inspect the canvas and publish manually; draft saving does not establish publication or runtime completion.
 
-Before generating a candidate, fix the business expectations from the user's original request or previously confirmed rules. Preserve the quoted source, target group/node and required unchanged behavior; ask only when a critical expectation cannot be established from that evidence. Read [references/business-review.md](references/business-review.md) for the data-only `review_spec` protocol. Select relevant normal, empty, boundary, unmatched and sequential scenarios, and associate each case with its requirement IDs. Never derive expected values from candidate outputs or silently weaken a failing expectation.
-For fixed filter, AND/OR or output expectations, include relevant `canvas_assertions` from that reference. These checks verify native configuration and block approval on failure; they do not establish C# execution or live business behavior.
+## Required boundaries
 
-5. Submit all confirmed operations and the fixed `review_spec` for this draft in one `plan_canvas_patch` batch; do not plan separately per node. A plan exists only if the frontend compiler accepts the resulting canvas, a second validation returns the same result, and each action type has its required generated code. Read `review_status`, `review_report` and `ready_for_approval`. A failed business scenario creates a blocked plan with a readable report: call `open_plan_review` directly, explain the mismatch and correct the candidate under the same expectations. Do not call `prepare_write` for that plan or change expectations merely to make it pass. Omission on retry inherits this session's requirements. If compilation or the tool raises an error before planning completes, no completed plan or approval transaction exists; distinguish this from a returned blocked plan. Before opening approval, give a brief summary of the visible location, before/after rule, scenario results and unresolved verification. Keep generated keys, full parameters, compiler binding, code hashes and relation details in the tool evidence and approval UI; expand them only when needed to resolve a discrepancy or when requested.
-6. Once `ready_for_approval` and `write_ready` are true, call `prepare_write` immediately to open the local Qt approval application at “业务逻辑验收”. Unverified cases are visible for human judgment; they are not passing cases. Do not ask the user to type “open”, “打开”, or give another chat confirmation. Briefly report that the review window is opening. The tool must recheck the current draft, frontend source/bridge/rule/registry binding, candidate JSON, validation result, code completeness, candidate hashes and the bound business report before creating any transaction or opening approval. Leave statement approval and final execution to the human inside the application.
-7. The local approval application, not the model, approves each SQL statement and executes the transaction. Poll only with get_write_status.
-8. When the database transaction is saved, call verify_saved_draft. Do not claim success from the approval window alone.
-9. Call finish_edit_session only after verification. State explicitly that the editor did not call a backend editor endpoint, clear Redis, write DLL/PDB, or publish. The database draft save happens before publication. Tell the user to inspect the ActionDesign canvas and publish manually so the normal backend path can generate the dynamic DLL; do not claim runtime completion before that manual step.
-
-## Batch repair of legacy parameter references
-
-When the explicitly requested work is to repair obsolete structured parameter
-bindings, use `begin_reference_repair_session(identifier)` instead of ordinary
-session entry. It backs up the exact original draft before scanning references.
-The original need not pass variable-binding validation. An inspection-only copy
-neutralizes only the reported input/output/global/local variable references so
-the native compiler can still reject unknown elements, bad languages, duplicate
-keys and broken nesting, while reporting action-reference warnings. This diagnostic projection is
-never compiled to executable code, planned, approved or saved. A repair session
-does not imply that the original canvas is valid.
-
-1. Check the immutable backup, compiler binding, draft identity and exclusive
-   draft ownership as usual. Outside an explicit queue, this dialogue cannot own
-   a second active session; queue sessions pass the same `queue_id` on entry.
-   Other dialogues may work on other drafts.
-2. Call `inspect_reference_repairs(session_id, offset, limit)` to review all
-   invalid bindings. Reports include group, row, node, field path, neighboring
-   nodes, before value, compatible candidates and exact variable provenance.
-3. Exact name/expression plus matching type and a unique visible source can be
-   repaired automatically. Inputs are searched only in the same action group;
-   local outputs must precede the use and be visible according to ParamInput's
-   scope rules. Never replace all `oldSource` occurrences with a same-name input:
-   use the declared local output when that is the unique compatible source.
-4. Ask the user only about ambiguous candidates. Submit their choices as
-   `{repair_id, candidate_id}` records to `plan_reference_repairs`. Do not infer
-   confirmation or supply arbitrary replacement expressions. Unknown types,
-   duplicate sources and input/local/global name collisions require review.
-   No candidate, incompatible types, property selections or unsupported bindings
-   remain unresolved and block a plan; explain the exact field needing manual work.
-5. `plan_reference_repairs` first requires every binding to resolve, then uses the
-   complete repaired canvas as the real compiler input, regenerates affected
-   native nodes and all JS/C#/relations, and revalidates the whole result. Supply
-   `review_spec` under the same business-review protocol; unchanged behavior can
-   be an acceptance rule. Compilation failure creates no completed plan. A business
-   mismatch returns a blocked plan for `open_plan_review`, without approval or a database write. Ordinary
-   `plan_canvas_patch` cannot operate on a repair session.
-6. Open the validated repair approval directly with `prepare_write`, then retain per-statement human
-   approval, saved-draft verification and finish steps. `prepare_write` rechecks
-   reference provenance and the complete candidate; the approval window includes
-   a signed, read-only “引用修复来源” tab. The bindings explicitly selected for repair
-   must resolve; other static variable/action diagnostics are advisory.
-   Publication remains manual.
-
-## Restore workflow
-
-- Call prepare_restore with the session backup identifier.
-- Restoration is a new approval transaction; never describe it as automatic rollback.
-- Poll get_write_status, then call verify_saved_draft.
-- Finish only when the restored hashes match the immutable backup.
-
-## Session recovery
-
-- If the approval window fails to launch, retry once with `reopen_approval` and the returned transaction ID without another opening confirmation; report a repeated launch failure instead of looping.
-- If the user intentionally closes the window, reopen that pending review only after a continuation request, without asking for another opening confirmation. Reopening neither approves nor executes statements. Do not repeatedly reopen a dismissed window.
-- Expired approvals can be renewed by the user in the same window; execution
-  continues to verify every signature and expiry.
-- An unexecuted restore can be cancelled in the session handling window. It
-  returns to the original saved transaction so verification or restore can retry.
-- For `failed`, `saved_state_pending`, or an interrupted `executing` transaction,
-  use `recover_edit_session` to compare the current design and relations with the
-  approved candidate and signed pre-write relation hash. Recovery never modifies
-  business data. A match to the candidate becomes verified; call
-  `finish_edit_session`. A match to the original releases the failed session.
-- The executor and recovery share an OS lock. Recovery cannot release a live
-  executor. Old executing records without this protocol cannot be assumed dead.
-- If neither snapshot matches, the session window offers an explicit human choice
-  to keep current database data and close the session. This archives the mismatch,
-  does not restore or overwrite data, and does not assert successful execution.
-- If configuration, database access, a missing/corrupt approval file, a damaged
-  local baseline, or a legacy execution record prevents verification, open
-  `abort_edit_session` with this dialogue's marker. Its separate “保留数据并释放本地流程”
-  button lets the user explicitly archive an unverified flow and retain current
-  database data without depending on configuration, compilers or database reads.
-  The user must close all approval programs first. Window/executor locks and a
-  legacy process check block release while the workflow is still running. Closure
-  retains backups and an audit snapshot, invalidates remaining plans/approvals,
-  and never reports successful verification. Never call the local closure helper
-  from the model or treat opening this window as completed release.
-- When entry is blocked, the session handling window is also available for saved,
-  verified, pending restore, and uncertain sessions; do not repeatedly retry entry.
-
-## Dialogue handoff
-
-- `session_marker` is the returned `session_id`, which the user may give to another
-  dialogue. Keep `conversation_id` local to its original dialogue.
-- The receiving dialogue creates its own conversation marker once, then calls
-  `attach_edit_session(session_id, conversation_id)` when the user requests takeover.
-  The original approval window must be closed and its executor must be idle.
-  A busy window or executor blocks handoff; close it before retrying.
-- A stale `executing` record can be handed off for recovery when the actual window,
-  executor locks and legacy approval process check confirm it has stopped. Handoff
-  does not change that transaction's execution result.
-- Successful handoff retains the same backup, plan and transaction, changes the
-  owner, and invalidates the old dialogue's access and in-flight mutations. It
-  does not approve or execute statements. Use the returned transaction ID with
-  `reopen_approval` and the new marker to open the flow in the receiving dialogue.
-- An old session handling window cannot cancel, recover, reopen or finish a flow
-  after handoff. Status is scoped to the calling dialogue. Omitting a marker
-  accesses only legacy sessions, never all dialogues.
-
-## Hard stop conditions
-
-- Missing required indexes, an unpinned or changed shared-account grant fingerprint, or unsafe dedicated-account grants. Global non-USAGE and server-administration privileges remain a hard stop in `shared_restricted`; they are permitted only in explicitly confirmed `shared_unrestricted`, remain a high risk outside this MCP, and are rebound by fingerprint before every write.
-- More than one active draft for the resolved RefId.
-- Published, deleted, or newly created design.
-- Missing backup or invalid backup manifest.
-- Unknown elementKey, dynamic plugin without compiler adapter, invalid block nesting, duplicate key, or any frontend commit/workspace, bridge, rule, registry, or compiler-version drift. Static variable/action reference diagnostics are warnings, not hard stops. Existing references need not be repaired before an ordinary edit when structural validation and native code generation succeed. Do not claim runtime failure from a static reference warning alone.
-- `validation.valid` is not exactly true, the candidate cannot be revalidated, compiler metadata is missing, `relation_data` is not an object, or generated-code hashes do not match the candidate.
-- A JS action exists but generated `js_code` is blank, a C# action exists but generated `csharp_code` is blank, or a non-empty canvas generates no executable code.
-- Concurrent modification, unexpected affected rows, expired/tampered approval, uncertain committed state, or any request to approve on the user's behalf.
-- Any attempt to call the existing backend save/publish APIs, connect to Redis, or write/delete DLL/PDB as part of the editor workflow.
-
-## Local compilation and runtime evidence
-
-- Native structured-reference diagnostics remain advisory, while lexical checks now cover all JS groups and reject undeclared identifiers. Nonblank candidate C# compilation is mandatory. Frontend source binding, structural canvas validation, exact regeneration consistency, and JS/C# generation completeness are mandatory prerequisites for saving `data`, `js_code`, `csharp_code`, or relation rows. Report `validation.warnings` without requiring unrelated reference repairs or confirmation solely because of those warnings.
-- A successful `development_build` check establishes only local-reference compilation. Missing references, compilation failure, timeout or reference drift blocks nonblank C# candidates; do not downgrade these failures to warnings or open approval.
-- A successful local check does not prove publication, dynamic DLL generation, cache invalidation, or runtime execution.
-
-Consult the relevant sections of references/safety-contract.md when account, approval or recovery details need clarification; the gates above remain mandatory. Read only the affected operation sections of references/patch-schema.md before constructing operations. Use the relevant section of references/frontend-compiler-contract.md for a compiler-readiness discrepancy, a blocked plan, or new/changed event contracts; a successful tool readiness result does not require reading the full compiler reference.
-Use its approval review section only when interpreting component/scope differences or display-only temporary-name hints in the comparison tabs. Reuse already-read sections while their source binding remains unchanged.
+- No published, deleted or newly created design, ambiguous active draft, missing/corrupt backup, unknown `elementKey`, unsupported dynamic plugin, duplicate key or invalid nesting.
+- Compiler commit/workspace, bridge, rules, adapter, registry and version bindings must match. Canvas validation must be exactly valid; independently regenerated JSON/code/relations and candidate hashes must agree. Every action type must have its required nonblank generated code, and `relation_data` must be an object. Never supply generated `js_code`, `csharp_code`, SQL, new node keys or published identifiers as canvas operations.
+- Nonblank candidate C# must compile locally before planning and again before approval. Unavailable checker, timeout, reference drift or compile failure blocks the candidate. Development references prove local compilation only; `production_ready` stays false without separate deployment/runtime evidence.
+- Static structured variable/action diagnostics are advisory when structural validation and native generation succeed; report warnings without requiring unrelated repairs. JS lexical checks still reject undeclared identifiers. Explicit reference-repair requests must resolve the selected bindings through the dedicated workflow.
+- Index and account-safety gates, pinned matching shared-account grant fingerprints, exact target ownership, draft concurrency, one affected row per statement and signed human approval remain mandatory. Prefer least privilege. Privileged `shared_unrestricted` mode requires the user's explicit local configuration confirmation; do not enable it from a model decision.
+- Never approve or execute for the human, bypass an expired/tampered approval, clear a live/uncertain execution, call backend save/publish endpoints, connect Redis, or write/delete DLL/PDB. Restore uses a new approval transaction; uncertain results require recovery, never guessed success or automatic rollback.

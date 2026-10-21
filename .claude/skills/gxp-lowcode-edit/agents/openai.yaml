@@ -1,6 +1,6 @@
 interface:
   display_name: "GXP 低代码受控编辑"
   short_description: "对照业务预期展示逻辑变化和场景结果，明确失败阻止审批，再经人工确认保存草稿。"
-  default_prompt: "显式使用 $gxp-lowcode-edit 实施已确认的低代码方案，先固定业务预期，对比修改前后逻辑和场景结果；明确失败时打开只读报告，其余情况直接打开业务逻辑验收窗口，由我逐条审批并确认执行。"
+  default_prompt: "显式使用 $gxp-lowcode-edit 实施已确认的低代码方案，先固定业务预期并核对结果；失败时读取详情并修正，通过后直接打开正式审批页，由我确认保存草稿，省去独立预览。"
 policy:
   allow_implicit_invocation: false

@@ -23,6 +23,42 @@ const op = (extra={}) => ({operation:'set_parameter',action_group_key:'g',target
 const apply = (d,ops,generate=native) => applyOperations(d,ops,generate,api);
 
 test('advertises guarded parameter updates',()=>assert.ok(operations.includes('set_parameter')));
+test('checked no-op parameter updates preserve the canvas without native generation',()=>{
+  const d=design(),before=structuredClone(d);
+  const diff=apply(d,[op({value:'active'})],()=>{throw Error('no-op must not generate');});
+  assert.deepEqual(d,before);assert.equal(diff[0].no_change,true);
+  assert.throws(()=>apply(d,[op({value:'active',expected_old_value:'stale'})]),error=>error.details.reason_code==='old_value_mismatch');
+});
+test('operation errors carry bounded identity and path without parameter data',()=>{
+  const request=op({expected_old_value:'private expected data'});
+  assert.throws(()=>apply(design(),[op({value:'active'}),request]),error=>{
+    assert.deepEqual(error.details,{operation_index:1,group_key:'g',node_key:'n',path:'/inputParams/status',reason_code:'old_value_mismatch'});
+    assert.ok(!JSON.stringify(error.details).includes('private'));return true;
+  });
+  assert.throws(()=>apply(design(),[op({path:'/inputParams/'+ 'x'.repeat(1000)})]),error=>error.details.path.length===256);
+});
+test('native row key selection survives reordered arrays and preserves all other rows',()=>{
+  for(const field of ['id','key']){
+    const d=design(),rows=[{[field]:'second',column:'status',value:'active'},{[field]:'first',column:'isDeleted',value:0}];
+    d.actionData[0].data[0].paramsValue.inputParams.filters=structuredClone(rows);
+    const request=op({operation:'set_array_item',path:'/inputParams/filters',item_key:{field,value:'second'},expected_old_value:rows[0],value:{...rows[0],value:'freeze'}});
+    const diff=apply(d,[request]);assert.equal(diff[0].operation,'set_array_item');
+    assert.deepEqual(d.actionData[0].data[0].paramsValue.inputParams.filters,[{...rows[0],value:'freeze'},rows[1]]);
+    const next=apply(d,[{...request,expected_old_value:request.value}],()=>{throw Error('no-op must not generate');});
+    assert.equal(next[0].no_change,true);
+  }
+});
+test('native row key edits reject missing, ambiguous, unsupported and changed identities',()=>{
+  const base={id:'row1',column:'status',value:'active'};
+  const request=op({operation:'set_array_item',path:'/inputParams/filters',item_key:{field:'id',value:'row1'},expected_old_value:base,value:{...base,value:'freeze'}});
+  const make=rows=>{const d=design();d.actionData[0].data[0].paramsValue.inputParams.filters=rows;return d;};
+  for(const [rows,extra,reason] of [
+    [[],{},'item_key_not_found'],[[base,base],{},'ambiguous_item_key'],[[base],{item_key:{field:'column',value:'status'}},'invalid_item_key'],
+    [[base],{item_key:{field:'id',value:true}},'invalid_item_key'],[[base],{value:{...base,id:'changed'}},'item_identity_changed'],
+    [[base],{expected_old_value:{...base,value:'stale'}},'old_value_mismatch'],
+  ]) assert.throws(()=>apply(make(structuredClone(rows)),[{...request,...extra}]),error=>error.details.reason_code===reason);
+  assert.throws(()=>apply(make([base]),[{...request,path:'/inputParams/filters/0'}]),error=>error.details.reason_code==='array_index_forbidden');
+});
 test('updates only one existing value, preserving every filter, output and operation payload',()=>{
   const d=design(),before=structuredClone(d),request=op(),original=structuredClone(request);
   const diff=apply(d,[request]);

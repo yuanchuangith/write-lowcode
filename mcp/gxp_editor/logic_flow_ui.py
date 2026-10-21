@@ -347,9 +347,12 @@ class LogicFlowReview(QWidget):
             self.flow_picker.addItem("尚无可解析的节点关系")
         for picker in (self.case_picker, self.flow_picker):
             picker.blockSignals(False)
-        # Open the scene where baseline/candidate behavior differs when possible.
+        # A candidate failure is actionable even if an earlier case improved.
         selected = next((index for index, case in enumerate(self.cases)
-                         if (case.get("baseline") or {}).get("status") != (case.get("candidate") or {}).get("status")), 0)
+                         if (case.get("candidate") or {}).get("status") == "failed"), None)
+        if selected is None:
+            selected = next((index for index, case in enumerate(self.cases)
+                             if (case.get("baseline") or {}).get("status") != (case.get("candidate") or {}).get("status")), 0)
         self.case_picker.blockSignals(True)
         self.case_picker.setCurrentIndex(selected)
         self.case_picker.blockSignals(False)

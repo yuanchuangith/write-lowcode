@@ -62,6 +62,79 @@ class CanvasAssertionDisplayTests(unittest.TestCase):
         self.assertEqual(widget.requirements.topLevelItem(0).text(4), "配置不符合预期")
         self.assertIn("wrong", widget.configurations.topLevelItem(0).text(3))
 
+    def test_first_failed_configuration_is_selected_on_entry_and_manual_tabs_stay_selected(self):
+        report, canvas = self.fixture()
+        failed = deepcopy(report["canvas_checks"][0])
+        failed.update(id="incorrect-output", status="failed", after="wrong", reason="输出发生变化")
+        report["canvas_checks"].append(failed)
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertEqual(widget.views.currentIndex(), 1)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.configurations)
+        self.assertIs(widget.configurations.currentItem(), widget.configurations.topLevelItem(1))
+        self.assertEqual(widget.selected_payload["id"], "incorrect-output")
+        self.assertTrue(widget.locate.isEnabled())
+        widget.evidence_tabs.setCurrentWidget(widget.requirements)
+        widget.views.setCurrentIndex(0)
+        self.app.processEvents()
+        self.assertEqual(widget.views.currentIndex(), 0)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.requirements)
+
+    def test_failed_scenario_is_selected_even_after_an_earlier_improvement(self):
+        report, canvas = self.fixture()
+        report["scenarios"]["cases"] = [
+            {"id": "improved", "baseline": {"status": "failed"}, "candidate": {"status": "passed"}},
+            {"id": "regression", "targets": [{"group_key": "query", "node_key": "select"}],
+             "baseline": {"status": "passed"}, "candidate": {"status": "failed"}}]
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertEqual(widget.views.currentIndex(), 1)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.scenarios)
+        self.assertIs(widget.scenarios.currentItem(), widget.scenarios.topLevelItem(1))
+        self.assertEqual(widget.selected_payload["id"], "regression")
+        self.assertEqual(widget.flow.case_picker.currentIndex(), 1)
+        self.assertTrue(widget.locate.isEnabled())
+        widget.flow.case_picker.setCurrentIndex(0)
+        self.app.processEvents()
+        self.assertEqual(widget.flow.case_picker.currentIndex(), 0)
+
+    def test_successful_report_keeps_existing_default_view(self):
+        report, canvas = self.fixture()
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertEqual(widget.views.currentIndex(), 0)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.changes)
+        self.assertIsNone(widget.selected_payload)
+
+    def test_strict_scope_failure_opens_first_failed_change_after_other_failure_priorities(self):
+        report, canvas = self.fixture()
+        report["status"] = "failed"
+        report["changes"] = [
+            {"group_key": "query", "node_key": "select", "field_path": "paramsValue/inputParams/first", "status": "covered"},
+            {"group_key": "query", "node_key": "select", "field_path": "paramsValue/outputParams/rows", "status": "failed", "in_scope": False}]
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertEqual(widget.views.currentIndex(), 1)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.changes)
+        self.assertIs(widget.changes.currentItem(), widget.changes.topLevelItem(1))
+        self.assertEqual(widget.selected_payload["field_path"], "paramsValue/outputParams/rows")
+        self.assertTrue(widget.locate.isEnabled())
+        report["canvas_checks"][0]["status"] = "failed"
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertIs(widget.evidence_tabs.currentWidget(), widget.configurations)
+
+    def test_manual_scope_unknown_does_not_change_initial_view(self):
+        report, canvas = self.fixture()
+        report["changes"] = [{"group_key": "query", "node_key": "select", "status": "unverified", "in_scope": False}]
+        widget = LogicReview()
+        self.addCleanup(widget.close)
+        widget.set_report(report, before=canvas, after=canvas)
+        self.assertEqual(widget.views.currentIndex(), 0)
+
     def test_passing_partial_checks_do_not_hide_unverified_requirement_scope(self):
         report, canvas = self.fixture()
         report["requirements"][0].update(configuration_status="unverified",

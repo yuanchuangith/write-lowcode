@@ -28,7 +28,7 @@ class RequirementTargetTests(unittest.TestCase):
         requirements = [{"id": "rule", "text": "Only frozen rows", "source_text": "User: only status freeze rows", "targets": targets}]
         if extra_requirement:
             requirements.append(extra_requirement)
-        spec = {"schema_version": 1, "revision": "request-1", "requirements": requirements,
+        spec = {"schema_version": 1, "revision": "request-1", "requirements": requirements, "scope_policy": "manual_review",
                 "scenarios": {"schema_version": 1, "cases": [{"id": "case", "requirement_ids": [r["id"] for r in requirements],
                     "steps": [{"kind": "call_group", "group_key": "main"}], "expect": {"last_return": True}}]}}
         report = {"schema_version": 1, "runner_version": "1", "spec_sha256": sha256_json(spec["scenarios"]),

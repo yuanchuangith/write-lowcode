@@ -2,6 +2,9 @@
 
 Open the local Qt approval window directly once the requested plan passes its
 write-readiness checks. Do not require a separate chat confirmation to open it.
+Skip standalone plan previews, including when diagnosing a failed plan; use the
+returned issues and read-only evidence queries. `open_plan_review` is optional
+and requires an explicit user request for that separate window.
 Opening, previewing, navigating or reopening never approves or executes SQL;
 per-statement human approval and final execution confirmation remain in the app.
 

@@ -15,6 +15,28 @@ SPEC.loader.exec_module(SERVER)
 
 
 class ConversationToolContractTests(unittest.TestCase):
+    def test_new_tools_and_default_summary_are_exposed(self):
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        self.assertIn("inspect_edit_context", tools)
+        self.assertIn("read_plan_review", tools)
+        for name in ("plan_canvas_patch", "plan_reference_repairs", "prepare_write", "open_plan_review"):
+            self.assertEqual(tools[name].inputSchema["properties"]["response_detail"]["default"], "summary")
+        self.assertIs(tools["editor_status"].inputSchema["properties"]["probe_runtime"]["default"], False)
+
+    def test_compiler_error_location_survives_mcp_transport(self):
+        from unittest.mock import Mock
+        from gxp_editor.compiler import CompilerError
+        fake = Mock()
+        fake.plan_canvas_patch.side_effect = CompilerError("Old value changed", details={
+            "operation_index": 2, "group_key": "main", "node_key": "n", "path": "/inputParams/value",
+            "reason_code": "old_value_mismatch", "actual_value": "private"})
+        with patch.object(SERVER, "service", return_value=fake):
+            _, result = asyncio.run(SERVER.mcp.call_tool("plan_canvas_patch", {"session_id": "s", "operations": []}))
+        self.assertFalse(result["plan_created"])
+        self.assertEqual(result["error_details"]["operation_index"], 2)
+        self.assertEqual(result["error_details"]["reason_code"], "old_value_mismatch")
+        self.assertNotIn("private", str(result))
+
     def test_registered_tools_expose_dialogue_scope_and_explicit_takeover(self) -> None:
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
         self.assertIn("create_conversation", tools)
@@ -40,7 +62,7 @@ class ConversationToolContractTests(unittest.TestCase):
             def __init__(self, conversation_id: str = "") -> None:
                 self.conversation_id = conversation_id
 
-            def editor_status(self):
+            def editor_status(self, *, probe_runtime=False):
                 return {"conversation_id": self.conversation_id}
 
             def attach_edit_session(self, session_id: str):

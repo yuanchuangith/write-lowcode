@@ -315,7 +315,8 @@ class ServiceStatusTests(unittest.TestCase):
             service,"_runtime_validation_evidence",return_value={"available":True,"success":False,"failure_kind":"compilation_failed"}), patch(
             "gxp_editor.service.runtime_root",return_value=Path(temporary)):
             with self.assertRaisesRegex(EditorServiceError,"C# validation did not pass"):
-                service.plan_canvas_patch("session-1",[{"operation":"replace_params"}])
+                service.plan_canvas_patch("session-1",[{"operation":"replace_params"}], review_spec={
+                    "schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
             self.assertFalse((Path(temporary)/"plans").exists())
         self.assertFalse(state.plan_created)
         self.assertFalse(state.transaction_created)
@@ -345,7 +346,8 @@ class ServiceStatusTests(unittest.TestCase):
             service, "_components", return_value=components
         ), patch("gxp_editor.service.runtime_root", return_value=Path(temporary)):
             with self.assertRaisesRegex(CompilerError, "no JavaScript"):
-                service.plan_canvas_patch("session-1", [{"operation": "replace_params"}])
+                service.plan_canvas_patch("session-1", [{"operation": "replace_params"}], review_spec={
+                    "schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
             self.assertFalse((Path(temporary) / "plans").exists())
 
         self.assertFalse(state.plan_created)
@@ -377,7 +379,8 @@ class ServiceStatusTests(unittest.TestCase):
                         "generated_code_consistency_verified": True,
                         "hashes": hashes,
                         "business_review": build_business_review(
-                            review_spec=None, baseline_design=draft, candidate_design=desired,
+                            review_spec={"schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []},
+                            baseline_design=draft, candidate_design=desired,
                             compiler_binding=binding,
                         ),
                     }

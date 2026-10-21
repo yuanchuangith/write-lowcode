@@ -1,17 +1,26 @@
 'use strict';
 const crypto = require('node:crypto');
 const runtimeContracts = require('./event_contracts.cjs');
-const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'bind_component_event', 'set_parameter'];
+const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'bind_component_event', 'set_parameter', 'set_array_item'];
 const NATIVE = ['insert_before', 'insert_after', 'replace_params', 'replace_block', 'delete_block', 'move_block'];
 const TYPES = new Set(['string', 'number', 'double', 'boolean', 'object', 'dictionary', 'array', 'dateTime', 'any']);
 const FORBIDDEN = ['key', 'depth', 'title', 'description', 'js_code', 'csharp_code', 'relation_data', 'sql', 'raw_code'];
 function cloneParameters(params) { return JSON.parse(JSON.stringify(params || [])); }
 function text(value, field) {
-  if (typeof value !== 'string' || !value.trim()) throw new Error(field + ' must be a nonblank string');
+  if (typeof value !== 'string' || !value.trim()) reject('invalid_operation', field + ' must be a nonblank string');
   return value;
 }
 function fields(op, names) {
-  for (const key of Object.keys(op)) if (!names.includes(key)) throw new Error('Unsupported field for ' + op.operation + ': ' + key);
+  for (const key of Object.keys(op)) if (!names.includes(key)) reject('invalid_operation', 'Unsupported field for ' + op.operation + ': ' + key);
+}
+function reject(reason, message) { const error = new Error(message); error.reason_code = reason; throw error; }
+function operationFailure(error, op, index) {
+  if (!(error instanceof Error)) error = new Error('Canvas operation rejected');
+  const bounded = value => typeof value === 'string' ? value.slice(0, 256) : null;
+  const reason = typeof error.reason_code === 'string' && /^[a-z_]{1,64}$/.test(error.reason_code) ? error.reason_code : 'operation_rejected';
+  error.details = {operation_index:index, group_key:bounded(op?.action_group_key),
+    node_key:bounded(op?.target_node_key || op?.anchor_node_key), path:bounded(op?.path), reason_code:reason};
+  return error;
 }
 const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
@@ -27,31 +36,31 @@ function parameterValue(value) {
   if (value === null || ['string', 'boolean'].includes(typeof value)) return;
   if (typeof value === 'number' && Number.isFinite(value)) return;
   if (Array.isArray(value)) { for (const item of value) parameterValue(item); return; }
-  if (!object(value)) throw new Error('Parameter value must be JSON data');
+  if (!object(value)) reject('invalid_parameter_value', 'Parameter value must be JSON data');
   for (const [key, item] of Object.entries(value)) {
-    if (UNSAFE_KEYS.has(key)) throw new Error('Unsafe parameter key: ' + key);
+    if (UNSAFE_KEYS.has(key)) reject('invalid_parameter_value', 'Unsafe parameter key: ' + key);
     parameterValue(item);
   }
 }
 function parameterPath(path) {
   text(path, 'path');
-  if (!path.startsWith('/') || /~(?![01])/.test(path)) throw new Error('path must be a valid JSON pointer');
+  if (!path.startsWith('/') || /~(?![01])/.test(path)) reject('invalid_parameter_path', 'path must be a valid JSON pointer');
   const parts = path.slice(1).split('/').map(part => part.replace(/~1/g, '/').replace(/~0/g, '~'));
-  if (parts.length < 2 || !['inputParams', 'outputParams'].includes(parts[0])) throw new Error('path must select an existing inputParams/outputParams parameter');
-  if (parts.some(part => UNSAFE_KEYS.has(part))) throw new Error('Unsafe parameter path');
+  if (parts.length < 2 || !['inputParams', 'outputParams'].includes(parts[0])) reject('invalid_parameter_path', 'path must select an existing inputParams/outputParams parameter');
+  if (parts.some(part => UNSAFE_KEYS.has(part))) reject('invalid_parameter_path', 'Unsafe parameter path');
   return parts;
 }
 function sameRecordKeys(before, after) {
   if (Array.isArray(before)) {
-    if (!Array.isArray(after)) throw new Error('An array parameter must remain an array');
+    if (!Array.isArray(after)) reject('invalid_parameter_value', 'An array parameter must remain an array');
     return; // A complete native array parameter may add/remove rows under its full old-value precondition.
   }
   if (!object(before)) {
-    if (object(after) || Array.isArray(after)) throw new Error('A scalar parameter cannot become a container');
+    if (object(after) || Array.isArray(after)) reject('invalid_parameter_value', 'A scalar parameter cannot become a container');
     return;
   }
   if (!object(after) || Object.keys(before).length !== Object.keys(after).length || Object.keys(before).some(key => !Object.hasOwn(after, key))) {
-    throw new Error('Parameter record replacement must preserve existing keys');
+    reject('invalid_parameter_value', 'Parameter record replacement must preserve existing keys');
   }
   for (const key of Object.keys(before)) sameRecordKeys(before[key], after[key]);
 }
@@ -72,10 +81,10 @@ function checkEditableInput(element, parts, params) {
   for (const [section, name] of known[element] || []) {
     const record = params[section]?.[name];
     if (parts[0] === section && parts[1] === name && parts.length !== 2) {
-      throw new Error('Submit the complete ParamInput record so value/code stay synchronized');
+      reject('paraminput_record_required', 'Submit the complete ParamInput record so value/code stay synchronized');
     }
     if (object(record) && record.paramTypes === 'custom' && (typeof record.value !== 'string' || record.value !== record.code)) {
-      throw new Error('Custom ParamInput value and code must be synchronized');
+      reject('paraminput_unsynchronized', 'Custom ParamInput value and code must be synchronized');
     }
   }
 }
@@ -135,6 +144,7 @@ function applyOperations(design, operations, native, api) {
   }
   for (let index = 0; index < operations.length; index++) {
     const op = operations[index];
+    try {
     if (!op || typeof op !== 'object' || Array.isArray(op)) throw new Error('Every canvas operation must be an object');
     for (const f of FORBIDDEN) if (Object.hasOwn(op, f)) throw new Error('Operation contains forbidden field ' + f);
     if (op.operation === 'create_action_group') {
@@ -164,31 +174,54 @@ function applyOperations(design, operations, native, api) {
       continue;
     }
     const group = api.actionByKey(design, resolve(op.action_group_key));
-    if (op.operation === 'set_parameter') {
-      fields(op, ['operation', 'action_group_key', 'target_node_key', 'expected_element_key', 'path', 'expected_old_value', 'value']);
+    if (op.operation === 'set_parameter' || op.operation === 'set_array_item') {
+      fields(op, ['operation', 'action_group_key', 'target_node_key', 'expected_element_key', 'path', 'expected_old_value', 'value', ...(op.operation === 'set_array_item' ? ['item_key'] : [])]);
       text(op.target_node_key, 'target_node_key');
       text(op.expected_element_key, 'expected_element_key');
-      if (!Object.hasOwn(op, 'expected_old_value') || !Object.hasOwn(op, 'value')) throw new Error('set_parameter requires expected_old_value and value');
+      if (!Object.hasOwn(op, 'expected_old_value') || !Object.hasOwn(op, 'value')) reject('invalid_operation', op.operation + ' requires expected_old_value and value');
       if (design.actionData.filter(item => item.key === group.key).length !== 1 || group.data.filter(item => item.key === op.target_node_key).length !== 1) {
-        throw new Error('set_parameter requires an unambiguous group and target node');
+        reject(group.data.some(item => item.key === op.target_node_key) ? 'ambiguous_target' : 'target_not_found', op.operation + ' requires an unambiguous group and target node');
       }
       const at = api.nodeIndex(group, op.target_node_key), current = group.data[at];
-      if (current.elementKey !== op.expected_element_key) throw new Error('Target element type changed; inspect the current node');
+      if (current.elementKey !== op.expected_element_key) reject('element_type_mismatch', 'Target element type changed; inspect the current node');
       const parts = parameterPath(op.path), params = checkedParameters(current.paramsValue);
       let parent = params;
       for (const part of parts.slice(0, -1)) {
-        if (Array.isArray(parent)) throw new Error('Array indexes are unsupported; submit the complete array parameter and its old value');
-        if (!object(parent) || !Object.hasOwn(parent, part)) throw new Error('Parameter path does not exist');
+        if (Array.isArray(parent)) reject('array_index_forbidden', 'Array indexes are unsupported; use a unique native row key or submit the complete array parameter');
+        if (!object(parent) || !Object.hasOwn(parent, part)) reject('parameter_path_missing', 'Parameter path does not exist');
         parent = parent[part];
       }
-      if (Array.isArray(parent)) throw new Error('Array indexes are unsupported; submit the complete array parameter and its old value');
+      if (Array.isArray(parent)) reject('array_index_forbidden', 'Array indexes are unsupported; use a unique native row key or submit the complete array parameter');
       const leaf = parts.at(-1);
-      if (!object(parent) || !Object.hasOwn(parent, leaf)) throw new Error('Parameter path does not exist');
+      if (!object(parent) || !Object.hasOwn(parent, leaf)) reject('parameter_path_missing', 'Parameter path does not exist');
+      let container = parent, selected = leaf;
+      if (op.operation === 'set_array_item') {
+        if (!Array.isArray(parent[leaf])) reject('array_parameter_required', 'set_array_item path must select an existing array parameter');
+        if (!object(op.item_key)) reject('invalid_item_key', 'item_key must contain a native row field and value');
+        fields(op.item_key, ['field', 'value']);
+        const {field, value} = op.item_key;
+        if (!['id', 'key'].includes(field) || !(typeof value === 'string' && value.trim() || Number.isSafeInteger(value))) {
+          reject('invalid_item_key', 'item_key must select a nonblank string or safe integer by native id/key');
+        }
+        const matches = parent[leaf].map((row, i) => object(row) && Object.hasOwn(row, field) && sameJson(row[field], value) ? i : -1).filter(i => i >= 0);
+        if (matches.length !== 1) reject(matches.length ? 'ambiguous_item_key' : 'item_key_not_found', 'Native row key must identify exactly one existing item');
+        container = parent[leaf]; selected = matches[0];
+        if (!object(op.value) || ['id', 'key'].some(name => Object.hasOwn(container[selected], name) && !sameJson(container[selected][name], op.value[name]))) {
+          reject('item_identity_changed', 'Replacement must preserve the native row id/key');
+        }
+      }
       parameterValue(op.expected_old_value); parameterValue(op.value);
-      if (!sameJson(parent[leaf], op.expected_old_value)) throw new Error('Parameter old value changed; inspect the current node');
-      sameRecordKeys(parent[leaf], op.value);
-      parent[leaf] = JSON.parse(JSON.stringify(op.value));
+      if (!sameJson(container[selected], op.expected_old_value)) reject('old_value_mismatch', 'Parameter old value changed; inspect the current node');
+      sameRecordKeys(container[selected], op.value);
+      const unchanged = sameJson(container[selected], op.value);
+      container[selected] = JSON.parse(JSON.stringify(op.value));
       checkEditableInput(current.elementKey, parts, params);
+      if (unchanged) {
+        diff.push({operation_index:index, operation:op.operation, action_group_key:group.key, target_node_key:current.key,
+          element_key:current.elementKey, parameter_path:op.path, no_change:true,
+          affected_node_keys:[], generated_nodes:[], before_node_count:group.data.length, after_node_count:group.data.length});
+        continue;
+      }
       // Validate native regeneration before replacing anything on the caller's canvas.
       const candidateGroup = {...group, data: group.data.slice()};
       const candidate = {...design, actionData: design.actionData.map(item => item === group ? candidateGroup : item)};
@@ -197,11 +230,11 @@ function applyOperations(design, operations, native, api) {
       const generated = candidateGroup.data[at];
       if (candidateGroup.data.length !== group.data.length || generated.key !== current.key || generated.elementKey !== current.elementKey ||
           !sameJson(generated.depth, current.depth) || !sameJson(checkedParameters(generated.paramsValue), params)) {
-        throw new Error('Native regeneration changed parameters outside the requested value; inspect the native contract and use an explicit complete replacement');
+        reject('native_parameter_drift', 'Native regeneration changed parameters outside the requested value; inspect the native contract and use an explicit complete replacement');
       }
       group.data[at] = generated;
       diff.push(...nativeDiff.map(item => ({...item, operation_index:index, operation:op.operation,
-        element_key:current.elementKey, parameter_path:op.path})));
+        element_key:current.elementKey, parameter_path:op.path, ...(op.operation === 'set_array_item' ? {item_key:op.item_key} : {})})));
       continue;
     }
     if (op.operation === 'set_event_callback_contract') {
@@ -270,6 +303,7 @@ function applyOperations(design, operations, native, api) {
       const normalized = {...op, action_group_key: group.key};
       diff.push(...native(design, [normalized]).map(d => ({...d, operation_index:index})));
     }
+    } catch (error) { throw operationFailure(error, op, index); }
   }
   return diff;
 }

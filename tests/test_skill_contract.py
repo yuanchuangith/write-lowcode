@@ -12,18 +12,47 @@ SKILL_ROOT = PLUGIN_ROOT / "skills" / "gxp-lowcode-edit"
 
 
 class SkillContractTests(unittest.TestCase):
-    def test_editor_requires_explicit_current_message_invocation(self) -> None:
+    def test_editor_requires_explicit_activation_and_allows_authorized_continuation(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         self.assertIn("Explicit invocation gate", skill)
         self.assertIn("current user message explicitly invokes", skill)
         self.assertIn("is not an invocation", skill)
         self.assertIn("Do not call `editor_status`", skill)
         self.assertIn("readonly plan is only an input candidate", skill)
+        self.assertIn("After activation, the same dialogue may continue its authorized draft", skill)
+        self.assertIn("A new target, another dialogue or revoked authorization is not covered", skill)
+
+    def test_conditional_session_workflows_are_linked_instead_of_loaded_in_entrypoint(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        workflows = (SKILL_ROOT / "references" / "session-workflows.md").read_text(encoding="utf-8")
+        self.assertIn("references/session-workflows.md", skill)
+        for title in ("Batch repair of legacy parameter references", "Restore workflow", "Session recovery", "Dialogue handoff"):
+            self.assertNotIn("## " + title, skill)
+            self.assertIn("## " + title, workflows)
+        for boundary in ("signed human approval", "independently regenerated", "Nonblank candidate C#", "draft concurrency"):
+            self.assertIn(boundary, skill)
 
     def test_implicit_invocation_is_disabled(self) -> None:
         policy = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
         self.assertIn("allow_implicit_invocation: false", policy)
         self.assertIn("$gxp-lowcode-edit", policy)
+
+    def test_evidence_and_response_contracts_match_progressive_disclosure(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        targeting = (SKILL_ROOT / "references" / "targeting-and-source.md").read_text(encoding="utf-8")
+        business = (SKILL_ROOT / "references" / "business-review.md").read_text(encoding="utf-8")
+        patches = (SKILL_ROOT / "references" / "patch-schema.md").read_text(encoding="utf-8")
+        for operation in ("inspect_edit_context", "read_plan_review", "scope_policy", "no_changes=true"):
+            self.assertIn(operation, skill)
+        self.assertIn("probe_runtime=false", skill)
+        self.assertIn("1–10", targeting)
+        self.assertIn("response_detail=\"summary\"", business)
+        self.assertIn("256 KiB", business)
+        self.assertIn("manual_review", business)
+        self.assertIn("new user basis", business)
+        self.assertIn("set_array_item", patches)
+        self.assertIn("supported_operations", patches)
+        self.assertIn("complete old and replacement row", patches)
 
     def test_tracked_skill_mirrors_match_file_set_and_content(self) -> None:
         source_files, mirror_files = tracked_skill_paths(PLUGIN_ROOT)

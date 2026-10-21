@@ -158,6 +158,8 @@ class BusinessReviewServiceTests(unittest.TestCase):
                 changed = copy.deepcopy(original)
                 changed["revision"] = "request-2"
                 changed["requirements"][0]["targets"] = targets
+                if not targets:
+                    changed["scope_policy"] = "manual_review"
                 with self.assertRaisesRegex(EditorServiceError, "新的用户依据"):
                     self.plan(changed)
         changed["change_source_text"] = "用户补充：只核对这个元件的参数配置"
@@ -213,7 +215,9 @@ class BusinessReviewServiceTests(unittest.TestCase):
                     self.plan(changed)
 
     def test_missing_expectations_are_unverified_and_can_enter_human_review(self):
-        result = self.plan()
+        with self.assertRaisesRegex(LogicReviewError, "每条需求都必须指定 targets"):
+            self.plan()
+        result = self.plan({"schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
         self.assertEqual(result["review_status"], "unverified")
         pending = self.service.prepare_write(result["plan_id"])
         self.assertEqual(pending["state"], "awaiting_approval")
@@ -342,13 +346,54 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.launch.assert_not_called()
 
     def test_legacy_ready_plan_must_be_regenerated(self):
-        result = self.plan()
+        result = self.plan({"schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
         plan = self.service.state.get_plan(result["plan_id"])
         artifact = load_artifact(plan["artifact_path"])
         del artifact["business_review"]
         save_artifact(plan["artifact_path"], artifact)
         with self.assertRaisesRegex(EditorServiceError, "重新生成计划"):
             self.service.prepare_write(result["plan_id"])
+
+    def test_summary_response_and_approval_preserve_complete_artifact(self):
+        self.outcome = "failed"
+        result = self.service.plan_canvas_patch(self.session_id, [], review_spec=review_spec(), response_detail="summary")
+        self.assertNotIn("review_report", result)
+        self.assertNotIn("diff", result)
+        plan = self.service.state.get_plan(result["plan_id"])
+        before = Path(plan["artifact_path"]).read_bytes()
+        self.assertEqual(load_artifact(plan["artifact_path"])["business_review"]["review_sha256"], result["report_sha256"])
+        blocked = self.service.prepare_write(result["plan_id"], response_detail="summary")
+        self.assertNotIn("review_report", blocked)
+        self.assertFalse(blocked["approval_window_opened"])
+        self.assertEqual(Path(plan["artifact_path"]).read_bytes(), before)
+
+    def test_no_change_keeps_prior_plan_and_expectations_explicitly(self):
+        prior = self.plan(review_spec())
+        self.compiler.compile_patch.side_effect = lambda *args: {"no_change": True}
+        self.compiler.verify_compiled_result.reset_mock()
+        self.runner.reset_mock()
+        response = self.plan()
+        self.assertTrue(response["no_changes"])
+        self.assertFalse(response["plan_created"])
+        self.assertEqual(response["existing_plan_id"], prior["plan_id"])
+        self.assertEqual(response["existing_plan_status"], "ready")
+        self.assertEqual(self.service.state.get_session(self.session_id)["plan_id"], prior["plan_id"])
+        self.compiler.verify_compiled_result.assert_not_called()
+        self.runner.assert_not_called()
+
+    def test_invalid_preview_detail_does_not_open_a_window(self):
+        with patch("gxp_editor.service.subprocess.Popen") as launch:
+            with self.assertRaisesRegex(EditorServiceError, "response_detail"):
+                self.service.open_plan_review("unused", response_detail="invalid")
+            launch.assert_not_called()
+
+    def test_switching_to_manual_scope_requires_new_user_basis(self):
+        self.plan(review_spec())
+        changed = {**review_spec(), "revision": "request-2", "scope_policy": "manual_review"}
+        with self.assertRaisesRegex(EditorServiceError, "新的用户依据"):
+            self.plan(changed)
+        changed["change_source_text"] = "用户确认改为人工检查整个候选范围"
+        self.assertTrue(self.plan(changed)["ready_for_approval"])
 
 
 if __name__ == "__main__":

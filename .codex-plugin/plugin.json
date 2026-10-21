@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.24+codex.local-20261020-guarded-parameters",
+  "version": "0.1.27+codex.local-20261020-direct-approval",
   "description": "Guarded GXP ActionDesign draft editing with business expectation review, before/after generated-JS scenarios, bound compiler evidence, immutable backups, human approval and restore support.",
   "author": {
     "name": "Local developer"

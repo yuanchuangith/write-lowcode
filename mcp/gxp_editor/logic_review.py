@@ -27,7 +27,12 @@ def _text(value: Any, name: str, *, limit: int = 20000, empty: bool = False) -> 
     return value
 
 
-def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
+def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = False) -> dict[str, Any]:
+    """New plans default to strict scope; stored pre-policy reports keep their hash.
+
+    ``legacy_scope`` is only for validating existing evidence. A stored explicit
+    policy is always enforced, including strict target requirements.
+    """
     from .logic_scenarios import validate_scenario_spec
     if spec is None:
         spec = {"schema_version": 1, "revision": "unspecified", "requirements": [],
@@ -38,7 +43,7 @@ def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
         validate_json_value(spec)
     except CanvasAssertionError as exc:
         raise LogicReviewError(str(exc)) from exc
-    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text", "canvas_assertions"}
+    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text", "canvas_assertions", "scope_policy"}
     if unknown:
         raise LogicReviewError("review_spec 包含未知字段：" + ", ".join(sorted(unknown)))
     revision = _text(spec.get("revision"), "review_spec.revision", limit=128)
@@ -69,6 +74,11 @@ def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
         normalized.append({"id": identifier, "text": _text(item.get("text"), "requirement.text"),
                            "source_text": _text(item.get("source_text"), "requirement.source_text"),
                            "targets": checked_targets})
+    scope_policy = spec.get("scope_policy", None if legacy_scope else "strict")
+    if "scope_policy" in spec and scope_policy not in ("strict", "manual_review"):
+        raise LogicReviewError("review_spec.scope_policy 必须为 strict 或 manual_review。")
+    if scope_policy == "strict" and (not normalized or any(not rule["targets"] for rule in normalized)):
+        raise LogicReviewError("严格修改范围需要至少一条需求，且每条需求都必须指定 targets；请补充范围或显式选择 manual_review。")
     try:
         scenarios = validate_scenario_spec(spec.get("scenarios", {"schema_version": 1, "cases": []}))
     except ValueError as exc:
@@ -77,6 +87,8 @@ def normalize_review_spec(spec: dict[str, Any] | None) -> dict[str, Any]:
         if any(identifier not in seen for identifier in case.get("requirement_ids", [])):
             raise LogicReviewError("场景关联了不存在的预期规则。")
     result = {"schema_version": 1, "revision": revision, "requirements": normalized, "scenarios": scenarios}
+    if scope_policy is not None:
+        result["scope_policy"] = scope_policy
     if "canvas_assertions" in spec:
         try:
             result["canvas_assertions"] = normalize_canvas_assertions(spec["canvas_assertions"], normalized)
@@ -117,24 +129,30 @@ def _matches(target: dict[str, Any], group_key: str, node_key: str, field_path: 
             and (not path or field_path == path or field_path.startswith(path + "/")))
 
 
+def _scope_coverage(spec, actual_targets):
+    requirement_ids = [rule["id"] for rule in spec["requirements"] if any(
+        _matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", ""))
+        for target in rule["targets"] for actual in actual_targets)]
+    covered = bool(any(rule["targets"] for rule in spec["requirements"])) and all(any(
+        _matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", ""))
+        for rule in spec["requirements"] for target in rule["targets"]) for actual in actual_targets)
+    return covered, requirement_ids
+
+
 def _canvas_changes(before: dict[str, Any], after: dict[str, Any], spec: dict[str, Any]) -> list[dict[str, Any]]:
     changes: list[dict[str, Any]] = []
     has_scope = any(rule["targets"] for rule in spec["requirements"])
 
     def add(old, new, group_key="", node_key="", path="", targets=None):
         actual_targets = targets or [{"group_key": group_key, "node_key": node_key, "field_path": path}]
-        requirement_ids = [rule["id"] for rule in spec["requirements"] if any(
-            _matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", path))
-            for target in rule["targets"] for actual in actual_targets)]
-        covered = has_scope and all(any(_matches(target, actual["group_key"], actual.get("node_key", ""), actual.get("field_path", path))
-            for rule in spec["requirements"] for target in rule["targets"]) for actual in actual_targets)
-        status = "covered" if covered else "unverified"
+        covered, requirement_ids = _scope_coverage(spec, actual_targets)
+        status = "covered" if covered else "failed" if spec.get("scope_policy") == "strict" else "unverified"
         kind = "新增" if old is _MISSING else "删除" if new is _MISSING else "修改"
         changes.append({"kind": kind, "group_key": group_key, "node_key": node_key, "field_path": path,
                         "before": None if old is _MISSING else deepcopy(old), "after": None if new is _MISSING else deepcopy(new),
                         "before_present": old is not _MISSING, "after_present": new is not _MISSING,
                         "before_rule": None if old is _MISSING else deepcopy(old), "after_rule": None if new is _MISSING else deepcopy(new),
-                        "impact": "已关联预期规则，结果仍需场景核对" if covered else "额外变更，需人工判断" if has_scope else "未声明修改范围，需人工判断",
+                        "impact": "已关联预期规则，结果仍需场景核对" if covered else "超出声明的修改范围，已阻断审批" if status == "failed" else "额外变更，需人工判断" if has_scope else "未声明修改范围，需人工判断",
                         "targets": actual_targets, "requirement_ids": requirement_ids,
                         "in_scope": covered if has_scope else None, "status": status})
 
@@ -277,12 +295,13 @@ def _has_expectations(expect):
 def _review_summary(spec, changes, report, requirements=None, canvas_checks=None):
     counts = {status: sum(case["candidate"]["status"] == status for case in report["cases"]) for status in _STATUSES}
     scope_unknown = sum(change["status"] == "unverified" for change in changes)
+    scope_failed = sum(change["status"] == "failed" for change in changes)
     if requirements is None:
         requirements = _requirements_evidence(spec, report)
     requirement_counts = {"requirements_" + status: sum(item["status"] == status for item in requirements) for status in _STATUSES}
-    failures = counts["failed"]
+    failures = counts["failed"] + scope_failed
     unknowns = counts["unverified"] + scope_unknown + requirement_counts["requirements_unverified"] + int(not spec["requirements"])
-    summary = {**counts, **requirement_counts, "scope_failed": 0, "scope_unverified": scope_unknown}
+    summary = {**counts, **requirement_counts, "scope_failed": scope_failed, "scope_unverified": scope_unknown}
     if canvas_checks is not None:
         configuration_counts = {"configuration_" + state: sum(check["status"] == state for check in canvas_checks) for state in _STATUSES}
         summary.update(configuration_counts)
@@ -330,7 +349,7 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
         raise LogicReviewError("业务审查版本缺失或不受支持，请重新生成计划。")
     if review.get("review_sha256") != sha256_json({k: v for k, v in review.items() if k != "review_sha256"}):
         raise LogicReviewError("业务审查报告摘要无效，请重新生成计划。")
-    spec = normalize_review_spec(review.get("spec"))
+    spec = normalize_review_spec(review.get("spec"), legacy_scope=True)
     if spec != review.get("spec"):
         raise LogicReviewError("业务审查预期规则未规范化。")
     binding = review.get("bindings")
@@ -356,8 +375,22 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
     changes, report = review.get("changes"), review.get("scenarios")
     if not isinstance(changes, list) or not isinstance(report, dict) or not isinstance(report.get("cases"), list):
         raise LogicReviewError("业务审查差异或场景报告缺失。")
-    if any(not isinstance(change, dict) or change.get("status") not in {"covered", "unverified"} for change in changes):
+    strict_scope = spec.get("scope_policy") == "strict"
+    valid_change_statuses = {"covered", "failed"} if strict_scope else {"covered", "unverified"}
+    if any(not isinstance(change, dict) or change.get("status") not in valid_change_statuses for change in changes):
         raise LogicReviewError("业务审查差异状态无效。")
+    if strict_scope:
+        for change in changes:
+            targets = change.get("targets")
+            if (not isinstance(targets, list) or not targets or any(not isinstance(target, dict)
+                    or not isinstance(target.get("group_key"), str)
+                    or any(key in target and not isinstance(target[key], str) for key in ("node_key", "field_path"))
+                    for target in targets)):
+                raise LogicReviewError("严格修改范围的差异目标证据无效。")
+            covered, identifiers = _scope_coverage(spec, targets)
+            if (change.get("in_scope") is not covered or change.get("status") != ("covered" if covered else "failed")
+                    or change.get("requirement_ids") != identifiers):
+                raise LogicReviewError("严格修改范围的差异状态与需求目标不一致。")
     if baseline_design is not None and candidate_design is not None and changes != _canvas_changes(_canvas(baseline_design), _canvas(candidate_design), spec):
         raise LogicReviewError("业务审查未包含真实完整画布差异。")
     if type(report.get("schema_version")) is not int or report.get("schema_version") != 1 or report.get("spec_sha256") != sha256_json(spec["scenarios"]):
@@ -431,6 +464,8 @@ def require_write_business_review(artifact: dict[str, Any]) -> None:
         raise LogicReviewError("写入业务审查缺少候选内容或编译器绑定。")
     validate_business_review(review, candidate_design=artifact.get("desired_design"),
                              candidate_hashes=compiler.get("hashes"), compiler_binding=compiler.get("compiler_binding"))
+    if "scope_policy" not in review["spec"]:
+        raise LogicReviewError("旧审批缺少修改范围策略，只可查看；请取消旧审批并重新生成计划。")
     if review["bindings"]["baseline_content_hash"] != artifact.get("old_content_hash"):
         raise LogicReviewError("业务审查不属于当前事务基线。")
     if review["candidate_gate"]["blocked"]:

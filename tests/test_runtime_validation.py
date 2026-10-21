@@ -18,6 +18,20 @@ from gxp_editor.hashing import sha256_text
 
 
 class RuntimeValidationTests(unittest.TestCase):
+    def test_empty_source_skips_probe_dotnet_and_assembly_access(self):
+        validator = RuntimeCsharpValidator(editor_config())
+        with patch.object(validator, "_probe", side_effect=AssertionError("must not start probe")), \
+             patch.object(validator, "_status", side_effect=AssertionError("must not inspect SDK")), \
+             patch.object(validator, "_references", side_effect=AssertionError("must not read DLLs")):
+            for source in ("", " \n\t"):
+                for validate in (validator.validate, validator._validate):
+                    evidence = validate("synthetic", source)
+                    self.assertTrue(evidence["success"])
+                    self.assertFalse(evidence["compilation_succeeded"])
+                    self.assertFalse(evidence["production_compatible"])
+                    self.assertEqual(evidence["validation_scope"], "no_csharp_source")
+                    self.assertEqual(evidence["csharp_sha256"], sha256_text(source))
+
     def setUp(self):
         runtime_directory = tempfile.TemporaryDirectory()
         self.addCleanup(runtime_directory.cleanup)

@@ -43,6 +43,9 @@ class LogicReviewTests(unittest.TestCase):
                           for case in spec["scenarios"]["cases"]]}
 
     def build(self, spec=None, outcome="passed", **kwargs):
+        if spec is None:
+            spec = {"schema_version": 1, "revision": "manual-fixture", "scope_policy": "manual_review",
+                    "requirements": [], "scenarios": {"schema_version": 1, "cases": []}}
         return build_business_review(review_spec=spec, baseline_design=self.base, candidate_design=self.desired,
                                      compiler_binding=self.binding,
                                      scenario_report=None if spec is None else self.report(spec, outcome), **kwargs)
@@ -83,6 +86,7 @@ class LogicReviewTests(unittest.TestCase):
 
     def test_unlinked_requirement_never_becomes_green(self):
         spec = specification()
+        spec["scope_policy"] = "manual_review"
         spec["requirements"].append({"id": "extra", "text": "另一个要求", "source_text": "用户：另一个要求", "targets": []})
         review = self.build(spec)
         self.assertEqual(review["requirements"][1]["status"], "unverified")
@@ -90,7 +94,9 @@ class LogicReviewTests(unittest.TestCase):
 
     def test_extra_real_changes_are_unverified_without_overruling_human_review(self):
         self.desired["data"] = json.dumps({"actionData": [], "globalVariables": [{"name": "extra", "value": 1}]})
-        review = self.build(specification())
+        spec = specification()
+        spec["scope_policy"] = "manual_review"
+        review = self.build(spec)
         self.assertTrue(review["changes"])
         self.assertEqual(review["changes"][0]["status"], "unverified")
         self.assertEqual(review["status"], "unverified")

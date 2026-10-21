@@ -6,6 +6,7 @@ import unittest
 from copy import deepcopy
 from dataclasses import replace
 from pathlib import Path
+from unittest.mock import patch
 
 from tests.helpers import editor_config
 from gxp_editor.compiler import CompilerBridge, CompilerError
@@ -82,6 +83,31 @@ class NativeParameterUpdateTests(unittest.TestCase):
             self.bridge.compile_patch(design, [{"operation": "set_parameter", "action_group_key": "main", "target_node_key": node["key"],
                                                "expected_element_key": "SetVariable", "path": "/inputParams/variableType",
                                                "expected_old_value": "number", "value": "string"}])
+
+    def test_native_stable_row_edit_and_single_process_verification(self):
+        def row(identity, value):
+            return {"id": identity, "key": identity, "value": {"paramTypes": "custom", "value": value, "code": value, "label": value, "dataType": "string"}}
+        rows = [row("second", '"two"'), row("first", '"one"')]
+        initial = {"actionData": [{"key": "main", "title": "Initialization", "actionType": "js", "data": []}], "globalVariables": []}
+        design = self.bridge.compile_patch(initial, [{"operation": "append_node", "action_group_key": "main", "element_key": "AddMetaData",
+            "input_params": {"config": {"paramSettings": rows}}, "output_params": {}}])["design"]
+        node = design["actionData"][0]["data"][0]
+        replacement = row("first", '"updated"')
+        request = {"operation": "set_array_item", "action_group_key": "main", "target_node_key": node["key"], "expected_element_key": "AddMetaData",
+                   "path": "/inputParams/config/paramSettings", "item_key": {"field": "id", "value": "first"}, "expected_old_value": rows[1], "value": replacement}
+        result = self.bridge.compile_patch(design, [request])
+        self.assertEqual(result["design"]["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["config"]["paramSettings"], [rows[0], replacement])
+        with patch.object(self.bridge, "_call", wraps=self.bridge._call) as call:
+            self.assertTrue(self.bridge.verify_compiled_result(result)["code_generation_complete"])
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(call.call_args.args[0]["command"], "verify_candidate")
+        no_change = self.bridge.compile_patch(result["design"], [{**request, "expected_old_value": replacement}])
+        self.assertTrue(no_change["no_change"])
+        self.assertEqual(no_change["design"], result["design"])
+        with self.assertRaises(CompilerError) as caught:
+            self.bridge.compile_patch(result["design"], [request])
+        self.assertEqual(caught.exception.details, {"operation_index": 0, "group_key": "main", "node_key": node["key"],
+                         "path": "/inputParams/config/paramSettings", "reason_code": "old_value_mismatch"})
 
     def test_native_array_parameter_replacement_preserves_existing_rows(self):
         row = {"name": {"paramTypes": "custom", "value": "first", "code": "first", "label": "message"}}

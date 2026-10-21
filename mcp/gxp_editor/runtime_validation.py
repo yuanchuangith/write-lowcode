@@ -209,6 +209,8 @@ class RuntimeCsharpValidator:
         return "compilation_failed" if compiler_error and not infrastructure_error else "checker_unavailable"
 
     def validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
+        if not csharp_code.strip():
+            return self.no_source_evidence(csharp_code)
         result = self._probe(
             "validate", timeout=self.VALIDATION_TIMEOUT_SECONDS,
             action_code=action_code, csharp_code=csharp_code,
@@ -219,18 +221,17 @@ class RuntimeCsharpValidator:
             )
         return result
 
+    def no_source_evidence(self, csharp_code: str = "") -> dict[str, Any]:
+        """No SDK or assembly inspection is relevant to an empty C# candidate."""
+        return {"available": False, "success": True, "compilation_succeeded": False,
+                "validation_scope": "no_csharp_source", "production_compatible": False,
+                "reference_conflicts": False, "probe_skipped": True, "zero_backend_mode": True,
+                "source_mode": self.runtime.source_mode, "target_framework": self.runtime.target_framework,
+                "csharp_sha256": sha256_text(csharp_code), "diagnostics": []}
+
     def _validate(self, action_code: str, csharp_code: str) -> dict[str, Any]:
         if not csharp_code.strip():
-            status = self._status()
-            return {
-                **status,
-                "success": True,
-                "compilation_succeeded": False,
-                "validation_scope": "no_csharp_source",
-                "reference_conflicts": False,
-                "csharp_sha256": sha256_text(csharp_code),
-                "diagnostics": [],
-            }
+            return self.no_source_evidence(csharp_code)
         if not action_code or len(action_code) > 128:
             raise RuntimeValidationError("Action code is missing or too long")
         references = self._references()
