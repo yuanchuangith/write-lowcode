@@ -207,6 +207,29 @@ const innerInbiz=()=>({getText:()=>{childReads++;return '合格';}});
         with self.assertRaisesRegex(CompilerError,'Undeclared action identifier missingContext'):
             self.bridge.compile_patch(self.design,[op])
 
+    def test_reserved_identifier_scope_and_mount_regressions(self):
+        script = Path(__file__).with_name('event_binding_checks.test.cjs')
+        ran = subprocess.run(['node', str(script), str(self.bridge.frontend_repo)],
+                             encoding='utf-8', capture_output=True, timeout=15)
+        self.assertEqual(ran.returncode, 0, ran.stderr)
+
+    def test_native_generation_rejects_reserved_business_variables(self):
+        for name in ('inbiz', 'Inbiz'):
+            with self.subTest(name=name):
+                op = variable(name, '{}', 'any'); op['action_group_key'] = 'main'
+                with self.assertRaisesRegex(CompilerError, 'Reserved platform identifier ' + name) as caught:
+                    self.bridge.compile_patch(self.design, [op])
+                self.assertEqual(caught.exception.details['reason_code'], 'reserved_platform_identifier')
+                self.assertEqual(caught.exception.details['group_key'], 'main')
+
+    def test_platform_entry_and_distinct_local_names_survive_independent_recheck(self):
+        result = self.bridge.compile_patch(self.design, operations())
+        self.assertIn('function (inbiz,relatedAttributes)', result['js_code'])
+        self.assertIn('var innerInbiz = action.innerInbiz;', result['js_code'])
+        self.assertTrue(self.bridge.verify_compiled_result(result)['generated_code_consistency_verified'])
+        evidence = result['event_binding_validation']
+        self.bridge.verify_event_binding_validation(result['design'], result['js_code'], evidence)
+
     def test_changed_action_checks_existing_child_groups_too(self):
         broken=deepcopy(self.design)
         child={"key":"child","title":"下级组","actionType":"js","data":[]}

@@ -5,6 +5,7 @@ const path = require('node:path');
 const Module = require('node:module');
 const extensionPath = path.join(__dirname, 'canvas_operations.cjs');
 const checksPath = path.join(__dirname, 'event_binding_checks.cjs');
+const interfaceMetadata = require('./interface_metadata.cjs');
 const crypto = require('node:crypto');
 let compilationSeed = null;
 let compilationCounter = 0;
@@ -17,7 +18,8 @@ function reproducibleCompile(design, compile) {
   const previousSeed = compilationSeed, previousCounter = compilationCounter;
   compilationSeed = crypto.createHash('sha256').update(canonical(design)).digest();
   compilationCounter = 0;
-  try { return compile(); } finally { compilationSeed = previousSeed; compilationCounter = previousCounter; }
+  try { return interfaceMetadata.withSnapshot(design, compile); }
+  finally { compilationSeed = previousSeed; compilationCounter = previousCounter; }
 }
 function uuidBytes(size, fallback) {
   if (!compilationSeed) return fallback();
@@ -37,7 +39,7 @@ function adapt(source) {
   replaceOnce('const bytes = crypto.randomBytes(size);',
     'const bytes = require(' + JSON.stringify(__filename) + ').uuidBytes(size, () => crypto.randomBytes(size));');
   replaceOnce('function compileCode(design) {',
-    'function compileCode(design) { return require(' + JSON.stringify(__filename) + ').reproducibleCompile(design, () => nativeCompileCode(clone(design))); }\nfunction nativeCompileCode(design) {');
+    'function compileCode(design) { const runner = require(' + JSON.stringify(__filename) + '); return Object.assign(runner.reproducibleCompile(design, () => nativeCompileCode(clone(design))), {interface_metadata: runner.interfaceMetadata.describe(design)}); }\nfunction nativeCompileCode(design) {');
   // Locate webpack's actual exported component catalog, independent of its numeric module ID.
   const catalogExport = /([A-Za-z_$][\w$]*):\s*\(\) => \(\/\* binding \*\/ extractComponentsInfo\)/g;
   const matches = [...source.matchAll(catalogExport)];
@@ -45,7 +47,7 @@ function adapt(source) {
   const headers = [...source.slice(0, matches[0].index).matchAll(/\/\*\*\*\/ (\d+):/g)];
   if (!headers.length) throw new Error('Compiler component catalog module was not found');
   const catalog = '__webpack_require__(' + headers.at(-1)[1] + ')[' + JSON.stringify(matches[0][1]) + ']';
-  const api = '{actionByKey, nodeIndex, generateNodes, frontendRoot: ' + JSON.stringify(process.cwd()) + ', catalog: () => ' + catalog + '}';
+  const api = '{actionByKey, nodeIndex, generateNodes, elementFor, blockRange, frontendRoot: ' + JSON.stringify(process.cwd()) + ', catalog: () => ' + catalog + '}';
   const checks = 'require(' + JSON.stringify(checksPath) + ')';
   const ext = 'require(' + JSON.stringify(extensionPath) + ')';
   replaceOnce('function applyOperations(design, operations) {',
@@ -69,7 +71,7 @@ function main() {
   compiler.paths = Module._nodeModulePaths(path.dirname(bridge));
   compiler._compile(adapt(fs.readFileSync(bridge, 'utf8')), bridge);
 }
-module.exports = {adapt, reproducibleCompile, uuidBytes};
+module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata};
 if (require.main === module) {
   try { main(); } catch (error) {
     process.stdout.write(JSON.stringify({ok:false, error:error.message, details:error.details}), () => process.exit(1));

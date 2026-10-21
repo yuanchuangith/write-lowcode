@@ -7,7 +7,7 @@ from PySide6.QtWidgets import QTabWidget
 
 from tests.helpers import baseline, transaction
 from tests.test_logic_flow import sample
-from gxp_editor.action_context import action_context, context_details
+from gxp_editor.action_context import action_context, context_details, publication_notice, publication_target, queue_publication_targets
 from gxp_editor.action_context_ui import ActionContextBanner
 from gxp_editor.approval import transaction_binding_hash
 from gxp_editor.logic_review_ui import LogicReview
@@ -43,6 +43,27 @@ class ActionContextTests(unittest.TestCase):
         context = action_context(baseline())
         self.assertEqual(context["form_name"], "")
         self.assertIn("待确认", context_details(context))
+
+    def test_publication_list_deduplicates_completed_actions_and_excludes_other_states(self):
+        item = {"conversation_id": "owner", "owner_revision": 0, "queued_owner_revision": 0,
+                "transaction_state": "saved", "state": "finished", "action_context": action_context(form_baseline())}
+        targets = queue_publication_targets([
+            item, dict(item), dict(item, state="saved"), dict(item, state="closed_unverified"),
+            dict(item, transaction_state="failed"), dict(item, owner_revision=1),
+            dict(item, conversation_id="other")], "owner")
+        self.assertEqual(len(targets), 1)
+        self.assertIn("ActionOne", publication_notice(targets))
+        public = dict(targets[0], action_type="public", form_name="不可误报所属表单")
+        self.assertIn("公共动作", publication_notice([public]))
+        self.assertNotIn("不可误报所属表单", publication_notice([public]))
+
+    def test_publication_identity_uses_saved_session_when_artifact_belongs_to_another_action(self):
+        target = publication_target(action_context(form_baseline()), {
+            "design_id": "another-design", "ref_id": "another-ref",
+            "action_name": "已保存动作", "action_code": "SavedAction"})
+        self.assertEqual(target["design_id"], "another-design")
+        self.assertEqual(target["action_code"], "SavedAction")
+        self.assertNotIn("form_name", target)
 
     def test_page_lookup_is_exact_and_parameterized(self):
         session = Mock()

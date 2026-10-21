@@ -41,3 +41,43 @@ def context_details(context):
         if context.get(key):
             rows.append(title + "：" + str(context[key]))
     return "\n".join(rows)
+
+
+def publication_target(context, session=None):
+    """Keep the saved action's identity available even without its artifact."""
+    target = dict(context or {})
+    session = session or {}
+    if any(target.get(key) and session.get(key) and target[key] != session[key]
+           for key in ("ref_id", "design_id")):
+        target = {}
+    for key in ("action_name", "action_code", "ref_id", "design_id"):
+        target[key] = str(session.get(key) or target.get(key) or "")
+    return target
+
+
+def queue_publication_targets(items, conversation_id):
+    """List completed saves from this queue, including after reopening it."""
+    targets, seen = [], set()
+    for item in items:
+        if (item["conversation_id"] != conversation_id
+                or item["owner_revision"] != item["queued_owner_revision"]
+                or item.get("transaction_state") != "saved" or item["state"] != "finished"):
+            continue
+        target = publication_target(item.get("action_context"), item)
+        identity = target["ref_id"] or target["design_id"]
+        if identity not in seen:
+            seen.add(identity)
+            targets.append(target)
+    return targets
+
+
+def publication_notice(targets):
+    if not targets:
+        return ""
+    lines = ["请在平台手动重新发布以下动作："]
+    for index, target in enumerate(targets, 1):
+        name = target.get("action_name") or "动作名称待确认"
+        code = target.get("action_code") or target.get("ref_id") or target.get("design_id") or "编号待确认"
+        owner = "公共动作" if target.get("action_type") == "public" else target.get("form_name") or "所属表单待确认"
+        lines.append(f"{index}. {name}（{code}） · {owner}")
+    return "\n".join(lines)

@@ -4,11 +4,36 @@ const vm = require('node:vm');
 const {parametersMatch} = require('./event_contracts.cjs');
 const {createRequire} = require('node:module');
 const GLOBALS = new Set(['console','JSON','Math','Date','Array','Object','String','Number','Boolean','RegExp','Map','Set','WeakMap','WeakSet','Promise','Error','TypeError','RangeError','Symbol','BigInt','Intl','URL','URLSearchParams','undefined','NaN','Infinity','parseInt','parseFloat','isNaN','isFinite','encodeURIComponent','decodeURIComponent','setTimeout','clearTimeout','setInterval','clearInterval','window','document','navigator','localStorage','sessionStorage']);
+const RESERVED_PLATFORM_IDENTIFIERS = new Set(['inbiz', 'Inbiz']);
+function rejectReservedName(name, group) {
+  if (!RESERVED_PLATFORM_IDENTIFIERS.has(name)) return;
+  const error = new Error('Reserved platform identifier ' + name + ' cannot be declared or overwritten in ' + group.title);
+  error.details = {reason_code:'reserved_platform_identifier', group_key:group.key};
+  throw error;
+}
+function inspectWriteTarget(node, group) {
+  if (!node) return;
+  if (node.type === 'Identifier') rejectReservedName(node.name, group);
+  else if (node.type === 'MemberExpression') {
+    const owner = node.object;
+    const name = !node.computed && node.property.type === 'Identifier' ? node.property.name
+      : node.computed && node.property.type === 'StringLiteral' ? node.property.value : null;
+    if (owner.type === 'Identifier' && ['window', 'globalThis'].includes(owner.name)) rejectReservedName(name, group);
+  } else if (node.type === 'ObjectPattern') {
+    for (const property of node.properties) inspectWriteTarget(property.type === 'RestElement' ? property.argument : property.value, group);
+  } else if (node.type === 'ArrayPattern') {
+    for (const element of node.elements) inspectWriteTarget(element, group);
+  } else if (node.type === 'AssignmentPattern') inspectWriteTarget(node.left, group);
+  else if (node.type === 'RestElement') inspectWriteTarget(node.argument, group);
+}
 function assertJavascriptSyntax(code) {
   if (code.trim()) new vm.Script('(' + code + ')', {filename:'generated-action.js'});
 }
 function inspectFunctions(code, groups, frontendRoot, eventTargets) {
   if (!groups.length) return;
+  for (const group of groups) for (const parameter of [...(group.inputParams || []), ...(group.outputParams || [])]) {
+    rejectReservedName(parameter.title, group);
+  }
   assertJavascriptSyntax(code);
   const load = createRequire(path.join(frontendRoot, 'package.json'));
   const parser = load('@babel/parser');
@@ -33,7 +58,13 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets) {
     const names = fn.node.params.map(param=>param.type === 'AssignmentPattern' ? param.left.name : param.name);
     const expected = (group.inputParams || []).map(param=>param.title);
     if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error('Generated callback signature does not match canvas parameters: ' + group.title);
-    fn.traverse({ReferencedIdentifier(ref) {
+    fn.traverse({
+      BindingIdentifier(ref) { rejectReservedName(ref.node.name, group); },
+      AssignmentExpression(ref) { inspectWriteTarget(ref.node.left, group); },
+      UpdateExpression(ref) { inspectWriteTarget(ref.node.argument, group); },
+      UnaryExpression(ref) { if (ref.node.operator === 'delete') inspectWriteTarget(ref.node.argument, group); },
+      'ForInStatement|ForOfStatement'(ref) { inspectWriteTarget(ref.node.left, group); },
+      ReferencedIdentifier(ref) {
       const name = ref.node.name;
       if (name === 'arguments') {
         const owner = ref.findParent(parent=>parent.isFunction() && !parent.isArrowFunctionExpression());
@@ -82,6 +113,9 @@ function validateBindings(design, scope, api, getContract, code) {
       parameters_declared:true, hidden_arguments_allowed:false, runtime_verified:false});
   }
   const jsGroups = design.actionData.filter(group=>group.actionType === 'js');
+  if (jsGroups.length) for (const variable of design.globalVariables || []) {
+    rejectReservedName(variable.name, {title:'JS global variables', key:null});
+  }
   inspectFunctions(code, jsGroups, api.frontendRoot, new Set(groups.map(group=>group.key)));
   return {binding_node_keys:scope, checks, javascript_syntax_checked:true, javascript_lexical_scope:'all_js_groups', javascript_group_keys:jsGroups.map(group=>group.key), business_scenarios_verified:false, browser_verified:false, runtime_verified:false};
 }

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any
 
 from .approval import load_artifact, save_artifact
-from .action_context import action_context
+from .action_context import action_context, publication_target, queue_publication_targets
 from .backup import BackupStore
 from .compiler import CompilerBridge
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
@@ -88,7 +88,8 @@ class EditorService:
             {**self._session_summary(item), "position": item["position"], "plan_id": item.get("plan_id"),
              "plan_status": item.get("plan_status"), "transaction_state": item.get("transaction_state"),
              "owned": item["conversation_id"] == self.conversation_id and item["owner_revision"] == item["queued_owner_revision"],
-             "action_context": item["action_context"]} for item in items], "write_executed": False}
+             "action_context": item["action_context"]} for item in items],
+                "publication_targets": queue_publication_targets(items, self.conversation_id), "write_executed": False}
 
     def attach_edit_session(self, session_id: str) -> dict[str, Any]:
         from contextlib import ExitStack
@@ -723,6 +724,7 @@ class EditorService:
             "operations": operations,
             "desired": desired,
             "validation": compiler_evidence["validation"],
+            **({"interface_metadata": compiler_evidence["interface_metadata"]} if compiler_evidence.get("interface_metadata") else {}),
             "event_binding_validation": compiler_evidence.get("event_binding_validation"),
             "code_generation_complete": compiler_evidence["code_generation_complete"],
             "generated_code_consistency_verified": compiler_evidence["generated_code_consistency_verified"],
@@ -759,6 +761,7 @@ class EditorService:
             "runtime_validation": plan_artifact["runtime_validation"] if response_detail == "full" else evidence_summary(plan_artifact["runtime_validation"]),
             "compiler_binding": binding,
             "code_generation_complete": True,
+            **({"interface_metadata": plan_artifact["interface_metadata"]} if plan_artifact.get("interface_metadata") else {}),
             "generated_code_consistency_verified": plan_artifact["generated_code_consistency_verified"],
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
@@ -933,6 +936,7 @@ class EditorService:
         if (
             compiler_evidence.get("validation") != artifact.get("validation")
             or compiler_evidence.get("event_binding_validation") != artifact.get("event_binding_validation")
+            or compiler_evidence.get("interface_metadata") != artifact.get("interface_metadata")
             or compiler_evidence.get("generated_code_consistency_verified") is not True
             or artifact.get("generated_code_consistency_verified") is not True
             or not compiler_evidence.get("code_generation_complete")
@@ -965,6 +969,7 @@ class EditorService:
                 "code_generation_complete": True,
                 "generated_code_consistency_verified": compiler_evidence["generated_code_consistency_verified"],
                 "hashes": hashes,
+                **({"interface_metadata": compiler_evidence["interface_metadata"]} if compiler_evidence.get("interface_metadata") else {}),
                 "reference_repairs": artifact.get("reference_repairs") or [],
             },
             business_review=artifact["business_review"],
@@ -1007,6 +1012,9 @@ class EditorService:
         except (OSError, ValueError) as exc:
             artifact = {}
             artifact_error = str(exc)
+        publication_targets = [publication_target(artifact.get("action_context"), session)] if (
+            session.get("transaction_id") == transaction_id and transaction["state"] == "saved"
+            and session["state"] == "finished") else []
         return {
             "transaction_id": transaction_id,
             "kind": transaction["kind"],
@@ -1029,6 +1037,7 @@ class EditorService:
             "retry_requires_new_plan": transaction["state"] in {"failed_no_write", "rolled_back", "closed_unverified"} or session["state"] == "closed_unverified",
             "old_content_hash": artifact.get("old_content_hash"),
             "new_content_hash": artifact.get("new_content_hash"),
+            "publication_targets": publication_targets,
         }
 
     def reopen_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
@@ -1131,12 +1140,14 @@ class EditorService:
                     "content_hash": receipt["content_hash"], "relation_hash": receipt["relation_hash"],
                     "saved_verification": receipt, "current_draft_rechecked": False,
                     "session_released": True, "transaction_kind": transaction["kind"],
-                    "runtime_finalized": False, "manual_publication_required": True}
+                    "runtime_finalized": False, "manual_publication_required": True,
+                    "publication_targets": [action_context(session["baseline"])]}
         if session["state"] == "finished" and transaction["state"] == "saved":
             return {"verified": True, "session_released": True, "design_id": session["design_id"],
                     "ref_id": session["ref_id"], "verification_scope": "previously_finished_session",
                     "current_draft_rechecked": False, "runtime_finalized": False,
-                    "manual_publication_required": True}
+                    "manual_publication_required": True,
+                    "publication_targets": [action_context(session["baseline"])]}
         _, _, repository, _, _ = self._components()
         if transaction["state"] != "saved":
             raise EditorServiceError(f"Transaction is not fully saved: {transaction['state']}")
@@ -1173,6 +1184,7 @@ class EditorService:
                                       expected_transaction_id=session.get("transaction_id"))
         return {
             "finished": True,
+            "publication_targets": [action_context(session["baseline"])],
             "action_code": session["action_code"],
             "action_name": session["action_name"],
             "ref_id": session["ref_id"],

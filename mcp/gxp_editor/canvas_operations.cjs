@@ -1,7 +1,7 @@
 'use strict';
 const crypto = require('node:crypto');
 const runtimeContracts = require('./event_contracts.cjs');
-const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'bind_component_event', 'set_parameter', 'set_array_item'];
+const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'insert_in_block', 'bind_component_event', 'set_parameter', 'set_array_item'];
 const NATIVE = ['insert_before', 'insert_after', 'replace_params', 'replace_block', 'delete_block', 'move_block'];
 const TYPES = new Set(['string', 'number', 'double', 'boolean', 'object', 'dictionary', 'array', 'dateTime', 'any']);
 const FORBIDDEN = ['key', 'depth', 'title', 'description', 'js_code', 'csharp_code', 'relation_data', 'sql', 'raw_code'];
@@ -112,6 +112,7 @@ function componentContract(catalog, type, api) {
 }
 function applyOperations(design, operations, native, api) {
   const aliases = new Map();
+  const nodeAliases = new Map();
   const diff = [];
   const resolve = value => {
     text(value, 'action group');
@@ -143,10 +144,19 @@ function applyOperations(design, operations, native, api) {
     });
   }
   for (let index = 0; index < operations.length; index++) {
-    const op = operations[index];
+    let op = operations[index];
     try {
     if (!op || typeof op !== 'object' || Array.isArray(op)) throw new Error('Every canvas operation must be an object');
     for (const f of FORBIDDEN) if (Object.hasOwn(op, f)) throw new Error('Operation contains forbidden field ' + f);
+    op = {...op};
+    const nodeAlias = op.node_alias;
+    if (Object.hasOwn(op, 'node_alias')) {
+      if (!['append_node', 'insert_before', 'insert_after', 'insert_in_block'].includes(op.operation)
+          || typeof nodeAlias !== 'string' || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(nodeAlias) || nodeAliases.has(nodeAlias)) {
+        reject('invalid_node_alias', 'Invalid, duplicate or unsupported node_alias');
+      }
+      delete op.node_alias;
+    }
     if (op.operation === 'create_action_group') {
       fields(op, ['operation', 'group_alias', 'group_title', 'action_type', 'group_description', 'input_params', 'output_params', 'event_contract']);
       const alias = text(op.group_alias, 'group_alias');
@@ -174,6 +184,17 @@ function applyOperations(design, operations, native, api) {
       continue;
     }
     const group = api.actionByKey(design, resolve(op.action_group_key));
+    for (const field of ['target_node_key', 'anchor_node_key']) {
+      if (typeof op[field] !== 'string' || !op[field].startsWith('@')) continue;
+      const reference = nodeAliases.get(op[field].slice(1));
+      if (!reference) reject('unknown_node_alias', 'Unknown or forward node alias: ' + op[field]);
+      if (reference.groupKey !== group.key) reject('node_alias_group_mismatch', 'Node alias belongs to a different action group');
+      if (group.data.filter(node => node.key === reference.nodeKey).length !== 1) {
+        reject('stale_node_alias', 'Node alias no longer identifies one current node');
+      }
+      op[field] = reference.nodeKey;
+    }
+    const diffStart = diff.length;
     if (op.operation === 'set_parameter' || op.operation === 'set_array_item') {
       fields(op, ['operation', 'action_group_key', 'target_node_key', 'expected_element_key', 'path', 'expected_old_value', 'value', ...(op.operation === 'set_array_item' ? ['item_key'] : [])]);
       text(op.target_node_key, 'target_node_key');
@@ -250,11 +271,30 @@ function applyOperations(design, operations, native, api) {
         affected_node_keys:[],generated_nodes:[],before_node_count:group.data.length,after_node_count:group.data.length});
       continue;
     }
-    if (op.operation === 'append_node' || op.operation === 'bind_component_event') {
+    if (['append_node', 'insert_in_block', 'bind_component_event'].includes(op.operation)) {
       const beforeCount = group.data.length;
-      let generated, replaced = null;
-      if (op.operation === 'append_node') {
-        fields(op, ['operation', 'action_group_key', 'element_key', 'input_params', 'output_params']);
+      let generated, replaced = null, blockEnd = null;
+      if (op.operation === 'append_node' || op.operation === 'insert_in_block') {
+        fields(op, ['operation', 'action_group_key', 'element_key', 'input_params', 'output_params',
+          ...(op.operation === 'insert_in_block' ? ['target_node_key'] : [])]);
+        if (op.operation === 'insert_in_block') {
+          const target = text(op.target_node_key, 'target_node_key');
+          if (group.data.filter(node => node.key === target).length !== 1) reject('target_not_found', 'Block target must identify one current node');
+          const start = api.nodeIndex(group, target), element = api.elementFor(group.data[start].elementKey);
+          if (!element.levelMarker || element.endMarker) reject('block_start_required', 'insert_in_block requires a native block opening node');
+          blockEnd = api.blockRange(group, start)[1];
+          // Append to this opening node's branch, before a sibling Else/ElseIf
+          // when present, rather than silently placing the child in that branch.
+          let nesting = 1;
+          for (let at = start + 1; at <= blockEnd; at++) {
+            const marker = api.elementFor(group.data[at].elementKey);
+            if (marker.endMarker) {
+              if (nesting === 1) { blockEnd = at; break; }
+              nesting--;
+            }
+            if (marker.levelMarker) nesting++;
+          }
+        }
         generated = api.generateNodes(group, text(op.element_key, 'element_key'), op.input_params, op.output_params);
       } else {
         fields(op, ['operation', 'action_group_key', 'component_id', 'component_type', 'component_title', 'event_name', 'target_action_group_key', 'target_node_key', 'anchor_node_key', 'position']);
@@ -290,7 +330,7 @@ function applyOperations(design, operations, native, api) {
         generated[0].key = replaced.key; generated[0].depth = replaced.depth;
         group.data[api.nodeIndex(group, replaced.key)] = generated[0];
       } else {
-        const at = op.anchor_node_key ? api.nodeIndex(group, op.anchor_node_key) + (op.position === 'after' ? 1 : 0) : group.data.length;
+        const at = blockEnd !== null ? blockEnd : op.anchor_node_key ? api.nodeIndex(group, op.anchor_node_key) + (op.position === 'after' ? 1 : 0) : group.data.length;
         group.data.splice(at, 0, ...generated);
       }
       diff.push({operation_index: index, operation: op.operation, action_group_key: group.key,
@@ -302,6 +342,14 @@ function applyOperations(design, operations, native, api) {
       if (!NATIVE.includes(op.operation)) throw new Error('Unsupported canvas operation: ' + op.operation);
       const normalized = {...op, action_group_key: group.key};
       diff.push(...native(design, [normalized]).map(d => ({...d, operation_index:index})));
+    }
+    if (nodeAlias) {
+      const key = diff[diffStart]?.generated_nodes?.[0]?.key;
+      if (!key || group.data.filter(node => node.key === key).length !== 1) {
+        reject('invalid_node_alias_target', 'node_alias requires a native generated node');
+      }
+      nodeAliases.set(nodeAlias, {groupKey: group.key, nodeKey: key});
+      diff[diffStart].node_alias = nodeAlias;
     }
     } catch (error) { throw operationFailure(error, op, index); }
   }

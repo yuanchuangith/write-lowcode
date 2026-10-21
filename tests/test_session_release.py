@@ -143,10 +143,19 @@ class SessionReleaseTests(unittest.TestCase):
             status = self.service.get_write_status(self.tx)
             self.assertTrue(status["verified"])
             self.assertTrue(status["session_released"])
+            self.assertEqual(status["publication_targets"][0]["action_name"], "Action one")
+            self.assertEqual(status["publication_targets"][0]["action_code"], "ActionOne")
             verified = self.service.verify_saved_draft(self.session["id"])
             self.assertEqual(verified["saved_verification"], receipt)
             self.assertFalse(verified["current_draft_rechecked"])
-            self.assertTrue(self.service.finish_edit_session(self.session["id"])["finished"])
+            self.assertEqual(verified["publication_targets"][0]["action_code"], "ActionOne")
+            finished = self.service.finish_edit_session(self.session["id"])
+            self.assertTrue(finished["finished"])
+            self.assertEqual(finished["publication_targets"][0]["ref_id"], "ref-1")
+        self.path.unlink()
+        status = self.service.get_write_status(self.tx)
+        self.assertFalse(status["artifact_available"])
+        self.assertEqual(status["publication_targets"][0]["action_code"], "ActionOne")
         self.assertIsNone(self.store.active_session(self.owner))
 
     def test_unverified_closure_is_never_reported_as_verified(self):
@@ -156,6 +165,7 @@ class SessionReleaseTests(unittest.TestCase):
         status = self.service.get_write_status(self.tx)
         self.assertFalse(status["verified"])
         self.assertIsNone(status["saved_verification"])
+        self.assertEqual(status["publication_targets"], [])
 
     def test_verify_cannot_race_automatic_completion_worker(self):
         self.store.update_transaction(self.tx, "saved")

@@ -6,6 +6,7 @@ import re
 from typing import Any
 
 from pymysql.converters import escape_item
+from .action_context import publication_notice
 from .single_row_checker import check_single_row_statement
 from .component_preview import component_changes, plain_description
 
@@ -259,7 +260,9 @@ def execution_result_message(result: dict[str, Any]) -> str:
         return (
             "草稿已保存成功，已核验并结束编辑会话。\n\n"
             "当前运行仍使用发布副本，此次保存尚未生效。\n"
-            "现在可以在平台检查该动作的草稿并手动发布，再重新打开业务页面验证。"
+            + (publication_notice(result.get("publication_targets"))
+               or "请按本次审批中的动作名称和编号，在平台检查草稿并手动发布。")
+            + "\n请检查画布后逐一发布，再重新打开业务页面验证。"
         )
     return "事务结果：\n" + json.dumps(result, ensure_ascii=False, indent=2, default=str)
 

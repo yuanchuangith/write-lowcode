@@ -117,7 +117,7 @@ class NativeSourceBindingTests(unittest.TestCase):
         self.cache_registry()
         read_text = Path.read_text
         for adapter in ('compiler_runner.cjs', 'canvas_operations.cjs', 'event_contracts.cjs',
-                        'event_contracts.json', 'event_binding_checks.cjs'):
+                        'event_contracts.json', 'event_binding_checks.cjs', 'interface_metadata.cjs'):
             with self.subTest(adapter=adapter):
                 def changed_text(path, *args, **kwargs):
                     content = read_text(path, *args, **kwargs)

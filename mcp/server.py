@@ -60,7 +60,7 @@ def create_edit_queue(conversation_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 def get_edit_queue(queue_id: str, conversation_id: str) -> dict[str, Any]:
-    """List this dialogue's queued actions and preparation/save states without approving anything."""
+    """List queued states and cumulative publication_targets: completed actions the user must manually republish."""
     return service(conversation_id).get_edit_queue(queue_id)
 
 
@@ -163,7 +163,7 @@ def prepare_write(plan_id: str, conversation_id: str = "", response_detail: str 
 
 @mcp.tool()
 def get_write_status(transaction_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Read approval and database execution status. This tool never writes."""
+    """Read save status; after verification and release, list publication_targets by name/code for manual republication. Never writes."""
     return service(conversation_id).get_write_status(transaction_id)
 
 
@@ -193,7 +193,7 @@ def prepare_restore(session_id: str, backup_id: str, conversation_id: str = "") 
 
 @mcp.tool()
 def finish_edit_session(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Release a verified session and remind the user to inspect and publish manually."""
+    """Release a verified session and return publication_targets to list by name/code for manual republication."""
     return service(conversation_id).finish_edit_session(session_id)
 
 

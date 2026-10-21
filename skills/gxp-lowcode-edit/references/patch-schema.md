@@ -26,6 +26,7 @@ set_event_callback_contract fields: action_group_key, component_type, event_name
 ## Nodes
 
 - append_node: action_group_key, element_key, input_params, output_params. Adds native generated nodes at the end of the group, including an empty group, without an anchor. Paired blocks are generated and validated by the native compiler.
+- insert_in_block: action_group_key, target_node_key, element_key, input_params, output_params. Appends native generated nodes inside the selected opening node's branch, immediately before its first sibling branch transition (Else/ElseIf) or matching end node. The target must be a native opening node (for example IfCondition); ordinary nodes, end/branch transition nodes and unclosed blocks are rejected. Nested blocks keep their own matching ends; targeting an IF never places the new child in its Else branch.
 - insert_before / insert_after: action_group_key, anchor_node_key, element_key, input_params, output_params.
 - replace_params: action_group_key, target_node_key, input_params, output_params.
 - set_parameter: action_group_key, target_node_key, expected_element_key, path, expected_old_value, value.
@@ -34,6 +35,14 @@ set_event_callback_contract fields: action_group_key, component_type, event_name
 - move_block: action_group_key, target_node_key, anchor_node_key, position (before or after).
 
 Node input_params and output_params remain the actual element's parameter dictionaries. Inspect the registry and its real parameter editor; nested table fields are not interchangeable with plain ParamInput records. A block operation addresses its complete levelMarker/endMarker range. Anchors and targets must exist in the selected group. New node keys, depth, raw title/description, generated code, SQL and relation data are forbidden.
+
+### Referencing newly generated nodes in one batch
+
+When `supported_operations` advertises `insert_in_block`, `append_node`, `insert_before`, `insert_after` and `insert_in_block` also accept optional `node_alias`. Use a unique batch-local identifier without `@` (letters/underscores followed by letters, digits or underscores). It names the **first native generated node**, which is the opening node for a paired block. It never supplies or changes a persistent node key.
+
+Later operations in the same batch may use `@node_alias` in `target_node_key` or `anchor_node_key`. Node and group aliases have separate namespaces. References must be declared earlier, remain in the same action group and still identify one current node; unknown, forward, deleted/replaced and cross-group references are rejected. Aliases appear in operation diffs but are not persisted in the canvas and cannot be reused in another planning call.
+
+To build an IF with two filters in one plan, create the native `IfCondition` with `node_alias: "skillOnly"`, then issue two `insert_in_block` operations with `target_node_key: "@skillOnly"` and the exact verified `DataFilter` parameters. Both filters remain between IF and End IF in operation order. `append_node` alone still appends at group end, outside a block that already has its end node. For an existing block, pass its verified opening-node key directly. Do not save a placeholder IF merely to discover its keys; every plan starts from the immutable session baseline.
 
 `replace_params` replaces the node's **complete** input and output parameter dictionaries; it does not merge a partial update. Omitting a section produces an empty dictionary, and omitted fields are not preserved. Read the exact target's current `paramsValue`, copy both dictionaries, and change only the requested leaves before submitting them. Keep unrelated filters, AND/OR structure, output mappings, and native parameter records intact. For example, when adding a query filter, submit all original filters plus the new filter and the unchanged output dictionary; do not submit only the new filter. Inspect the returned field diff for unintended deletions before requesting approval.
 

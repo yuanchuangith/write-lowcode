@@ -4,6 +4,7 @@ from datetime import datetime
 from typing import Any
 
 from .approval import load_artifact, save_artifact, verify_approvals
+from .action_context import publication_target
 from .config import load_config
 from .db import EditorDatabase
 from .hashing import relation_snapshot_hash
@@ -129,6 +130,7 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
         "runtime_finalized": False,
         "runtime_mode": "existing_backend_lazy_compile_after_manual_publish",
         "manual_publication_required": True,
+        "publication_targets": [],
     }
     # Verify before the success notice sends the user back to the platform.
     # A pre-commit read alone cannot prove the committed result; uncertain
@@ -155,4 +157,5 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
         # successful verification, retrying the write or rolling it back.
         result["verification_error"] = str(exc)
         return result
-    return {**result, "verified": True, "session_released": True, "saved_verification": receipt}
+    return {**result, "verified": True, "session_released": True, "saved_verification": receipt,
+            "publication_targets": [publication_target(artifact.get("action_context"), artifact)]}

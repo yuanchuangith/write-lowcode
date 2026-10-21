@@ -16,6 +16,7 @@ from tests.helpers import PLUGIN_ROOT, baseline, editor_config, transaction
 from gxp_editor.approval import load_artifact, save_artifact, transaction_binding_hash, verify_approvals
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_window_lock
 from gxp_editor.state import StateStore
+from gxp_editor.service import EditorService
 
 
 class QtApprovalQueueTests(unittest.TestCase):
@@ -152,6 +153,42 @@ class QtApprovalQueueTests(unittest.TestCase):
         self.assertEqual(self.window.transaction_id, third)
         self.assertFalse(self.artifact(third)["approvals"])
         self.assertEqual(self.execute_approved_transaction.call_count, 2)
+
+    def test_publication_list_accumulates_and_survives_reopening(self):
+        self.assertNotIn("重新发布以下动作", self.window.queue_result.text())
+        self.save_current()
+        self.assertIn("动作1（Action1） · 表单1", self.window.queue_result.text())
+        self.assertNotIn("Action2", self.window.queue_result.text())
+        self.save_current()
+        self.assertIn("动作1（Action1） · 表单1", self.window.queue_result.text())
+        self.assertIn("动作2（Action2） · 表单2", self.window.queue_result.text())
+        self.window.close()
+        self.window = self.open_window()
+        self.assertIn("动作1（Action1） · 表单1", self.window.queue_result.text())
+        self.assertIn("动作2（Action2） · 表单2", self.window.queue_result.text())
+        service = object.__new__(EditorService)
+        service._conversation_id = self.owner
+        service.state = self.state
+        targets = service.get_edit_queue(self.queue)["publication_targets"]
+        self.assertEqual([target["action_code"] for target in targets], ["Action1", "Action2"])
+
+    def test_later_unverified_save_keeps_only_previous_publication_target(self):
+        self.save_current()
+        def save_without_verification(tx):
+            self.state.claim_transaction(tx)
+            self.state.update_transaction(tx, "saved")
+            self.state.update_session(self.state.get_transaction(tx)["session_id"], "saved", conversation_id=self.owner)
+            return {"state": "saved", "verified": False, "session_released": False}
+        self.execute_approved_transaction.side_effect = save_without_verification
+        self.save_current()
+        self.assertTrue(self.window._queue_stopped)
+        self.assertIn("动作1（Action1）", self.window.queue_result.text())
+        self.assertNotIn("Action2", self.window.queue_result.text())
+        self.window.close()
+        self.window = self.open_window()
+        self.assertTrue(self.window._queue_stopped)
+        self.assertIn("动作1（Action1）", self.window.queue_result.text())
+        self.assertNotIn("Action2", self.window.queue_result.text())
 
     def test_navigation_and_reopen_only_show_pending_without_signing(self):
         original = copy.deepcopy(self.artifact(self.second))

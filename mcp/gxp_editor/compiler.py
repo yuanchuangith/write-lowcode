@@ -223,7 +223,7 @@ class CompilerBridge:
             result["supported_operations"] = [
                 "insert_before", "insert_after", "replace_params", "replace_block",
                 "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
-                "append_node", "bind_component_event", "set_parameter", "set_array_item",
+                "append_node", "insert_in_block", "bind_component_event", "set_parameter", "set_array_item",
             ]
             result["source_provenance"] = self.source_provenance()
             result["compiler_binding_sha256"] = sha256_json(self._binding_fields(result))
@@ -234,7 +234,7 @@ class CompilerBridge:
     def _adapter_sha256() -> str:
         return sha256_json({name: sha256_text(Path(__file__).with_name(name).read_text(encoding="utf-8"))
                             for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
-                                         "event_contracts.json", "event_binding_checks.cjs")})
+                                         "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs")})
 
     @staticmethod
     def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:
@@ -305,6 +305,8 @@ class CompilerBridge:
                 raise CompilerError(
                     f"Generated {field} does not match the candidate canvas; regenerate the plan"
                 )
+        if "interface_metadata" in artifacts and regenerated.get("interface_metadata") != artifacts["interface_metadata"]:
+            raise CompilerError("Saved interface metadata changed during independent code generation")
         return regenerated
 
     def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None):
@@ -351,6 +353,8 @@ class CompilerBridge:
             "compiler_binding": deepcopy(revalidation["compiler_binding"]),
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
+            **({"interface_metadata": deepcopy(revalidation["interface_metadata"])}
+               if revalidation.get("interface_metadata", {}).get("interface_count") else {}),
         }
 
     def verify_candidate_artifact(
@@ -376,6 +380,8 @@ class CompilerBridge:
             "compiler_binding": deepcopy(validation["compiler_binding"]),
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
+            **({"interface_metadata": deepcopy(validation["interface_metadata"])}
+               if validation.get("interface_metadata", {}).get("interface_count") else {}),
         }
 
     def verify_event_binding_validation(self, design, js_code, evidence):

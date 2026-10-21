@@ -12,8 +12,21 @@ const api = {
   catalog:() => catalog,
   actionByKey:(d,key) => {const g=d.actionData.find(g=>g.key===key);if(!g)throw Error('group not found');return g;},
   nodeIndex:(g,key) => {const i=g.data.findIndex(n=>n.key===key);if(i<0)throw Error('node not found');return i;},
+  elementFor:key => ({levelMarker:key==='IfCondition',endMarker:key==='IfEnd'}),
+  blockRange:(g,start) => {
+    let depth=0;
+    for(let end=start;end<g.data.length;end++) {
+      if(g.data[end].elementKey==='IfCondition')depth++;
+      if(g.data[end].elementKey==='IfEnd')depth--;
+      if(depth===0)return [start,end];
+    }
+    throw Error('unclosed block');
+  },
   generateNodes:(g,key,input,output) => {
     if (key==='Unknown') throw Error('unknown native element');
+    if (key==='IfCondition') return [
+      {key:'node'+ ++sequence,elementKey:key,paramsValue:{inputParams:input||{},outputParams:output||{}}},
+      {key:'node'+ ++sequence,elementKey:'IfEnd',paramsValue:{inputParams:{},outputParams:{}}}];
     return [{key:'node'+ ++sequence,elementKey:key,title:key,paramsValue:{inputParams:input||{},outputParams:output||{}}}];
   },
 };
@@ -81,4 +94,58 @@ test('positional input name is flexible while type and output names stay strict'
   assert.equal(d.actionData[1].inputParams[0].title,'payload');
   d.actionData[1].inputParams[0].type='string';
   assert.throws(()=>apply(d,[{...bind(),target_action_group_key:d.actionData[1].key,target_node_key:d.actionData[0].data[0].key}]),/does not match/);
+});
+
+test('new blocks accept ordered children and nested blocks through batch-local aliases',()=>{
+  const d=design();
+  const ops=[create(),
+    {operation:'append_node',action_group_key:'@handler',element_key:'IfCondition',node_alias:'outer'},
+    {operation:'insert_in_block',action_group_key:'@handler',target_node_key:'@outer',element_key:'DataFilter'},
+    {operation:'insert_in_block',action_group_key:'@handler',target_node_key:'@outer',element_key:'IfCondition',node_alias:'inner'},
+    {operation:'insert_in_block',action_group_key:'@handler',target_node_key:'@inner',element_key:'DataFilter'},
+    {operation:'insert_in_block',action_group_key:'@handler',target_node_key:'@outer',element_key:'OutputLog'}];
+  const before=structuredClone(ops),diff=apply(d,ops),nodes=d.actionData[1].data;
+  assert.deepEqual(nodes.map(n=>n.elementKey),['IfCondition','DataFilter','IfCondition','DataFilter','IfEnd','OutputLog','IfEnd']);
+  assert.equal(diff[2].target_node_key,nodes[0].key);
+  assert.equal(diff[4].target_node_key,nodes[2].key);
+  assert.equal(diff[1].node_alias,'outer');
+  assert.deepEqual(ops,before);
+  assert.equal(JSON.stringify(d).includes('node_alias'),false);
+  assert.throws(()=>apply(d,[{operation:'insert_in_block',action_group_key:d.actionData[1].key,target_node_key:'@outer',element_key:'OutputLog'}]),/Unknown or forward/);
+});
+
+test('block insertion rejects non-block targets, closing nodes, unclosed blocks and fabricated keys',()=>{
+  for(const kind of ['OutputLog','IfEnd','IfCondition']) {
+    const d=design();d.actionData[0].data=[{key:'existing',elementKey:kind}];
+    assert.throws(()=>apply(d,[{operation:'insert_in_block',action_group_key:'main',target_node_key:'existing',element_key:'DataFilter'}]),/opening node|unclosed/);
+  }
+  assert.throws(()=>apply(design(),[{operation:'append_node',action_group_key:'main',element_key:'IfCondition',node_alias:'block',key:'fake'}]),/forbidden/);
+});
+
+test('node aliases reject invalid declarations, forward references, cross-group references and stale nodes',()=>{
+  const add={operation:'append_node',action_group_key:'main',element_key:'IfCondition',node_alias:'block'};
+  const child={operation:'insert_in_block',action_group_key:'main',target_node_key:'@block',element_key:'DataFilter'};
+  for(const alias of ['',null,'@bad','has space',123])assert.throws(()=>apply(design(),[{...add,node_alias:alias}]),/node_alias/);
+  assert.throws(()=>apply(design(),[add,add]),/node_alias/);
+  assert.throws(()=>apply(design(),[child,add]),/Unknown or forward/);
+  assert.throws(()=>apply(design(),[add,create(),{...child,action_group_key:'@handler'}]),/different action group/);
+  const remove=(d,ops)=>{d.actionData[0].data=[];return [{operation:ops[0].operation,generated_nodes:[]}];};
+  assert.throws(()=>apply(design(),[add,{operation:'delete_block',action_group_key:'main',target_node_key:'@block'},child],remove),/no longer identifies/);
+});
+
+test('insertions can declare aliases, and later anchors resolve to native keys without forwarding alias metadata',()=>{
+  const d=design();d.actionData[0].data=[{key:'existing',elementKey:'OutputLog'}];
+  const native=(candidate,ops)=>{
+    const op=ops[0],group=candidate.actionData[0];
+    assert.equal(Object.hasOwn(op,'node_alias'),false);
+    const generated=api.generateNodes(group,op.element_key,op.input_params,op.output_params);
+    group.data.splice(api.nodeIndex(group,op.anchor_node_key)+(op.operation==='insert_after'?1:0),0,...generated);
+    return [{operation:op.operation,anchor_node_key:op.anchor_node_key,generated_nodes:generated.map(n=>({key:n.key,element_key:n.elementKey}))}];
+  };
+  const diff=apply(d,[
+    {operation:'insert_before',action_group_key:'main',anchor_node_key:'existing',element_key:'IfCondition',node_alias:'block'},
+    {operation:'insert_after',action_group_key:'main',anchor_node_key:'@block',element_key:'DataFilter',node_alias:'filter'},
+    {operation:'insert_after',action_group_key:'main',anchor_node_key:'@filter',element_key:'OutputLog'}],native);
+  assert.deepEqual(d.actionData[0].data.map(n=>n.elementKey),['IfCondition','DataFilter','OutputLog','IfEnd','OutputLog']);
+  assert.equal(diff[2].anchor_node_key,d.actionData[0].data[1].key);
 });

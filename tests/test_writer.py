@@ -360,6 +360,9 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(self.state.session_state, "finished")
         self.assertTrue(result["verified"])
         self.assertTrue(result["session_released"])
+        self.assertEqual(result["publication_targets"][0]["action_name"], "Action one")
+        self.assertEqual(result["publication_targets"][0]["action_code"], "ActionOne")
+        self.assertEqual(result["publication_targets"][0]["design_id"], "design-1")
 
         stored = load_artifact(self.path)
         self.assertTrue(stored["executed"])
@@ -375,6 +378,7 @@ class WriterTests(unittest.TestCase):
         self.assertFalse(result["verified"])
         self.assertFalse(result["session_released"])
         self.assertIn("Committed draft hash", result["verification_error"])
+        self.assertEqual(result["publication_targets"], [])
         self.assertIsNone(self.state.verification)
         self.assertEqual(len(session.executed), 1)
 

@@ -16,7 +16,7 @@ from PySide6.QtWidgets import (
     QScrollArea, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
 from gxp_editor.approval import approval_is_current, approve_statement, load_artifact, save_artifact
-from gxp_editor.action_context import action_context, context_summary
+from gxp_editor.action_context import action_context, context_summary, publication_notice, publication_target, queue_publication_targets
 from gxp_editor.action_context_ui import ActionContextBanner
 from gxp_editor.approval_display import (
     STATEMENT_LABELS, canvas_change_summary, execution_result_message, parameter_details,
@@ -402,6 +402,8 @@ class ApprovalWindow(QObject):
             "运行引用校验（提示）": self.artifact["runtime_validation"],
             "数据库账户安全": self.artifact["database_safety"],
             "编译与引用校验": (self.artifact.get("compiler_evidence") or {}).get("validation"),
+            **({"接口配置来源（草稿快照，未实时查询接口目录）": self.artifact["compiler_evidence"]["interface_metadata"]}
+               if (self.artifact.get("compiler_evidence") or {}).get("interface_metadata") else {}),
             "说明": "完整 SQL 为审阅副本，执行使用已签名模板及绑定参数。此次仅保存草稿，需手动发布。本程序不调用后端编辑/发布接口、不修改 Redis 或 DLL/PDB。",
         }, ensure_ascii=False, indent=2))
         sources = self.session["baseline"]["data"], self.artifact["desired_design"]["data"]
@@ -514,6 +516,8 @@ class ApprovalWindow(QObject):
             self._block_review("草稿已保存，核验收尾未完成，请回到当前对话恢复会话。")
             messagebox.showerror("保存结果待核对", execution_result_message(result), parent=self.root)
             return
+        result = {**result, "publication_targets": result.get("publication_targets") or [
+            publication_target(self.artifact.get("action_context") or action_context(self.session["baseline"]), self.session)]}
         messagebox.showinfo("执行结果", execution_result_message(result), parent=self.root)
         self.close()
 
@@ -683,6 +687,9 @@ class ApprovalQueueWindow(ApprovalWindow):
                 self.queue_choices.model().item(self.queue_choices.count() - 1).setEnabled(enabled)
             self.queue_choices.setCurrentIndex(position - 1 if position else -1)
         self.queue_choices.setEnabled(not self._executing and not self._queue_stopped)
+        notice = publication_notice(queue_publication_targets(items, self.conversation_id))
+        self.queue_result.setText("\n\n".join(part for part in (self._last_queue_result, notice) if part)
+                                 or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。")
 
     def _build_ui(self, registry, registry_note):
         super()._build_ui(registry, registry_note)
@@ -807,7 +814,7 @@ class ApprovalQueueWindow(ApprovalWindow):
                 or self.state.get_session(self.transaction["session_id"])["state"] != "finished"):
             self._block_review("保存结果需要核对，请在当前对话恢复该会话。")
             return
-        self._last_queue_result = f"上一动作已保存并核验，会话已结束：{context_summary(self.artifact.get('action_context') or action_context(self.session['baseline']))}。可在平台手动发布。"
+        self._last_queue_result = "草稿已保存并核验，编辑会话已结束。以下已完成动作需要重新发布后生效。"
         self._advance_queue()
         if not self._queue_stopped:
             self.timer.start(1000)
