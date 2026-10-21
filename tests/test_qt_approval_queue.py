@@ -83,7 +83,11 @@ class QtApprovalQueueTests(unittest.TestCase):
         self.state.claim_transaction(tx)
         self.state.update_transaction(tx, "saved")
         self.state.update_session(artifact["session_id"], "saved", conversation_id=self.owner)
-        return {"state": "saved", "runtime_finalized": False}
+        self.state.finish_verified_save(
+            tx, content_hash=artifact["new_content_hash"], relation_hash=artifact["expected_relation_hash"],
+            conversation_id=self.owner, owner_revision=0,
+        )
+        return {"state": "saved", "verified": True, "session_released": True, "runtime_finalized": False}
 
     def save_current(self):
         self.window.approve_current()
@@ -113,6 +117,23 @@ class QtApprovalQueueTests(unittest.TestCase):
         self.assertFalse(self.window.execute_button.isEnabled())
         self.assertFalse(self.artifact(self.second)["approvals"])
         self.execute_approved_transaction.assert_called_once_with(self.first)
+        self.assertEqual(self.state.get_session(self.state.get_transaction(self.first)["session_id"])["state"], "finished")
+
+    def test_unverified_save_stops_queue_before_next_approval(self):
+        def save_without_verification(tx):
+            self.state.claim_transaction(tx)
+            self.state.update_transaction(tx, "saved")
+            self.state.update_session(self.state.get_transaction(tx)["session_id"], "saved", conversation_id=self.owner)
+            return {"state": "saved", "verified": False, "session_released": False}
+        self.execute_approved_transaction.side_effect = save_without_verification
+        self.save_current()
+        self.assertTrue(self.window._queue_stopped)
+        self.assertEqual(self.window.transaction_id, self.first)
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.window.close()
+        self.window = self.open_window()
+        self.assertTrue(self.window._queue_stopped)
+        self.assertFalse(self.artifact(self.second)["approvals"])
 
     def test_empty_queue_stays_open_and_picks_up_later_preparation(self):
         self.save_current()

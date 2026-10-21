@@ -181,7 +181,7 @@ def recover_edit_session(session_id: str, conversation_id: str = "") -> dict[str
 
 @mcp.tool()
 def verify_saved_draft(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Re-read the draft and verify it matches the approved transaction hash."""
+    """Verify an unfinished save, or return its completed historical save receipt without rechecking later edits."""
     return service(conversation_id).verify_saved_draft(session_id)
 
 

@@ -130,6 +130,42 @@ class SessionReleaseTests(unittest.TestCase):
                 self.assertTrue(status["handling_available"])
                 self.assertEqual(status["state"], "awaiting_approval")
 
+    def test_completed_save_queries_reuse_receipt_after_platform_changes(self):
+        self.store.update_transaction(self.tx, "saved")
+        self.store.update_session(self.session["id"], "saved", conversation_id=self.owner)
+        receipt = self.store.finish_verified_save(
+            self.tx, content_hash="approved-content", relation_hash="approved-relations",
+            conversation_id=self.owner, owner_revision=0,
+        )
+        # No current database or compiler access is needed for this historical
+        # result, even if the platform has since regenerated/published its code.
+        with patch.object(self.service, "_components", side_effect=AssertionError("must not recheck current draft")):
+            status = self.service.get_write_status(self.tx)
+            self.assertTrue(status["verified"])
+            self.assertTrue(status["session_released"])
+            verified = self.service.verify_saved_draft(self.session["id"])
+            self.assertEqual(verified["saved_verification"], receipt)
+            self.assertFalse(verified["current_draft_rechecked"])
+            self.assertTrue(self.service.finish_edit_session(self.session["id"])["finished"])
+        self.assertIsNone(self.store.active_session(self.owner))
+
+    def test_unverified_closure_is_never_reported_as_verified(self):
+        self.store.update_transaction(self.tx, "saved")
+        self.store.update_session(self.session["id"], "saved", conversation_id=self.owner)
+        self.archive()
+        status = self.service.get_write_status(self.tx)
+        self.assertFalse(status["verified"])
+        self.assertIsNone(status["saved_verification"])
+
+    def test_verify_cannot_race_automatic_completion_worker(self):
+        self.store.update_transaction(self.tx, "saved")
+        self.store.update_session(self.session["id"], "saved", conversation_id=self.owner)
+        with execution_lock(self.path), patch.object(self.service, "_components") as components:
+            with self.assertRaises(ExecutionBusyError):
+                self.service.verify_saved_draft(self.session["id"])
+        components.assert_not_called()
+        self.assertEqual(self.store.get_session(self.session["id"])["state"], "saved")
+
     def test_owner_change_while_process_checking_blocks_release(self):
         other = self.store.create_conversation()["conversation_id"]
         def transfer(_):

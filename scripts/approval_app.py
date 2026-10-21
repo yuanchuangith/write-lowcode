@@ -495,7 +495,7 @@ class ApprovalWindow(QObject):
             self._executing = True
             self.timer.stop()
             self.render()
-            self.progress.setText("正在校验并保存，请等待执行结果…")
+            self.progress.setText("正在保存、核验并结束会话，请等待执行结果…")
             self.worker = ExecutionThread(self.transaction_id, self.root)
             self.worker.completed.connect(self._execution_success)
             self.worker.failed.connect(self._execution_failure)
@@ -510,6 +510,10 @@ class ApprovalWindow(QObject):
     def _execution_success(self, result):
         self.worker.wait()
         self._executing = False
+        if result.get("state") != "saved" or not (result.get("verified") and result.get("session_released")):
+            self._block_review("草稿已保存，核验收尾未完成，请回到当前对话恢复会话。")
+            messagebox.showerror("保存结果待核对", execution_result_message(result), parent=self.root)
+            return
         messagebox.showinfo("执行结果", execution_result_message(result), parent=self.root)
         self.close()
 
@@ -711,7 +715,8 @@ class ApprovalQueueWindow(ApprovalWindow):
         self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
         self._waiting_for_lock = False
         uncertain = next((item for item in self._queue_items if self._item_owned(item)
-                          and item.get("transaction_state") in {"executing", "failed", "saved_state_pending"}), None)
+                          and (item.get("transaction_state") in {"executing", "failed", "saved_state_pending"}
+                               or item.get("transaction_state") == "saved" and item["state"] != "finished")), None)
         if uncertain:
             self._queue_stopped = True
             self._show_waiting(f"{context_summary(uncertain['action_context'])} 的执行结果需要核对，请在当前对话恢复该会话后重新打开队列。")
@@ -797,10 +802,12 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.worker.wait()
         self._executing = False
         self.worker.deleteLater()
-        if result.get("state") != "saved" or self.state.get_transaction(self.transaction_id)["state"] != "saved":
+        if (result.get("state") != "saved" or not result.get("verified") or not result.get("session_released")
+                or self.state.get_transaction(self.transaction_id)["state"] != "saved"
+                or self.state.get_session(self.transaction["session_id"])["state"] != "finished"):
             self._block_review("保存结果需要核对，请在当前对话恢复该会话。")
             return
-        self._last_queue_result = f"上一动作已保存：{context_summary(self.artifact.get('action_context') or action_context(self.session['baseline']))}。需在平台手动发布。"
+        self._last_queue_result = f"上一动作已保存并核验，会话已结束：{context_summary(self.artifact.get('action_context') or action_context(self.session['baseline']))}。可在平台手动发布。"
         self._advance_queue()
         if not self._queue_stopped:
             self.timer.start(1000)

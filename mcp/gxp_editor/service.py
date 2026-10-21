@@ -18,7 +18,7 @@ from .db import EditorDatabase
 from .hashing import relation_snapshot_hash, sha256_json, sha256_text
 from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
-from .state import StateError, StateStore
+from .state import StateError, StateStore, saved_verification
 from .review_response import evidence_summary, review_page, review_response
 from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
@@ -1018,6 +1018,11 @@ class EditorService:
             "statement_count": len(artifact.get("statements") or []),
             "approved_count": len(artifact.get("approvals") or {}),
             "executed": bool(artifact.get("executed")) or transaction["state"] == "saved",
+            "verified": (session.get("transaction_id") == transaction_id
+                         and transaction["state"] == "saved"
+                         and session["state"] in {"verified", "finished"}),
+            "session_state": session["state"],
+            "saved_verification": saved_verification(session, transaction),
             "session_released": session["state"] not in {"locked", "planned", "awaiting_approval", "saved", "saved_state_pending", "verified", "restore_pending"},
             "conversation_id": self.conversation_id,
             "session_marker": transaction["session_id"],
@@ -1103,8 +1108,9 @@ class EditorService:
         }
 
     def verify_saved_draft(self, session_id: str) -> dict[str, Any]:
+        from .execution_lock import execution_lock
+
         session = self._owned_session(session_id)
-        _, _, repository, _, _ = self._components()
         if not session.get("transaction_id"):
             raise EditorServiceError("Session has no write or restore transaction")
         transaction = self.state.get_transaction(session["transaction_id"])
@@ -1112,7 +1118,26 @@ class EditorService:
             result = self.recover_edit_session(session_id)
             if result["outcome"] != "saved":
                 return result
-            transaction = self.state.get_transaction(transaction["id"])
+        # Do not race the approval worker's automatic post-commit completion.
+        with execution_lock(transaction["artifact_path"]):
+            return self._verify_saved_draft(session_id)
+
+    def _verify_saved_draft(self, session_id: str) -> dict[str, Any]:
+        session = self._owned_session(session_id)
+        transaction = self.state.get_transaction(session["transaction_id"])
+        receipt = saved_verification(session, transaction)
+        if receipt:
+            return {"verified": True, "design_id": session["design_id"], "ref_id": session["ref_id"],
+                    "content_hash": receipt["content_hash"], "relation_hash": receipt["relation_hash"],
+                    "saved_verification": receipt, "current_draft_rechecked": False,
+                    "session_released": True, "transaction_kind": transaction["kind"],
+                    "runtime_finalized": False, "manual_publication_required": True}
+        if session["state"] == "finished" and transaction["state"] == "saved":
+            return {"verified": True, "session_released": True, "design_id": session["design_id"],
+                    "ref_id": session["ref_id"], "verification_scope": "previously_finished_session",
+                    "current_draft_rechecked": False, "runtime_finalized": False,
+                    "manual_publication_required": True}
+        _, _, repository, _, _ = self._components()
         if transaction["state"] != "saved":
             raise EditorServiceError(f"Transaction is not fully saved: {transaction['state']}")
         artifact = load_artifact(transaction["artifact_path"])
@@ -1140,11 +1165,12 @@ class EditorService:
 
     def finish_edit_session(self, session_id: str) -> dict[str, Any]:
         session = self._owned_session(session_id)
-        if session["state"] != "verified":
+        if session["state"] not in {"verified", "finished"}:
             raise EditorServiceError("Session must be verified before it can be finished")
-        self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
-                                  owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
-                                  expected_transaction_id=session.get("transaction_id"))
+        if session["state"] == "verified":
+            self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
+                                      owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
+                                      expected_transaction_id=session.get("transaction_id"))
         return {
             "finished": True,
             "action_code": session["action_code"],

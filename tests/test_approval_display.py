@@ -129,10 +129,19 @@ class ApprovalDisplayTests(unittest.TestCase):
         self.assertIn("关联记录 ID：relation-1", statement_scope(delete))
 
     def test_saved_result_explains_publication_in_plain_language(self):
-        message = execution_result_message({"state": "saved", "runtime_finalized": False})
+        message = execution_result_message({"state": "saved", "verified": True, "session_released": True,
+                                            "runtime_finalized": False})
         self.assertIn("草稿已保存成功", message)
         self.assertIn("手动发布", message)
         self.assertIn("尚未生效", message)
+        self.assertIn("已核验并结束编辑会话", message)
+
+    def test_unverified_save_waits_for_recovery_before_publication(self):
+        message = execution_result_message({"state": "saved", "verification_error": "read unavailable"})
+        self.assertIn("核验收尾尚未完成", message)
+        self.assertIn("请勿在平台再次保存或手动发布", message)
+        self.assertIn("read unavailable", message)
+        self.assertNotIn("现在可以", message)
 
 
 class ApprovalWindowTests(unittest.TestCase):

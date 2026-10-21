@@ -28,6 +28,24 @@ ACTIVE_STATES = (
 _UNSET_PLAN = object()
 
 
+def saved_verification(session: dict[str, Any], transaction: dict[str, Any]) -> dict[str, Any] | None:
+    """Return historical save evidence only for this finished transaction."""
+    if (session["state"] != "finished" or transaction["state"] != "saved"
+            or session.get("transaction_id") != transaction["id"]
+            or transaction["session_id"] != session["id"]):
+        return None
+    try:
+        message = json.loads(transaction.get("message") or "{}")
+    except (TypeError, ValueError):
+        return None
+    receipt = message.get("saved_verification") if isinstance(message, dict) else None
+    if (not isinstance(receipt, dict) or receipt.get("scope") != "committed_draft_snapshot"
+            or receipt.get("design_id") != session["design_id"]
+            or not all(receipt.get(key) for key in ("content_hash", "relation_hash", "verified_at"))):
+        return None
+    return receipt
+
+
 class StateStore:
     def __init__(self, path: Path | None = None):
         self.path = path or runtime_root() / "state" / "editor.sqlite3"
@@ -334,6 +352,30 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             ).rowcount
             if affected != 1:
                 raise StateError("Transaction is no longer awaiting approval; execution was blocked")
+
+    def finish_verified_save(self, transaction_id: str, *, content_hash: str, relation_hash: str,
+                             conversation_id: str, owner_revision: int) -> dict[str, Any]:
+        """Atomically retain post-commit verification evidence and release its session."""
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            transaction = db.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+            if not transaction or transaction["state"] != "saved":
+                raise StateError("Only a committed save can finish verification")
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (transaction["session_id"],)).fetchone()
+            self._assert_owner(session, conversation_id, owner_revision)
+            if session["transaction_id"] != transaction_id or session["state"] not in {"saved", "verified"}:
+                raise StateError("Session changed before save verification could finish")
+            receipt = {"scope": "committed_draft_snapshot", "design_id": session["design_id"],
+                       "content_hash": content_hash, "relation_hash": relation_hash,
+                       "verified_at": datetime.now().isoformat(timespec="milliseconds")}
+            message = {"saved_verification": receipt}
+            if transaction["message"]:
+                message["previous_message"] = transaction["message"]
+            db.execute("UPDATE transactions SET message=?,updated_at=? WHERE id=?",
+                       (json.dumps(message, ensure_ascii=False), receipt["verified_at"], transaction_id))
+            db.execute("UPDATE sessions SET state='finished',updated_at=? WHERE id=?",
+                       (receipt["verified_at"], session["id"]))
+        return receipt
 
     def abort_session(self, session_id: str, *, conversation_id: str | None = "", owner_revision: int | None = None) -> None:
         """Called only by the local confirmation UI; retain backups and audit records."""

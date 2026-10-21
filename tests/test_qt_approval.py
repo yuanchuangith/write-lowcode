@@ -215,13 +215,33 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.execute_approved_transaction.assert_not_called()
         self.messagebox.showerror.assert_called_once()
 
+    def test_unverified_worker_result_keeps_window_for_recovery(self):
+        self.execute_approved_transaction.return_value = {
+            "state": "saved", "verified": False, "session_released": False, "verification_error": "read failed",
+        }
+        self.messagebox.askyesno.return_value = True
+        self.window.approve_current()
+        self.window.root.show()
+        self.window.execute()
+        deadline = time.monotonic() + 3
+        while self.window._executing and time.monotonic() < deadline:
+            QTest.qWait(10)
+        self.window.worker.wait(1000)
+        self.assertTrue(self.window._review_blocked)
+        self.assertTrue(self.window.root.isVisible())
+        self.messagebox.showinfo.assert_not_called()
+        self.messagebox.showerror.assert_called_once()
+        with self.assertRaises(ApprovalWindowBusyError):
+            with approval_window_lock(self.path):
+                self.fail("Unverified save was released by the window")
+
     def test_worker_keeps_window_locked_and_delivers_result_on_gui_thread(self):
         release = threading.Event()
         started = threading.Event()
         def execute(_):
             started.set()
             release.wait(3)
-            return {"state": "saved", "runtime_finalized": False}
+            return {"state": "saved", "verified": True, "session_released": True, "runtime_finalized": False}
         self.execute_approved_transaction.side_effect = execute
         result_threads = []
         self.messagebox.showinfo.side_effect = lambda *args, **kwargs: result_threads.append(QThread.currentThread())

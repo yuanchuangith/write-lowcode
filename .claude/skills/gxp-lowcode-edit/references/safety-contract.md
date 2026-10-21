@@ -61,6 +61,13 @@ raw nodes remain available.
 - Nonblank candidate C# must compile against read-only local references before creating a plan and again before approval. Unavailable checks, compilation failure, timeout and reference drift block the candidate, including old approval artifacts lacking successful C# evidence. Development references prove only local compatibility; a deployment snapshot must match the actual target environment. Neither compilation nor draft write readiness proves production behavior. Restore retains its separately approved original-snapshot semantics.
 - The candidate C# hash and any available runtime-reference manifest are bound into the approval transaction. The candidate C# hash must match the exact `csharp_code` being saved; runtime evidence is not revalidated as a write gate.
 - Database verification proves only the unpublished draft and relation rows. It never proves server-side DLL generation, cache invalidation, publication, or runtime execution.
+- After an acknowledged commit, the human-initiated save worker re-reads and
+  locks the committed draft and relations in one transaction, checks the exact
+  approved hashes, then atomically stores a verification receipt and finishes
+  the owned local session under the executor lock. A mismatch, failed read,
+  uncertain commit or failed local completion retains the recovery workflow;
+  none authorizes release or another write. The receipt proves the saved
+  snapshot at completion, not current content after later platform changes.
 - The existing manual publication path remains outside the plugin and happens after the database draft save. It is responsible for generating the dynamic DLL and its normal cache handling; the existing runtime may also lazily compile C# on first use.
 - Restore uses the same approval and verification path as forward changes.
 - Execution holds an OS lock that is released on process exit. Recovery acquires

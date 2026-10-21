@@ -28,6 +28,7 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     config = load_config()
     state = StateStore()
     transaction = state.get_transaction(transaction_id)
+    edit_session = state.get_session(transaction["session_id"], include_baseline=False)
     artifact = load_artifact(transaction["artifact_path"])
     if transaction["state"] != "awaiting_approval":
         raise WriteExecutionError(f"Transaction state {transaction['state']!r} cannot be executed")
@@ -121,9 +122,37 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
             else:
                 state.update_transaction(transaction_id, "failed", str(exc))
         raise
-    return {
+    result = {
         "state": "saved",
+        "verified": False,
+        "session_released": False,
         "runtime_finalized": False,
         "runtime_mode": "existing_backend_lazy_compile_after_manual_publish",
         "manual_publication_required": True,
     }
+    # Verify before the success notice sends the user back to the platform.
+    # A pre-commit read alone cannot prove the committed result; uncertain
+    # commits never reach this branch. Keep the executor lock through closure.
+    try:
+        with database.write_transaction() as verification_session:
+            committed = repository.load_draft_by_id(
+                artifact["design_id"], for_update=True, session=verification_session,
+            )
+            committed_relations = repository._relations(
+                artifact["design_id"], verification_session, for_update=True,
+            )
+            committed_relation_hash = relation_snapshot_hash(committed_relations)
+            if committed["content_hash"] != artifact["new_content_hash"]:
+                raise WriteExecutionError("Committed draft hash does not match the approved transaction")
+            if committed_relation_hash != artifact["expected_relation_hash"]:
+                raise WriteExecutionError("Committed relation snapshot does not match the approved transaction")
+        receipt = state.finish_verified_save(
+            transaction_id, content_hash=committed["content_hash"], relation_hash=committed_relation_hash,
+            conversation_id=edit_session["conversation_id"], owner_revision=edit_session["owner_revision"],
+        )
+    except Exception as exc:
+        # This save has committed. Retain it for recovery without asserting
+        # successful verification, retrying the write or rolling it back.
+        result["verification_error"] = str(exc)
+        return result
+    return {**result, "verified": True, "session_released": True, "saved_verification": receipt}

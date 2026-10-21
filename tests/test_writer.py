@@ -12,6 +12,8 @@ from gxp_editor.approval import approve_statement, load_artifact, save_artifact
 from gxp_editor.approval import approval_signature, statement_hash, transaction_binding_hash
 from gxp_editor.hashing import design_content_hash
 from gxp_editor.writer import WriteExecutionError, execute_approved_transaction
+from gxp_editor.service import EditorService
+from gxp_editor.state import StateStore
 
 
 class FakeState:
@@ -23,6 +25,15 @@ class FakeState:
             "artifact_path": artifact_path,
         }
         self.session_state = "awaiting_approval"
+        self.verification = None
+
+    def get_session(self, session_id, **kwargs):
+        return {"conversation_id": "owner", "owner_revision": 0}
+
+    def finish_verified_save(self, transaction_id, **evidence):
+        self.verification = evidence
+        self.session_state = "finished"
+        return evidence
 
     def get_transaction(self, transaction_id):
         if transaction_id != self.transaction["id"]:
@@ -66,7 +77,8 @@ class FakeDatabase:
 
 
 class FakeRepository:
-    def __init__(self, current, saved, relations=None, grants_sha256="c" * 64, current_relations=None):
+    def __init__(self, current, saved, relations=None, grants_sha256="c" * 64, current_relations=None,
+                 committed=None, committed_relations=None):
         self.current = current
         self.saved = saved
         self.relations = list(relations or [])
@@ -74,6 +86,8 @@ class FakeRepository:
         self.relation_reads = []
         self.grants_sha256 = grants_sha256
         self.loads = 0
+        self.committed = saved if committed is None else committed
+        self.committed_relations = self.relations if committed_relations is None else committed_relations
 
     def grant_status(self, *, account_mode="dedicated", expected_grants_sha256=""):
         return {
@@ -84,10 +98,14 @@ class FakeRepository:
 
     def load_draft_by_id(self, design_id, *, for_update=False, session=None):
         self.loads += 1
+        if self.loads >= 3:
+            return dict(self.committed)
         return dict(self.current if self.loads == 1 else self.saved)
 
     def _relations(self, design_id, session, *, for_update=False):
         self.relation_reads.append(for_update)
+        if self.loads >= 3:
+            return list(self.committed_relations)
         return list(self.current_relations if for_update else self.relations)
 
     def check_statement_targets(self, statements, session):
@@ -209,7 +227,9 @@ class WriterTests(unittest.TestCase):
                     result = execute_approved_transaction("transaction-1")
                 self.assertEqual(result["state"], "saved")
                 self.assertEqual(len(session.executed), expected_statement_count)
-                self.assertEqual(repository.relation_reads, [True, False])
+                self.assertEqual(repository.relation_reads, [True, False, True])
+                self.assertTrue(result["verified"])
+                self.assertTrue(result["session_released"])
 
     def test_missing_prewrite_relation_snapshot_cannot_execute(self):
         artifact = transaction()
@@ -337,10 +357,111 @@ class WriterTests(unittest.TestCase):
         self.assertEqual(result["state"], "saved")
         self.assertFalse(result["runtime_finalized"])
         self.assertEqual(self.state.transaction["state"], "saved")
-        self.assertEqual(self.state.session_state, "saved")
+        self.assertEqual(self.state.session_state, "finished")
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["session_released"])
+
         stored = load_artifact(self.path)
         self.assertTrue(stored["executed"])
         self.assertTrue(stored["execution_started"])
+
+    def test_changed_committed_draft_keeps_saved_session_for_recovery(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row(), committed=baseline(js_code="external-save"))
+        with self.patches(repository, session):
+            result = execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.transaction["state"], "saved")
+        self.assertEqual(self.state.session_state, "saved")
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["session_released"])
+        self.assertIn("Committed draft hash", result["verification_error"])
+        self.assertIsNone(self.state.verification)
+        self.assertEqual(len(session.executed), 1)
+
+    def test_changed_committed_relations_keep_saved_session_for_recovery(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row(), committed_relations=[relation()])
+        with self.patches(repository, session):
+            result = execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.session_state, "saved")
+        self.assertFalse(result["session_released"])
+        self.assertIn("Committed relation snapshot", result["verification_error"])
+        self.assertIsNone(self.state.verification)
+
+    def test_local_closure_failure_retains_committed_save_without_reexecuting(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, session), patch.object(
+            self.state, "finish_verified_save", side_effect=OSError("local state unavailable"),
+        ):
+            result = execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.session_state, "saved")
+        self.assertEqual(self.state.transaction["state"], "saved")
+        self.assertFalse(result["session_released"])
+        self.assertEqual(len(session.executed), 1)
+
+    def test_uncertain_commit_never_verifies_or_releases(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+
+        @contextlib.contextmanager
+        def uncertain_commit(_database):
+            yield session
+            raise OSError("commit acknowledgement lost")
+
+        with self.patches(repository, session), patch.object(FakeDatabase, "write_transaction", uncertain_commit):
+            with self.assertRaisesRegex(OSError, "acknowledgement lost"):
+                execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.transaction["state"], "failed")
+        self.assertIsNone(self.state.verification)
+        stored = load_artifact(self.path)
+        self.assertFalse(stored["executed"])
+        self.assertTrue(stored["execution_started"])
+
+    def test_post_commit_read_failure_retains_saved_result(self):
+        session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        load = repository.load_draft_by_id
+
+        def read(design_id, **kwargs):
+            if repository.loads == 2:
+                raise OSError("post-commit database read unavailable")
+            return load(design_id, **kwargs)
+
+        with self.patches(repository, session), patch.object(repository, "load_draft_by_id", side_effect=read):
+            result = execute_approved_transaction("transaction-1")
+        self.assertEqual(self.state.transaction["state"], "saved")
+        self.assertEqual(self.state.session_state, "saved")
+        self.assertFalse(result["verified"])
+        self.assertIn("read unavailable", result["verification_error"])
+        self.assertEqual(len(session.executed), 1)
+
+    def test_human_save_finishes_real_local_session_before_platform_can_regenerate(self):
+        store = StateStore(Path(self.temporary.name) / "state.sqlite3")
+        edit = store.create_session(baseline(), "backup", "compiler")
+        plan = store.create_plan(edit["id"], "plan.json", "old", "new", "compiler")
+        self.artifact.update(session_id=edit["id"], plan_id=plan)
+        self.artifact["approvals"] = {}
+        self.artifact["transaction_hash"] = transaction_binding_hash(self.artifact)
+        self.save_approved_artifact(self.artifact)
+        tx = store.create_transaction(edit["id"], plan, "write", str(self.path), transaction_id="transaction-1")
+        self.state = store
+        database_session = FakeSession(affected_rows=1)
+        repository = FakeRepository(baseline(), self.saved_row())
+        with self.patches(repository, database_session):
+            result = execute_approved_transaction(tx)
+        self.assertTrue(result["verified"])
+        self.assertTrue(result["session_released"])
+        self.assertIsNone(store.active_session())
+        service = object.__new__(EditorService)
+        service.state = store
+        # After the success notice the platform may generate different code.
+        # Checking this completed save must return its original receipt.
+        with patch.object(service, "_components", side_effect=AssertionError("later platform content")):
+            self.assertTrue(service.get_write_status(tx)["verified"])
+            self.assertEqual(service.verify_saved_draft(edit["id"])["saved_verification"], result["saved_verification"])
+            self.assertTrue(service.finish_edit_session(edit["id"])["finished"])
+        self.assertEqual(len(database_session.executed), 1)
 
 
 if __name__ == "__main__":

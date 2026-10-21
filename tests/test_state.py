@@ -7,7 +7,7 @@ from threading import Barrier
 from pathlib import Path
 
 from tests.helpers import baseline
-from gxp_editor.state import StateError, StateStore
+from gxp_editor.state import StateError, StateStore, saved_verification
 from gxp_editor.approval import save_artifact
 
 
@@ -106,6 +106,55 @@ class StateTests(unittest.TestCase):
         with self.assertRaises(StateError):
             StateStore(self.store.path).claim_transaction(tx)
         self.store.create_session(baseline(id="design-2", ref_id="ref-2"), "backup-2", "compiler-1")
+
+    def test_verified_save_releases_session_and_retains_evidence_atomically(self):
+        session, _, tx = self.pending_transaction()
+        self.store.update_transaction(tx, "saved")
+        self.store.update_session(session, "saved")
+        receipt = self.store.finish_verified_save(
+            tx, content_hash="approved", relation_hash="relations", conversation_id="", owner_revision=0,
+        )
+        self.assertIsNone(self.store.active_session())
+        self.assertEqual(saved_verification(self.store.get_session(session), self.store.get_transaction(tx)), receipt)
+        self.assertEqual(self.store.get_session(session)["backup_id"], "backup-1")
+
+    def test_verified_save_cannot_release_a_new_restore_or_stale_owner(self):
+        session, _, tx = self.pending_transaction()
+        self.store.update_transaction(tx, "saved")
+        self.store.update_session(session, "saved")
+        args = {"content_hash": "approved", "relation_hash": "relations", "conversation_id": "", "owner_revision": 0}
+        with self.assertRaises(StateError):
+            self.store.finish_verified_save(tx, **{**args, "owner_revision": 1})
+        restore = self.store.create_transaction(session, None, "restore", "restore.json")
+        with self.assertRaisesRegex(StateError, "Session changed"):
+            self.store.finish_verified_save(tx, **args)
+        self.assertEqual(self.store.get_session(session)["transaction_id"], restore)
+        self.assertEqual(self.store.get_transaction(tx)["message"], "")
+
+    def test_uncertain_transaction_cannot_record_successful_verification(self):
+        session, _, tx = self.pending_transaction()
+        for state in ("awaiting_approval", "executing", "saved_state_pending", "failed"):
+            with self.subTest(state=state):
+                self.store.update_transaction(tx, state)
+                with self.assertRaisesRegex(StateError, "committed save"):
+                    self.store.finish_verified_save(
+                        tx, content_hash="approved", relation_hash="relations", conversation_id="", owner_revision=0,
+                    )
+                self.assertEqual(self.store.get_session(session)["state"], "awaiting_approval")
+
+    def test_local_failure_rolls_back_both_receipt_and_release(self):
+        session, _, tx = self.pending_transaction()
+        self.store.update_transaction(tx, "saved")
+        self.store.update_session(session, "saved")
+        with self.store._connection() as db:
+            db.execute("CREATE TRIGGER block_finish BEFORE UPDATE OF state ON sessions "
+                       "WHEN NEW.state='finished' BEGIN SELECT RAISE(ABORT, 'test completion failure'); END")
+        with self.assertRaisesRegex(Exception, "test completion failure"):
+            self.store.finish_verified_save(
+                tx, content_hash="approved", relation_hash="relations", conversation_id="", owner_revision=0,
+            )
+        self.assertEqual(self.store.get_session(session)["state"], "saved")
+        self.assertEqual(self.store.get_transaction(tx)["message"], "")
 
     def test_execution_claim_wins_over_abort(self):
         session, _, tx = self.pending_transaction()

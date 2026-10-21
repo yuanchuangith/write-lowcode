@@ -251,11 +251,15 @@ def parameter_details(statement: dict[str, Any]) -> str:
 
 def execution_result_message(result: dict[str, Any]) -> str:
     if result.get("state") == "saved":
+        if not (result.get("verified") and result.get("session_released")):
+            return ("草稿已保存，核验收尾尚未完成。\n\n"
+                    "请回到当前对话核对结果，完成前请勿在平台再次保存或手动发布。\n"
+                    "当前运行仍使用发布副本，此次保存尚未生效。\n\n"
+                    + str(result.get("verification_error") or "等待编辑工具核对草稿并结束会话。"))
         return (
-            "草稿已保存成功。\n\n"
+            "草稿已保存成功，已核验并结束编辑会话。\n\n"
             "当前运行仍使用发布副本，此次保存尚未生效。\n"
-            "请在平台检查该动作的草稿并手动发布，再重新打开业务页面验证。\n\n"
-            "保存完成后还需由编辑工具核对草稿。"
+            "现在可以在平台检查该动作的草稿并手动发布，再重新打开业务页面验证。"
         )
     return "事务结果：\n" + json.dumps(result, ensure_ascii=False, indent=2, default=str)
 
