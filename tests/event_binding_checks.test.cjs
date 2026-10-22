@@ -23,6 +23,20 @@ const safe = validate(`const innerInbiz = action.innerInbiz;
 assert.equal(safe.javascript_syntax_checked, true);
 assert.equal(safe.runtime_verified, false);
 
+// Older globals versions expose eval through builtin, without an es2021 set.
+for (const body of [
+  'const innerInbiz = action.innerInbiz; const files = eval(innerInbiz("file_upload").value);',
+  'const requestResult = {Data:"[]"}; const error = eval(requestResult.Data);',
+]) {
+  const evidence = validate(body);
+  assert.equal(evidence.javascript_syntax_checked, true);
+  assert.equal(evidence.javascript_lexical_scope, 'all_js_groups');
+  assert.equal(evidence.business_scenarios_verified, false);
+  assert.equal(evidence.browser_verified, false);
+  assert.equal(evidence.runtime_verified, false);
+}
+assert.throws(() => validate('return eval(missingContext.value);'), /Undeclared action identifier missingContext/);
+
 for (const body of [
   'var inbiz;',
   'let Inbiz = action.innerInbiz;',
@@ -60,4 +74,4 @@ for (const name of ['inbiz', 'Inbiz']) {
   ]}, [], {frontendRoot}, null, 'function (inbiz) { var self = {}; self.main = function () {}; return self; }'), /Reserved platform identifier/);
 }
 assert.throws(() => validate('return missingContext.id;'), /Undeclared action identifier missingContext/);
-process.stdout.write('Reserved platform identifier checks passed\n');
+process.stdout.write('Builtin and reserved platform identifier checks passed\n');

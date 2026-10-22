@@ -1195,6 +1195,45 @@ class EditorService:
             ),
         }
 
+    def inspect_session_cancellation(self, session_id: str) -> dict[str, Any]:
+        snapshot = self.state.cancellation_snapshot(session_id, conversation_id=self.conversation_id)
+        session = snapshot["session"]
+        try:
+            self.state._require_chat_cancellable(snapshot)
+            reason = None
+        except StateError as exc:
+            reason = str(exc)
+        return {"session_id": session_id, "action_name": session["action_name"], "action_code": session["action_code"],
+                "session_state": session["state"], "cancellable": reason is None, "reason": reason,
+                "plans": [{key: row[key] for key in ("id", "status")} for row in snapshot["plans"]
+                          if row["status"] in {"ready", "blocked", "frozen"}],
+                "approvals": [{key: row[key] for key in ("id", "state")} for row in snapshot["transactions"]
+                              if row["state"] == "awaiting_approval"],
+                "cancellation_fingerprint": snapshot["fingerprint"] if reason is None else None,
+                "requires_user_confirmation": reason is None, "write_executed": False,
+                "message": "取消会使以上未执行计划和审批失效并释放本地会话；保留当前业务数据、备份和历史记录。"}
+
+    def cancel_unexecuted_session(self, session_id: str, cancellation_fingerprint: str, user_confirmation: str) -> dict[str, Any]:
+        from contextlib import ExitStack
+        from .execution_lock import execution_lock
+        if (not isinstance(user_confirmation, str) or not user_confirmation.strip() or len(user_confirmation) > 2000
+                or not isinstance(cancellation_fingerprint, str) or len(cancellation_fingerprint) != 64):
+            raise EditorServiceError("先展示具体取消范围，再取得用户明确同意；需要确认原文和对应的取消指纹。")
+        snapshot = self.state.cancellation_snapshot(session_id, conversation_id=self.conversation_id)
+        if snapshot["fingerprint"] != cancellation_fingerprint:
+            raise EditorServiceError("会话、计划或审批已变化，请重新展示取消范围并取得用户确认。")
+        self.state._require_chat_cancellable(snapshot)
+        with ExitStack() as locks:
+            for transaction in snapshot["transactions"]:
+                if transaction["state"] == "awaiting_approval":
+                    locks.enter_context(execution_lock(transaction["artifact_path"]))
+            self.state.abort_session(session_id, conversation_id=self.conversation_id,
+                                     owner_revision=snapshot["session"]["owner_revision"],
+                                     expected_fingerprint=cancellation_fingerprint, user_confirmation=user_confirmation)
+        return {"session_id": session_id, "cancelled": True, "session_released": True,
+                "write_executed": False, "backups_retained": True, "audit_retained": True,
+                "message": "已按用户确认取消未执行计划和审批并释放本地会话；业务数据和备份保留。旧审批不能再执行。"}
+
     def abort_edit_session(self, session_id: str) -> dict[str, Any]:
         session = self._owned_session(session_id, include_baseline=False)
         if session["state"] not in {"locked", "planned", "awaiting_approval", "restore_pending", "saved", "saved_state_pending", "verified"}:

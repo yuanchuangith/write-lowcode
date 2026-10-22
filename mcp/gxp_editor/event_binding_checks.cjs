@@ -39,7 +39,7 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets) {
   const parser = load('@babel/parser');
   const traverse = load('@babel/traverse').default;
   const standard = load('globals');
-  const allowed = new Set([...GLOBALS, ...Object.keys(standard.browser || {}), ...Object.keys(standard.es2021 || {})]);
+  const allowed = new Set([...GLOBALS, ...Object.keys(standard.builtin || {}), ...Object.keys(standard.browser || {}), ...Object.keys(standard.es2021 || {})]);
   const ast = parser.parse('(' + code + ')', {sourceType:'script'});
   const factory = ast.program.body[0]?.expression;
   const pending = new Map(groups.map(group=>[group.key, group]));

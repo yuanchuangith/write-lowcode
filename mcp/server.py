@@ -198,6 +198,19 @@ def finish_edit_session(session_id: str, conversation_id: str = "") -> dict[str,
 
 
 @mcp.tool()
+def inspect_session_cancellation(session_id: str, conversation_id: str = "") -> dict[str, Any]:
+    """Preview exact unexecuted plans/approvals for chat confirmation; cancels nothing. Show this scope to the user before asking permission."""
+    return service(conversation_id).inspect_session_cancellation(session_id)
+
+
+@mcp.tool()
+def cancel_unexecuted_session(session_id: str, cancellation_fingerprint: str, user_confirmation: str,
+                              conversation_id: str = "") -> dict[str, Any]:
+    """Cancel only after explicit user agreement to the inspected scope. Quote that reply; retain data/backups. Changed scope or execution blocks cancellation. Never approves or writes business data."""
+    return service(conversation_id).cancel_unexecuted_session(session_id, cancellation_fingerprint, user_confirmation)
+
+
+@mcp.tool()
 def abort_edit_session(session_id: str, conversation_id: str = "") -> dict[str, Any]:
     """Open manual session handling: cancel unexecuted approval, reopen it, or inspect and recover a finished/interrupted result."""
     return service(conversation_id).abort_edit_session(session_id)

@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from .config import runtime_root
+from .hashing import sha256_json
 
 
 class StateError(RuntimeError):
@@ -377,14 +378,61 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                        (receipt["verified_at"], session["id"]))
         return receipt
 
-    def abort_session(self, session_id: str, *, conversation_id: str | None = "", owner_revision: int | None = None) -> None:
-        """Called only by the local confirmation UI; retain backups and audit records."""
+    @staticmethod
+    def _cancellation_snapshot(db, session) -> dict[str, Any]:
+        snapshot = {"session": {key: session[key] for key in (
+            "id", "action_code", "action_name", "state", "conversation_id", "owner_revision",
+            "plan_id", "transaction_id", "backup_id", "updated_at")},
+            "plans": [dict(row) for row in db.execute(
+                "SELECT * FROM plans WHERE session_id=? ORDER BY id", (session["id"],))],
+            "transactions": [dict(row) for row in db.execute(
+                "SELECT * FROM transactions WHERE session_id=? ORDER BY id", (session["id"],))]}
+        return {**snapshot, "fingerprint": sha256_json(snapshot)}
+
+    def cancellation_snapshot(self, session_id: str, *, conversation_id: str = "") -> dict[str, Any]:
+        with self._connection() as db:
+            db.execute("BEGIN")
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+            self._assert_owner(session, conversation_id, None)
+            return self._cancellation_snapshot(db, session)
+
+    @staticmethod
+    def _require_chat_cancellable(snapshot: dict[str, Any]) -> None:
+        from .approval import load_artifact
+        session, transactions = snapshot["session"], snapshot["transactions"]
+        if session["state"] not in {"locked", "planned", "awaiting_approval"}:
+            raise StateError("聊天取消仅适用于未执行的编辑计划和审批；保存、恢复或结果不明的流程需核验处理。")
+        if session["transaction_id"] and not any(row["id"] == session["transaction_id"] for row in transactions):
+            raise StateError("当前审批记录缺失，请使用会话处理窗口核对。")
+        for transaction in transactions:
+            if transaction["kind"] != "write" or transaction["state"] not in {
+                "awaiting_approval", "cancelled", "failed_no_write", "rolled_back", "not_applied",
+            }:
+                raise StateError("执行已经开始或结果尚未确认，不能通过聊天取消。")
+            if transaction["state"] == "awaiting_approval":
+                try:
+                    artifact = load_artifact(transaction["artifact_path"])
+                except (OSError, ValueError):
+                    continue
+                if isinstance(artifact, dict) and (artifact.get("execution_started") or artifact.get("executed")):
+                    raise StateError("Execution has already started; the session cannot be aborted")
+
+    def abort_session(self, session_id: str, *, conversation_id: str | None = "", owner_revision: int | None = None,
+                      expected_fingerprint: str | None = None, user_confirmation: str = "") -> None:
+        """Cancel from the human UI or a snapshot-bound explicit chat confirmation."""
         from .approval import load_artifact
 
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
             self._assert_owner(session, conversation_id, owner_revision)
+            if expected_fingerprint is not None:
+                if not isinstance(user_confirmation, str) or not user_confirmation.strip() or len(user_confirmation) > 2000:
+                    raise StateError("需要用户对本次具体取消操作的明确确认原文。")
+                snapshot = self._cancellation_snapshot(db, session)
+                if snapshot["fingerprint"] != expected_fingerprint:
+                    raise StateError("会话、计划或审批已变化，请重新展示取消范围并取得用户确认。")
+                self._require_chat_cancellable(snapshot)
             if not session or session["state"] not in {"locked", "planned", "awaiting_approval", "restore_pending"}:
                 raise StateError("Only an unexecuted edit session can be aborted")
             transactions = db.execute("SELECT * FROM transactions WHERE session_id=?", (session_id,)).fetchall()
@@ -420,8 +468,14 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 if artifact.get("execution_started") or artifact.get("executed"):
                     raise StateError("Execution has already started; the session cannot be aborted")
             now = datetime.now().isoformat(timespec="seconds")
+            if expected_fingerprint is not None:
+                audit = {"event": "user_authorized_cancellation", "confirmation_channel": "chat",
+                         "user_confirmation": user_confirmation, "snapshot": snapshot,
+                         "verified": False, "business_data_written": False}
+                db.execute("INSERT INTO session_closures VALUES (?,?,?,?)",
+                           (uuid.uuid4().hex, session_id, json.dumps(audit, ensure_ascii=False), now))
             db.execute("UPDATE transactions SET state='cancelled', message=?, updated_at=? WHERE session_id=? AND state='awaiting_approval'",
-                       ("User manually aborted the edit session", now, session_id))
+                       ("User authorized cancellation in chat" if expected_fingerprint is not None else "User manually aborted the edit session", now, session_id))
             db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status IN ('ready','blocked','frozen')", (session_id,))
             if session["state"] == "restore_pending":
                 previous = db.execute("SELECT id,state FROM transactions WHERE session_id=? AND state IN ('saved','saved_state_pending') ORDER BY created_at DESC, rowid DESC LIMIT 1", (session_id,)).fetchone()

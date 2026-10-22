@@ -14,8 +14,35 @@ dialogue's exclusive target reports the conflict without opening its window.
 Closing the handling window retains its session; never treat it as cancellation.
 `abort_edit_session` opens this window and returns `aborted=false`. After the
 human resolves it, recheck `editor_status.active_session` before retrying entry.
-Manual cancellation invalidates unexecuted plans and approvals while retaining
-backup and audit records. Never forcibly clear live or uncertain execution.
+Cancellation invalidates unexecuted plans and approvals while retaining backup
+and audit records. For a chat-authorized cancellation, use the procedure below;
+the handling window remains available. Never forcibly clear live or uncertain execution.
+
+## Chat-authorized cancellation of unexecuted work
+
+When the user wants AI to cancel an old unexecuted workflow, call
+`inspect_session_cancellation(session_id, conversation_id)`. Show the action name
+and code, the exact plan/approval IDs and the effect: invalidate that review,
+release the local session, retain current business data, backups and history.
+If `cancellable=false`, explain the returned reason and use recovery or the
+handling window; do not fabricate a cancellation fingerprint.
+
+After presenting this concrete scope, ask whether AI may cancel it. Only an
+explicit user reply agreeing to that scope authorizes
+`cancel_unexecuted_session(session_id, cancellation_fingerprint, user_confirmation, conversation_id)`.
+Use the inspected fingerprint and quote the user's actual reply. Permission to
+add this capability, a general preference, silence, a timeout or approval of a
+business change is not confirmation to cancel a particular workflow. An existing
+explicit reply covering the displayed scope need not be requested again.
+
+The tool atomically rechecks ownership, revision, plan and transaction states,
+serializes against execution, records the confirmation and invalidates pending
+review. An open approval window cannot execute the cancelled transaction. A new
+plan/approval, handoff or execution invalidates the inspected scope; show the new
+scope and obtain a new confirmation. Saved, restore and uncertain flows remain
+outside this tool. Never call local state/closure helpers as a substitute.
+Cancellation neither approves nor executes business SQL; future saves still
+require the complete compiler checks and the human approval application.
 
 ## Explicit multi-action queues
 

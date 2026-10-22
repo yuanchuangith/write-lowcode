@@ -207,6 +207,35 @@ const innerInbiz=()=>({getText:()=>{childReads++;return '合格';}});
         with self.assertRaisesRegex(CompilerError,'Undeclared action identifier missingContext'):
             self.bridge.compile_patch(self.design,[op])
 
+    def test_existing_eval_expressions_survive_full_generation_and_independent_recheck(self):
+        ops = operations()
+        expressions = ['eval(innerInbiz("file_upload").value)', 'eval(requestResult.Data)']
+        ops[3:3] = [variable('files', expressions[0], 'any'),
+                    variable('requestResult', '{Data:"[]"}', 'any'),
+                    variable('error', expressions[1], 'any')]
+        original = self.bridge.compile_patch(self.design, ops)
+        edit = variable('changed', 'true', 'boolean'); edit['action_group_key'] = 'main'
+        result = self.bridge.compile_patch(original['design'], [edit])
+        self.assertEqual(original['design']['actionData'][1], result['design']['actionData'][1])
+        for expression in expressions:
+            self.assertIn(expression, original['js_code'])
+            self.assertIn(expression, result['js_code'])
+        evidence = self.bridge.verify_compiled_result(result)
+        self.assertTrue(evidence['generated_code_consistency_verified'])
+        desired = {name: result[name] for name in ('js_code', 'csharp_code', 'relation_data')}
+        verified = self.bridge.verify_candidate_artifact(result['design'], desired, baseline_design=original['design'])
+        self.assertTrue(verified['generated_code_consistency_verified'])
+        for validation in (result['event_binding_validation'], verified['event_binding_validation']):
+            self.assertEqual(validation['javascript_lexical_scope'], 'all_js_groups')
+            self.assertEqual(set(validation['javascript_group_keys']), {group['key'] for group in result['design']['actionData']})
+            for flag in ('business_scenarios_verified', 'browser_verified', 'runtime_verified'):
+                self.assertFalse(validation[flag])
+
+    def test_native_generation_still_rejects_undeclared_eval_argument(self):
+        op = variable('result', 'eval(missingContext.value)', 'any'); op['action_group_key'] = 'main'
+        with self.assertRaisesRegex(CompilerError, 'Undeclared action identifier missingContext'):
+            self.bridge.compile_patch(self.design, [op])
+
     def test_reserved_identifier_scope_and_mount_regressions(self):
         script = Path(__file__).with_name('event_binding_checks.test.cjs')
         ran = subprocess.run(['node', str(script), str(self.bridge.frontend_repo)],

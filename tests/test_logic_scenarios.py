@@ -111,6 +111,24 @@ class LogicScenarioExecutionTests(unittest.TestCase):
                 self.assertEqual(report["cases"][0]["candidate"]["status"], "unverified")
                 self.assertEqual(report["cases"][0]["candidate"]["trace"], [])
 
+    def test_legacy_eval_is_unverified_before_any_scenario_execution(self):
+        for body in ('const innerInbiz=inbiz; eval(innerInbiz("file_upload").value);',
+                     'const requestResult={Data:"[]"}; eval(requestResult.Data);'):
+            with self.subTest(body=body):
+                source = 'function(inbiz){return {main:async function(){inbiz("result").value="after";' + body + '}}}'
+                report = self.run_case(source)
+                for version in ('baseline', 'candidate'):
+                    result = report['cases'][0][version]
+                    self.assertEqual(result['status'], 'unverified')
+                    self.assertEqual(result['reason'], 'Unsupported global: eval')
+                    self.assertIsNone(result['actual'])
+                    self.assertEqual(result['trace'], [])
+                    self.assertEqual(result['assertions'], [])
+                self.assertEqual(report['summary'], {'passed': 0, 'failed': 0, 'unverified': 1})
+                self.assertEqual(report['candidate_gate']['pass_count'], 0)
+                self.assertFalse(report['business_scenarios_verified'])
+                self.assertFalse(report['runtime_verified'])
+
     def test_sequential_metadata_retention_and_duplicate_keys_are_observable(self):
         source = '''function(inbiz){return {main:async function(){
           const callback=async function(action){if(action.id==="match") {

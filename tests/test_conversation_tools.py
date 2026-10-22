@@ -15,6 +15,22 @@ SPEC.loader.exec_module(SERVER)
 
 
 class ConversationToolContractTests(unittest.TestCase):
+    def test_chat_cancellation_exposes_preview_and_requires_bound_user_reply(self):
+        from unittest.mock import Mock
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        self.assertIn('inspect_session_cancellation', tools)
+        self.assertEqual(set(tools['cancel_unexecuted_session'].inputSchema['required']),
+                         {'session_id', 'cancellation_fingerprint', 'user_confirmation'})
+        fake = Mock()
+        fake.cancel_unexecuted_session.return_value = {'cancelled': True, 'write_executed': False}
+        arguments = {'session_id': 'old-session', 'conversation_id': 'owner',
+                     'cancellation_fingerprint': 'a' * 64, 'user_confirmation': '同意取消上述旧审核'}
+        with patch.object(SERVER, 'service', return_value=fake) as scoped:
+            _, result = asyncio.run(SERVER.mcp.call_tool('cancel_unexecuted_session', arguments))
+        scoped.assert_called_once_with('owner')
+        fake.cancel_unexecuted_session.assert_called_once_with('old-session', 'a' * 64, '同意取消上述旧审核')
+        self.assertFalse(result['write_executed'])
+
     def test_new_tools_and_default_summary_are_exposed(self):
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
         self.assertIn("inspect_edit_context", tools)
