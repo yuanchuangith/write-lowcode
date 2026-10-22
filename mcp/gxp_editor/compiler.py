@@ -234,7 +234,8 @@ class CompilerBridge:
     def _adapter_sha256() -> str:
         return sha256_json({name: sha256_text(Path(__file__).with_name(name).read_text(encoding="utf-8"))
                             for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
-                                         "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs")})
+                                         "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
+                                         "incremental_codegen.cjs")})
 
     @staticmethod
     def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:
@@ -307,16 +308,22 @@ class CompilerBridge:
                 )
         if "interface_metadata" in artifacts and regenerated.get("interface_metadata") != artifacts["interface_metadata"]:
             raise CompilerError("Saved interface metadata changed during independent code generation")
+        if "generation" in artifacts and regenerated.get("generation") != artifacts["generation"]:
+            raise CompilerError("Incremental generation evidence changed during independent code generation")
         return regenerated
 
-    def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None):
-        """One new process rechecks events and independently generates all artifacts."""
+    def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None, baseline_artifacts=None):
+        """Independently reconstruct complete artifacts from the trusted baseline."""
         self._validate_editable_variable_values(design)
         payload = {"command": "verify_candidate", "design": design, "js_code": artifacts["js_code"]}
         if baseline_design is not None:
             payload["baseline"] = baseline_design
         else:
             payload["binding_node_keys"] = binding_node_keys
+        if baseline_artifacts is not None:
+            if baseline_design is None:
+                raise CompilerError("Incremental verification requires the saved baseline canvas")
+            payload["baseline_artifacts"] = baseline_artifacts
         regenerated = self._bind_registry_hash(self._call(payload))
         if regenerated.get("command") != "verify_candidate":
             raise CompilerError("Native code regeneration returned an invalid command identity")
@@ -324,7 +331,7 @@ class CompilerBridge:
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
         return self._compare_codegen_artifacts(design, artifacts, regenerated)
 
-    def verify_compiled_result(self, result: dict[str, Any]) -> dict[str, Any]:
+    def verify_compiled_result(self, result: dict[str, Any], *, baseline_design=None, baseline_artifacts=None) -> dict[str, Any]:
         design = result.get("design")
         if not isinstance(design, dict):
             raise CompilerError("Compiler did not return a design object")
@@ -340,7 +347,8 @@ class CompilerBridge:
         event_validation = result.get("event_binding_validation")
         if not isinstance(event_validation, dict) or not isinstance(event_validation.get("binding_node_keys"), list):
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
-        revalidation = self._verify_candidate(design, result, binding_node_keys=event_validation["binding_node_keys"])
+        revalidation = self._verify_candidate(design, result, binding_node_keys=event_validation["binding_node_keys"],
+            baseline_design=baseline_design, baseline_artifacts=baseline_artifacts)
         if revalidation["event_binding_validation"] != event_validation:
             raise CompilerError("Event binding validation evidence changed")
         if revalidation.get("validation") != result.get("validation"):
@@ -353,6 +361,7 @@ class CompilerBridge:
             "compiler_binding": deepcopy(revalidation["compiler_binding"]),
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
+            **({"generation": deepcopy(revalidation["generation"])} if revalidation.get("generation") else {}),
             **({"interface_metadata": deepcopy(revalidation["interface_metadata"])}
                if revalidation.get("interface_metadata", {}).get("interface_count") else {}),
         }
@@ -362,6 +371,7 @@ class CompilerBridge:
         design: dict[str, Any],
         desired: dict[str, Any],
         *, baseline_design: dict[str, Any] | None = None,
+        baseline_artifacts: dict[str, Any] | None = None,
     ) -> dict[str, Any]:
         for field in ("js_code", "csharp_code", "relation_data"):
             if field not in desired:
@@ -372,7 +382,8 @@ class CompilerBridge:
             csharp_code=desired["csharp_code"],
             relation_data=desired["relation_data"],
         )
-        validation = self._verify_candidate(design, desired, baseline_design=baseline_design or design)
+        validation = self._verify_candidate(design, desired, baseline_design=baseline_design or design,
+                                          baseline_artifacts=baseline_artifacts)
         event_validation = validation["event_binding_validation"]
         return {
             "event_binding_validation": event_validation,
@@ -380,6 +391,7 @@ class CompilerBridge:
             "compiler_binding": deepcopy(validation["compiler_binding"]),
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
+            **({"generation": deepcopy(validation["generation"])} if validation.get("generation") else {}),
             **({"interface_metadata": deepcopy(validation["interface_metadata"])}
                if validation.get("interface_metadata", {}).get("interface_count") else {}),
         }
@@ -430,7 +442,7 @@ class CompilerBridge:
         return {"component": result["component"], "compiler_binding": self.compiler_binding(),
                 "component_instance_verified": False}
 
-    def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]]) -> dict[str, Any]:
+    def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]], *, baseline_artifacts=None) -> dict[str, Any]:
         if not operations:
             raise CompilerError("At least one canvas operation is required")
         if len(operations) > 100:
@@ -448,7 +460,10 @@ class CompilerBridge:
                     details={"operation_index": index, "group_key": operation.get("action_group_key"),
                              "node_key": operation.get("target_node_key") or operation.get("anchor_node_key"),
                              "path": operation.get("path"), "reason_code": "invalid_operation"})
-        result = self._call({"command": "compile_patch", "design": design, "operations": operations})
+        payload = {"command": "compile_patch", "design": design, "operations": operations}
+        if baseline_artifacts is not None:
+            payload["baseline_artifacts"] = baseline_artifacts
+        result = self._call(payload)
         return self._bind_registry_hash(result)
 
     @staticmethod

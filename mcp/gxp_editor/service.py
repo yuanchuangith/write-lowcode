@@ -389,6 +389,20 @@ class EditorService:
             "relation_sha256": sha256_json(desired.get("relation_data")),
         }
 
+    @staticmethod
+    def _baseline_codegen_artifacts(draft: dict[str, Any]) -> dict[str, Any]:
+        """Read only saved artifacts from this session's immutable snapshot."""
+        relations = {}
+        for row in draft.get("relations") or []:
+            if row.get("isDeleted", 0) != 0:
+                continue
+            key = str(row.get("action_data_id") or "")
+            if not key or key in relations:
+                raise EditorServiceError("Saved relation data has a missing or duplicate node identity")
+            relations[key] = row.get("data")
+        return {"js_code": str(draft.get("js_code") or ""),
+                "csharp_code": str(draft.get("csharp_code") or ""), "relation_data": relations}
+
     @classmethod
     def _candidate_design(cls, baseline: dict[str, Any], desired: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -669,6 +683,8 @@ class EditorService:
         current = repository.load_draft_by_id(session["design_id"])
         if current["content_hash"] != session["baseline"]["content_hash"]:
             raise EditorServiceError("Draft changed after the edit session began")
+        if relation_snapshot_hash(current.get("relations") or []) != relation_snapshot_hash(session["baseline"].get("relations") or []):
+            raise EditorServiceError("Draft relation data changed after the edit session began")
         spec = self._resolve_review_spec(session, review_spec)
         if repaired is None and type(operations) is list and operations and CompilerBridge.guarded_no_changes(
                 self._compiler_design(session["baseline"]), operations):
@@ -677,11 +693,16 @@ class EditorService:
         binding = compiler.compiler_binding()
         if binding["compiler_binding_sha256"] != session["compiler_hash"]:
             raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
+        generation_baseline = ({} if repaired is not None else {
+            "baseline_design": self._compiler_design(session["baseline"]),
+            "baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"]),
+        })
         result = (compiler.compile_reference_repair(repaired) if repaired is not None else
-                  compiler.compile_patch(self._compiler_design(session["baseline"]), operations))
+                  compiler.compile_patch(generation_baseline["baseline_design"], operations,
+                                         baseline_artifacts=generation_baseline["baseline_artifacts"]))
         if result.get("no_change") is True:
             return self._no_changes_response(session)
-        compiler_evidence = compiler.verify_compiled_result(result)
+        compiler_evidence = compiler.verify_compiled_result(result, **generation_baseline)
         if not self._compiler_binding_matches(binding, compiler_evidence["compiler_binding"]):
             raise EditorServiceError("Compiler binding changed while the canvas patch was being generated")
         design = result["design"]
@@ -724,6 +745,7 @@ class EditorService:
             "operations": operations,
             "desired": desired,
             "validation": compiler_evidence["validation"],
+            **({"generation": compiler_evidence["generation"]} if compiler_evidence.get("generation") else {}),
             **({"interface_metadata": compiler_evidence["interface_metadata"]} if compiler_evidence.get("interface_metadata") else {}),
             "event_binding_validation": compiler_evidence.get("event_binding_validation"),
             "code_generation_complete": compiler_evidence["code_generation_complete"],
@@ -763,6 +785,10 @@ class EditorService:
             "code_generation_complete": True,
             **({"interface_metadata": plan_artifact["interface_metadata"]} if plan_artifact.get("interface_metadata") else {}),
             "generated_code_consistency_verified": plan_artifact["generated_code_consistency_verified"],
+            **({"generation": plan_artifact["generation"],
+                "baseline_diagnostics": plan_artifact["event_binding_validation"].get("baseline_diagnostics", [])[:5],
+                "baseline_diagnostic_count": len(plan_artifact["event_binding_validation"].get("baseline_diagnostics", []))}
+               if plan_artifact.get("generation") else {}),
             "hashes": plan_artifact["hashes"],
             "write_executed": False,
             **({"reference_repairs": plan_artifact["reference_repairs"]} if response_detail == "full" else
@@ -890,6 +916,8 @@ class EditorService:
             or plan.get("base_hash") != artifact.get("base_content_hash")
         ):
             raise EditorServiceError("Draft changed after the plan was generated")
+        if artifact.get("generation") and relation_snapshot_hash(current.get("relations") or []) != relation_snapshot_hash(session["baseline"].get("relations") or []):
+            raise EditorServiceError("Draft relation data changed after incremental planning")
         binding = compiler.compiler_binding()
         if (
             plan.get("compiler_hash") != artifact.get("compiler_hash")
@@ -932,11 +960,14 @@ class EditorService:
             ):
                 raise EditorServiceError("Candidate parameters differ from the recorded reference repairs")
         compiler_evidence = compiler.verify_candidate_artifact(
-            candidate_design, desired, baseline_design=self._compiler_design(session["baseline"]))
+            candidate_design, desired, baseline_design=self._compiler_design(session["baseline"]),
+            **({"baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"])}
+               if artifact.get("generation") else {}))
         if (
             compiler_evidence.get("validation") != artifact.get("validation")
             or compiler_evidence.get("event_binding_validation") != artifact.get("event_binding_validation")
             or compiler_evidence.get("interface_metadata") != artifact.get("interface_metadata")
+            or compiler_evidence.get("generation") != artifact.get("generation")
             or compiler_evidence.get("generated_code_consistency_verified") is not True
             or artifact.get("generated_code_consistency_verified") is not True
             or not compiler_evidence.get("code_generation_complete")
@@ -968,6 +999,7 @@ class EditorService:
                 "event_binding_validation": compiler_evidence.get("event_binding_validation"),
                 "code_generation_complete": True,
                 "generated_code_consistency_verified": compiler_evidence["generated_code_consistency_verified"],
+                **({"generation": compiler_evidence["generation"]} if compiler_evidence.get("generation") else {}),
                 "hashes": hashes,
                 **({"interface_metadata": compiler_evidence["interface_metadata"]} if compiler_evidence.get("interface_metadata") else {}),
                 "reference_repairs": artifact.get("reference_repairs") or [],

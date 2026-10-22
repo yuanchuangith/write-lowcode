@@ -450,6 +450,8 @@ def plan_binding_hash(artifact: dict[str, Any]) -> str:
                         "business_review": artifact.get("business_review")}
     if "action_context" in artifact:
         binding["action_context"] = artifact["action_context"]
+    if "generation" in artifact:
+        binding["generation"] = artifact["generation"]
     return sha256_json(binding)
 
 

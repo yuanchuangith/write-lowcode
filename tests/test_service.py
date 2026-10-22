@@ -109,10 +109,10 @@ class PlanRepository(FakeRepository):
 
 
 class BlockingPlanCompiler(FakeCompiler):
-    def compile_patch(self, design, operations):
+    def compile_patch(self, design, operations, *, baseline_artifacts=None):
         return {"design": design}
 
-    def verify_compiled_result(self, result):
+    def verify_compiled_result(self, result, **kwargs):
         raise CompilerError("Compiler generated no JavaScript")
 
 

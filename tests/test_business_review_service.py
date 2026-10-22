@@ -52,7 +52,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.draft["data_json"] = copy.deepcopy(self.canvas)
         self.compiler = FakeCompiler()
         self.compiler.compile_patch = Mock(side_effect=self.compile)
-        self.compiler.verify_compiled_result = Mock(side_effect=lambda result: self.compiler_evidence())
+        self.compiler.verify_compiled_result = Mock(side_effect=lambda result, **kwargs: self.compiler_evidence())
         self.compiler.verify_candidate_artifact = Mock(side_effect=lambda *args, **kwargs: self.compiler_evidence())
         self.repository = PlanRepository(self.draft)
         self.service = object.__new__(EditorService)
@@ -72,7 +72,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         stack.enter_context(patch("gxp_editor.service.runtime_root", return_value=self.root))
         stack.enter_context(patch("gxp_editor.service.LogicScenarioRunner.run_pair", self.runner))
 
-    def compile(self, design, operations):
+    def compile(self, design, operations, *, baseline_artifacts=None):
         candidate = copy.deepcopy(self.canvas)
         candidate["actionData"][0]["data"][0]["paramsValue"]["value"] = "new"
         return {"design": candidate, "js_code": "candidate-js", "csharp_code": "", "relation_data": {}, "diff": []}
@@ -369,7 +369,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
 
     def test_no_change_keeps_prior_plan_and_expectations_explicitly(self):
         prior = self.plan(review_spec())
-        self.compiler.compile_patch.side_effect = lambda *args: {"no_change": True}
+        self.compiler.compile_patch.side_effect = lambda *args, **kwargs: {"no_change": True}
         self.compiler.verify_compiled_result.reset_mock()
         self.runner.reset_mock()
         response = self.plan()
@@ -380,6 +380,18 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.assertEqual(self.service.state.get_session(self.session_id)["plan_id"], prior["plan_id"])
         self.compiler.verify_compiled_result.assert_not_called()
         self.runner.assert_not_called()
+
+    def test_incremental_plan_uses_saved_baseline_and_refuses_concurrent_relations(self):
+        self.plan(review_spec())
+        saved = self.compiler.compile_patch.call_args.kwargs["baseline_artifacts"]
+        self.assertEqual(saved["js_code"], self.draft["js_code"])
+        self.assertEqual(saved["relation_data"], {})
+        verified = self.compiler.verify_compiled_result.call_args.kwargs
+        self.assertEqual(verified["baseline_artifacts"], saved)
+        self.assertIn("actionData", verified["baseline_design"])
+        self.draft["relations"] = [{"id": "external", "action_data_id": "assign", "data": "changed"}]
+        with self.assertRaisesRegex(EditorServiceError, "relation data changed"):
+            self.plan()
 
     def test_invalid_preview_detail_does_not_open_a_window(self):
         with patch("gxp_editor.service.subprocess.Popen") as launch:

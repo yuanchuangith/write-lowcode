@@ -20,7 +20,7 @@ from gxp_editor.action_context import action_context, context_summary, publicati
 from gxp_editor.action_context_ui import ActionContextBanner
 from gxp_editor.approval_display import (
     STATEMENT_LABELS, canvas_change_summary, execution_result_message, parameter_details,
-    reference_repair_summary, render_full_sql, statement_scope,
+    reference_repair_summary, generation_review_summary, render_full_sql, statement_scope,
 )
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.component_preview import component_changes
@@ -260,6 +260,9 @@ class ApprovalWindow(QObject):
         repairs = (self.artifact.get("compiler_evidence") or {}).get("reference_repairs") or []
         if repairs:
             self.details_tabs.addTab(text_view(reference_repair_summary(repairs)), "引用修复来源")
+        evidence = self.artifact.get("compiler_evidence") or {}
+        if evidence.get("generation"):
+            self.details_tabs.addTab(text_view(generation_review_summary(evidence)), "生成范围与旧问题")
         self.notebook.addTab(self.details_tabs, "审批详情")
         review_layout.addWidget(self.notebook, 1)
         self.summary = text_view()

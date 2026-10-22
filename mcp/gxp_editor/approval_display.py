@@ -281,3 +281,18 @@ def reference_repair_summary(repairs: list[dict[str, Any]]) -> str:
                       f"修改前：{json.dumps(repair['before'], ensure_ascii=False)}\n"
                       f"修改后：{json.dumps(repair['after'], ensure_ascii=False)}")
     return "\n\n".join(chunks)
+
+
+def generation_review_summary(evidence: dict[str, Any]) -> str:
+    generation = evidence.get("generation") or {}
+    regenerated = generation.get("regenerated_group_keys") or []
+    preserved = generation.get("preserved_group_keys") or []
+    lines = [f"原生重新生成 {len(regenerated)} 个动作分组；原样保留 {len(preserved)} 个动作分组。",
+             "重新生成：" + ("、".join(regenerated) or "无"),
+             "原样保留：" + ("、".join(preserved) or "无"),
+             "完整候选已独立重建核对；保留旧代码不代表运行验证通过。"]
+    diagnostics = (evidence.get("event_binding_validation") or {}).get("baseline_diagnostics") or []
+    if diagnostics:
+        lines.append("\n未改分组的旧引用问题（未验证，本次未修改）：")
+        lines.extend(f"分组 {d['group_key']}：{d['identifier']} 未声明" for d in diagnostics)
+    return "\n".join(lines)

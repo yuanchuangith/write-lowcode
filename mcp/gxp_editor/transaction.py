@@ -335,6 +335,28 @@ def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) ->
         raise TransactionPlanError("Generated JavaScript syntax evidence is incomplete")
     if evidence.get("javascript_lexical_scope") != "all_js_groups" or evidence.get("javascript_group_keys") != js_keys:
         raise TransactionPlanError("Generated JavaScript lexical evidence does not cover the candidate groups")
+    generation = evidence.get("generation")
+    if generation is not None:
+        if not isinstance(generation, dict) or generation.get("mode") != "incremental_action_groups" or generation.get("preserved_source_verified") is not True:
+            raise TransactionPlanError("Incremental generation evidence is invalid")
+        partition = []
+        for field in ("regenerated_group_keys", "preserved_group_keys"):
+            keys = generation.get(field)
+            if not isinstance(keys, list) or any(not isinstance(key, str) for key in keys):
+                raise TransactionPlanError("Incremental generation group evidence is invalid")
+            partition.extend(keys)
+        if len(set(partition)) != len(partition) or set(partition) != set(groups):
+            raise TransactionPlanError("Incremental generation evidence does not cover exactly the candidate groups")
+        for field in ("baseline_sha256", "candidate_sha256"):
+            if not re.fullmatch(r"[a-f0-9]{64}", str(generation.get(field) or "")):
+                raise TransactionPlanError("Incremental generation baseline binding is invalid")
+        diagnostics = evidence.get("baseline_diagnostics")
+        if not isinstance(diagnostics, list) or any(not isinstance(d, dict)
+            or d.get("group_key") not in generation["preserved_group_keys"] or d.get("status") != "unverified"
+            or d.get("blocks_changed_candidate") is not False for d in diagnostics):
+            raise TransactionPlanError("Preserved baseline diagnostics must remain unverified")
+    elif evidence.get("baseline_diagnostics"):
+        raise TransactionPlanError("Baseline diagnostics require incremental generation evidence")
     scope, checks = evidence.get("binding_node_keys"), evidence.get("checks")
     if not isinstance(scope, list) or any(not isinstance(key, str) or not key for key in scope) or len(set(scope)) != len(scope):
         raise TransactionPlanError("Event binding validation scope is invalid")
@@ -498,6 +520,8 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         if compiler_evidence.get("generated_code_consistency_verified") is not True:
             raise TransactionPlanError("Native generated-code consistency evidence is missing")
         _validate_event_compiler_evidence(desired, compiler_evidence.get("event_binding_validation"))
+        if compiler_evidence.get("generation") != compiler_evidence["event_binding_validation"].get("generation"):
+            raise TransactionPlanError("Incremental generation evidence changed")
         expected_hashes = {
             "data_sha256": sha256_text(str(desired.get("data") or "")),
             "js_sha256": sha256_text(str(desired.get("js_code") or "")),

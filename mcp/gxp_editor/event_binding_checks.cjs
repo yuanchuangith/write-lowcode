@@ -29,7 +29,7 @@ function inspectWriteTarget(node, group) {
 function assertJavascriptSyntax(code) {
   if (code.trim()) new vm.Script('(' + code + ')', {filename:'generated-action.js'});
 }
-function inspectFunctions(code, groups, frontendRoot, eventTargets) {
+function inspectFunctions(code, groups, frontendRoot, eventTargets, preserved = new Set(), diagnostics = []) {
   if (!groups.length) return;
   for (const group of groups) for (const parameter of [...(group.inputParams || []), ...(group.outputParams || [])]) {
     rejectReservedName(parameter.title, group);
@@ -70,7 +70,13 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets) {
         const owner = ref.findParent(parent=>parent.isFunction() && !parent.isArrowFunctionExpression());
         if (owner === fn && eventTargets.has(group.key)) throw new Error('Hidden event arguments are forbidden in ' + group.title + '; declare the callback input and use its named parameter');
       }
-      if (!ref.scope.hasBinding(name, true) && !allowed.has(name) && name !== 'arguments') throw new Error('Undeclared ' + (eventTargets.has(group.key) ? 'callback' : 'action') + ' identifier ' + name + ' in ' + group.title);
+      if (!ref.scope.hasBinding(name, true) && !allowed.has(name) && name !== 'arguments') {
+        if (preserved.has(group.key)) {
+          if (!diagnostics.some(d => d.group_key === group.key && d.identifier === name)) diagnostics.push({
+            group_key: group.key, identifier: name, reason_code: 'preserved_undeclared_identifier',
+            status: 'unverified', blocks_changed_candidate: false});
+        } else throw new Error('Undeclared ' + (eventTargets.has(group.key) ? 'callback' : 'action') + ' identifier ' + name + ' in ' + group.title);
+      }
     }});
     pending.delete(group.key);
   }});
@@ -88,7 +94,7 @@ function collectScope(before, design) {
   }
   return nodes;
 }
-function validateBindings(design, scope, api, getContract, code) {
+function validateBindings(design, scope, api, getContract, code, generation) {
   if (!Array.isArray(scope) || new Set(scope).size !== scope.length) throw new Error('Invalid event binding validation scope');
   const checks = [], groups = [];
   for (const key of scope) {
@@ -116,7 +122,9 @@ function validateBindings(design, scope, api, getContract, code) {
   if (jsGroups.length) for (const variable of design.globalVariables || []) {
     rejectReservedName(variable.name, {title:'JS global variables', key:null});
   }
-  inspectFunctions(code, jsGroups, api.frontendRoot, new Set(groups.map(group=>group.key)));
-  return {binding_node_keys:scope, checks, javascript_syntax_checked:true, javascript_lexical_scope:'all_js_groups', javascript_group_keys:jsGroups.map(group=>group.key), business_scenarios_verified:false, browser_verified:false, runtime_verified:false};
+  const diagnostics = [];
+  inspectFunctions(code, jsGroups, api.frontendRoot, new Set(groups.map(group=>group.key)), new Set(generation?.preserved_group_keys || []), diagnostics);
+  return {binding_node_keys:scope, checks, javascript_syntax_checked:true, javascript_lexical_scope:'all_js_groups', javascript_group_keys:jsGroups.map(group=>group.key), business_scenarios_verified:false, browser_verified:false, runtime_verified:false,
+    ...(generation ? {generation, baseline_diagnostics: diagnostics} : {})};
 }
 module.exports = {assertJavascriptSyntax, collectScope, validateBindings};

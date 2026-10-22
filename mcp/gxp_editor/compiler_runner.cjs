@@ -6,6 +6,7 @@ const Module = require('node:module');
 const extensionPath = path.join(__dirname, 'canvas_operations.cjs');
 const checksPath = path.join(__dirname, 'event_binding_checks.cjs');
 const interfaceMetadata = require('./interface_metadata.cjs');
+const incremental = require('./incremental_codegen.cjs');
 const crypto = require('node:crypto');
 let compilationSeed = null;
 let compilationCounter = 0;
@@ -39,7 +40,11 @@ function adapt(source) {
   replaceOnce('const bytes = crypto.randomBytes(size);',
     'const bytes = require(' + JSON.stringify(__filename) + ').uuidBytes(size, () => crypto.randomBytes(size));');
   replaceOnce('function compileCode(design) {',
-    'function compileCode(design) { const runner = require(' + JSON.stringify(__filename) + '); return Object.assign(runner.reproducibleCompile(design, () => nativeCompileCode(clone(design))), {interface_metadata: runner.interfaceMetadata.describe(design)}); }\nfunction nativeCompileCode(design) {');
+    'function compileCode(design) { const runner = require(' + JSON.stringify(__filename) + '); return Object.assign(runner.reproducibleCompile(design, () => nativeCompileCode(clone(design))), {interface_metadata: runner.interfaceMetadata.describe(design)}); }\nfunction nativeCompileCode(design, selectedKeys) {');
+  // Keep the complete design as generator context; restrict only the native
+  // per-group loops. Removing other groups from the context breaks CallAction.
+  for (const language of ['js', 'csharp']) replaceOnce("return item.actionType === '" + language + "';",
+    "return item.actionType === '" + language + "' && (!selectedKeys || selectedKeys.includes(item.key));");
   // Locate webpack's actual exported component catalog, independent of its numeric module ID.
   const catalogExport = /([A-Za-z_$][\w$]*):\s*\(\) => \(\/\* binding \*\/ extractComponentsInfo\)/g;
   const matches = [...source.matchAll(catalogExport)];
@@ -50,6 +55,8 @@ function adapt(source) {
   const api = '{actionByKey, nodeIndex, generateNodes, elementFor, blockRange, frontendRoot: ' + JSON.stringify(process.cwd()) + ', catalog: () => ' + catalog + '}';
   const checks = 'require(' + JSON.stringify(checksPath) + ')';
   const ext = 'require(' + JSON.stringify(extensionPath) + ')';
+  const runner = 'require(' + JSON.stringify(__filename) + ')';
+  const generate = runner + '.incremental.generate(payload.baseline || payload.design, design, payload.baseline_artifacts, nativeCompileCode, {frontendRoot:' + JSON.stringify(process.cwd()) + ', reproducibleCompile:' + runner + '.reproducibleCompile, interfaceMetadata:' + runner + '.interfaceMetadata})';
   replaceOnce('function applyOperations(design, operations) {',
     'function applyOperations(design, operations) { return ' + ext + '.applyOperations(design, operations, nativeApplyOperations, ' + api + '); }\nfunction nativeApplyOperations(design, operations) {');
   replaceOnce('error: error instanceof Error ? error.message : String(error),',
@@ -58,10 +65,10 @@ function adapt(source) {
     'function executeCompilerCommand(payload) {\n' +
     "if (payload && payload.command === 'describe_component_contract') return {command: payload.command, component: " + ext + '.componentContract(' + catalog + ', payload.component_type, ' + api + ')};\n' +
     "if (payload && payload.command === 'compile_design') { const validation = validateDesign(payload.design).validation; return Object.assign({command: payload.command, validation}, compileCode(payload.design)); }\n" +
-    "if (payload && payload.command === 'compile_patch') { const result = compilePatch(payload.design, payload.operations); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
-    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code); return result; }\n' +
+    "if (payload && payload.command === 'compile_patch') { let result; if (payload.baseline_artifacts) { if (!Array.isArray(payload.operations) || !payload.operations.length) fail('At least one canvas operation is required'); validateDesign(payload.design); const design = clone(payload.design); const diff = applyOperations(design, payload.operations); recomputeDepths(design); const validation = validateDesign(design).validation; result = Object.assign({command:payload.command, design, diff, validation}, " + generate + "); } else result = compilePatch(payload.design, payload.operations); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
+    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code, result.generation); return result; }\n' +
     "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code)}; }\n' +
-    "if (payload && payload.command === 'verify_candidate') { const validation = validateDesign(payload.design).validation; " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code); return Object.assign({command:payload.command, validation, event_binding_validation}, compileCode(payload.design)); }\n');
+    "if (payload && payload.command === 'verify_candidate') { const design = payload.design; const validation = validateDesign(design).validation; const compiled = payload.baseline_artifacts ? " + generate + " : compileCode(design); " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, compiled.generation); return Object.assign({command:payload.command, validation, event_binding_validation}, compiled); }\n');
   return source;
 }
 function main() {
@@ -71,7 +78,7 @@ function main() {
   compiler.paths = Module._nodeModulePaths(path.dirname(bridge));
   compiler._compile(adapt(fs.readFileSync(bridge, 'utf8')), bridge);
 }
-module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata};
+module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata, incremental};
 if (require.main === module) {
   try { main(); } catch (error) {
     process.stdout.write(JSON.stringify({ok:false, error:error.message, details:error.details}), () => process.exit(1));
