@@ -23,20 +23,24 @@ def inspect_handoff(reference, draft, database_config):
         if data is None:
             data = json.loads(draft["data"])
         targets = [{"group_key": item["group_key"], "node_key": item["node_key"]} for item in record["targets"]]
+        # Keep the original requirements and diagnosis available even when a
+        # targeted refresh is needed. A stale record is context, not current
+        # proof or permission to apply its proposed values.
+        context = {"handoff_ref": reference, "targets": targets,
+                   "diagnosis_source": record["diagnosis_source"], "change_spec": record["change_spec"],
+                   "authorization_inherited": False, "approval_inherited": False}
         current = snapshot_targets(data, targets, allow_missing=True)
         differences = compare_targets(record["targets"], current)
         if sha256_text(str(draft.get("data") or "")) != record["draft"]["data_sha256"] or differences:
-            return {"status": "stale", "handoff_ref": reference, "target_differences": differences,
-                    "draft_content_changed": True, "targets": targets,
-                    "next_step": "Inspect only changed targets and their dependencies; export a refreshed handoff or begin without handoff_ref. No session was created."}
+            return {**context, "status": "stale", "target_differences": differences,
+                    "draft_content_changed": True,
+                    "next_step": "Assess the saved evidence against changed targets and dependencies. Analyze or call readonly Look tools for missing facts, then optionally refresh the record or begin ordinary inspection without handoff_ref. No session was created."}
         if record["source_target_differences"]:
-            return {"status": "source_target_diverged", "handoff_ref": reference,
-                    "target_differences": record["source_target_differences"], "targets": targets,
-                    "next_step": "Review the differing draft locations against the diagnosed copy and update the proposed change; do not overwrite the draft with published parameters."}
-        return {"status": "matched", "handoff_ref": reference, "targets": targets,
-                "diagnosis_source": record["diagnosis_source"], "change_spec": record["change_spec"],
-                "authorization_inherited": False, "approval_inherited": False,
-                "next_step": "Apply only the confirmed change scope using current draft operation templates; normal compilation and human approval remain required."}
+            return {**context, "status": "source_target_diverged",
+                    "target_differences": record["source_target_differences"],
+                    "next_step": "Assess the differing draft locations and dependencies using the saved evidence as context. Analyze or call readonly Look tools as needed; revise unsupported conclusions or proposals. Do not overwrite the draft with published parameters. A refreshed handoff is optional."}
+        return {**context, "status": "matched",
+                "next_step": "Check the supplied evidence for relevance and sufficiency. Reuse supported findings and current target context; analyze or call readonly Look tools for missing or conflicting facts. A matching snapshot does not prove the cause or solution. Form a supported authorized patch before normal compilation and human approval."}
 
 
 def unavailable_handoff(error):

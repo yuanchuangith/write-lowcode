@@ -151,14 +151,63 @@ def compare_targets(before: list[dict[str, Any]], after: list[dict[str, Any]]) -
     return differences
 
 
+def _diagnosis_text(value: Any, field: str, *, identifier: bool = False) -> None:
+    if not isinstance(value, str) or not value.strip():
+        raise HandoffError("HANDOFF_CHANGE_SPEC", f"{field} must be nonempty text")
+    if len(value.encode("utf-8")) > 4096 or identifier and len(value) > 200:
+        raise HandoffError("HANDOFF_LIMIT", f"{field} exceeds its text limit (4 KiB; issue_id 200 characters)")
+
+
+def _validate_diagnosis(diagnosis: Any) -> None:
+    """Validate reported findings without promoting them to verified facts."""
+    _finite(diagnosis)
+    if not isinstance(diagnosis, dict) or set(diagnosis) - {"issues", "excluded", "unresolved"}:
+        raise HandoffError("HANDOFF_CHANGE_SPEC", "diagnosis accepts issues, excluded and unresolved only")
+    issues = diagnosis.get("issues")
+    if not isinstance(issues, list) or not 1 <= len(issues) <= 20:
+        raise HandoffError("HANDOFF_CHANGE_SPEC", "diagnosis.issues must contain 1-20 issues")
+    required_fields = {"issue_id", "status", "symptom", "evidence", "verification"}
+    optional_fields = {"expected", "root_cause", "solution"}
+    for issue in issues:
+        if (not isinstance(issue, dict) or not required_fields <= set(issue)
+                or set(issue) - required_fields - optional_fields):
+            raise HandoffError("HANDOFF_CHANGE_SPEC", "Each issue requires issue_id, status, symptom, evidence and verification; expected, root_cause and solution are optional")
+        _diagnosis_text(issue["issue_id"], "issue.issue_id", identifier=True)
+        _diagnosis_text(issue["symptom"], "issue.symptom")
+        for key in optional_fields:
+            if key in issue:
+                _diagnosis_text(issue[key], f"issue.{key}")
+        if not isinstance(issue["status"], str) or issue["status"] not in {"confirmed", "candidate"}:
+            raise HandoffError("HANDOFF_CHANGE_SPEC", "issue.status must be confirmed or candidate")
+        if not isinstance(issue["verification"], str) or issue["verification"] not in {"static_confirmed", "runtime_verified", "pending"}:
+            raise HandoffError("HANDOFF_CHANGE_SPEC", "issue.verification must be static_confirmed, runtime_verified or pending")
+        evidence = issue["evidence"]
+        if not isinstance(evidence, list) or not 1 <= len(evidence) <= 20:
+            raise HandoffError("HANDOFF_CHANGE_SPEC", "issue.evidence must contain 1-20 evidence items")
+        for item in evidence:
+            if (not isinstance(item, dict) or not {"source", "finding"} <= set(item)
+                    or set(item) - {"source", "finding", "group_key", "node_key", "design_id"}
+                    or ("group_key" in item) != ("node_key" in item)):
+                raise HandoffError("HANDOFF_CHANGE_SPEC", "Evidence requires source and finding; optional group_key/node_key must be paired, and design_id is optional")
+            for key, value in item.items():
+                _diagnosis_text(value, f"evidence.{key}")
+    for key in ("excluded", "unresolved"):
+        if key not in diagnosis:
+            continue
+        if not isinstance(diagnosis[key], list) or len(diagnosis[key]) > 50:
+            raise HandoffError("HANDOFF_CHANGE_SPEC", f"diagnosis.{key} must be a list of at most 50 items")
+        for value in diagnosis[key]:
+            _diagnosis_text(value, f"diagnosis.{key}")
+
+
 def validate_change_spec(spec: Any) -> dict[str, Any]:
-    allowed = {"user_request", "summary", "changes", "preserve", "scenarios"}
+    allowed = {"user_request", "summary", "changes", "preserve", "scenarios", "diagnosis"}
     if not isinstance(spec, dict) or set(spec) - allowed:
-        raise HandoffError("HANDOFF_CHANGE_SPEC", "change_spec accepts user_request, summary, changes, preserve and scenarios only")
+        raise HandoffError("HANDOFF_CHANGE_SPEC", "change_spec accepts user_request, summary, changes, preserve, scenarios and diagnosis only")
     if not isinstance(spec.get("user_request"), str) or not spec["user_request"].strip():
         raise HandoffError("HANDOFF_CHANGE_SPEC", "change_spec.user_request must preserve the user's actual request")
     if not isinstance(spec.get("summary"), str) or not spec["summary"].strip():
-        raise HandoffError("HANDOFF_CHANGE_SPEC", "change_spec.summary must describe the confirmed proposed change")
+        raise HandoffError("HANDOFF_CHANGE_SPEC", "change_spec.summary must describe the evidence or proposed change")
     if len(spec["summary"].encode("utf-8")) > 2048 or len(spec["user_request"].encode("utf-8")) > 8192:
         raise HandoffError("HANDOFF_LIMIT", "Keep the summary within 2 KiB and user request within 8 KiB")
     for key in ("changes", "preserve", "scenarios"):
@@ -173,9 +222,14 @@ def validate_change_spec(spec: Any) -> dict[str, Any]:
     for item in spec.get("scenarios", []):
         if not isinstance(item, (str, dict)) or isinstance(item, dict) and set(item) - {"name", "description", "expected"}:
             raise HandoffError("HANDOFF_CHANGE_SPEC", "Scenarios are text or objects with name, description and expected")
+    if "diagnosis" in spec:
+        _validate_diagnosis(spec["diagnosis"])
+        for item in spec.get("changes", []):
+            for key in ("group_key", "node_key", "description"):
+                _diagnosis_text(item.get(key), f"change.{key}")
     _finite(spec)
     if len(canonical_bytes(spec)) > 32 * 1024:
-        raise HandoffError("HANDOFF_LIMIT", "change_spec exceeds 32 KiB; narrow the proposed change scope")
+        raise HandoffError("HANDOFF_LIMIT", "change_spec exceeds 32 KiB; narrow the evidence or proposed change scope")
     return copy.deepcopy(spec)
 
 

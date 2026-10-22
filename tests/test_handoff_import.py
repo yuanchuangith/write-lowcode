@@ -34,6 +34,15 @@ class HandoffImportTests(unittest.TestCase):
             "source_target_differences": [], "change_spec": {"user_request": "Change value", "summary": "Set value to new",
                 "changes": [{**self.targets[0], "description": "Change value", "parameter_path": "/inputParams/value", "before": "old", "after": "new"}],
                 "preserve": ["Keep the callback signature"], "scenarios": ["Existing output is preserved"]}}
+        self.diagnosis = {"issues": [{"issue_id": "BUG-01", "status": "confirmed",
+            "symptom": "The target still uses the old value", "expected": "Use the new value",
+            "root_cause": "The target parameter remains configured as old",
+            "solution": "Change only the target input parameter",
+            "evidence": [{"source": "inspect_action", "finding": "The complete target parameter is old",
+                "group_key": "main", "node_key": "n", "design_id": self.draft["id"]}],
+            "verification": "static_confirmed"}],
+            "excluded": ["The callback signature is not the cause"],
+            "unresolved": ["Runtime acceptance remains pending"]}
 
     def export(self):
         return HandoffStore().write(self.record)["handoff_ref"]
@@ -57,7 +66,41 @@ class HandoffImportTests(unittest.TestCase):
         self.assertEqual(result["change_spec"]["preserve"], ["Keep the callback signature"])
         self.assertNotIn("js_code", result)
 
+    def test_evidence_only_record_does_not_require_a_cause_or_patch(self):
+        issue = copy.deepcopy(self.diagnosis["issues"][0])
+        for key in ("expected", "root_cause", "solution"):
+            issue.pop(key)
+        issue.update(status="candidate", verification="pending")
+        self.record["change_spec"] = {"user_request": "Investigate the target value",
+            "summary": "Saved target evidence; cause and solution are not yet known",
+            "diagnosis": {"issues": [issue], "unresolved": ["Determine the cause and expected behavior"]}}
+        result = inspect_handoff(self.export(), self.draft, self.config.database)
+        self.assertEqual(result["status"], "matched")
+        self.assertEqual(result["change_spec"], self.record["change_spec"])
+        self.assertNotIn("changes", result["change_spec"])
+        self.assertFalse(result["authorization_inherited"])
+
+    def test_editor_can_start_normally_without_saved_evidence(self):
+        service, compiler = self.service()
+        compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
+        compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
+        compiler.validate_design.return_value = {"validation": {"valid": True}}
+        service.state.create_session.return_value = {"id": "independent-session", "ref_id": self.draft["ref_id"],
+            "design_id": self.draft["id"], "action_code": self.draft["code"], "action_name": "Test"}
+        with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
+                patch("gxp_editor.service.BackupStore") as store, \
+                patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
+                    "production_ready": False, "gates": {}}), \
+                patch("gxp_editor.handoff_import.inspect_handoff") as inspect_saved:
+            store.return_value.create.return_value = {"backup_id": "test", "files": {}}
+            result = service.begin_edit_session("ActionOne")
+        self.assertEqual(result["session_id"], "independent-session")
+        self.assertNotIn("handoff", result)
+        inspect_saved.assert_not_called()
+        compiler.compile_patch.assert_not_called()
+
     def test_matching_record_starts_this_dialogue_with_target_context(self):
+        self.record["change_spec"]["diagnosis"] = copy.deepcopy(self.diagnosis)
         service, compiler = self.service()
         compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
         compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
@@ -74,9 +117,14 @@ class HandoffImportTests(unittest.TestCase):
         self.assertEqual(result["session_id"], "new-session")
         self.assertEqual(result["edit_context"]["nodes"][0]["params_value"], self.data["actionData"][0]["data"][0]["paramsValue"])
         self.assertFalse(result["handoff"]["approval_inherited"])
+        self.assertEqual(result["handoff"]["change_spec"]["diagnosis"], self.diagnosis)
+        self.assertEqual(result["handoff"]["change_spec"]["changes"], self.record["change_spec"]["changes"])
+        self.assertEqual(result["handoff"]["change_spec"]["scenarios"], self.record["change_spec"]["scenarios"])
+        compiler.compile_patch.assert_not_called()
         self.assertEqual(service.state.create_session.call_args.kwargs["conversation_id"], "new-dialogue")
 
     def test_stale_draft_reports_only_changed_target_locations(self):
+        self.record["change_spec"]["diagnosis"] = copy.deepcopy(self.diagnosis)
         reference = self.export()
         changed = copy.deepcopy(self.draft)
         changed["data_json"]["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["value"] = "other"
@@ -85,6 +133,9 @@ class HandoffImportTests(unittest.TestCase):
         self.assertEqual(result["status"], "stale")
         self.assertEqual(result["target_differences"][0]["node_key"], "n")
         self.assertIn("paramsValue", result["target_differences"][0]["changed_fields"])
+        self.assertEqual(result["change_spec"]["diagnosis"], self.diagnosis)
+        self.assertEqual(result["change_spec"]["preserve"], self.record["change_spec"]["preserve"])
+        self.assertFalse(result["authorization_inherited"])
 
     def test_different_environment_or_action_is_rejected(self):
         reference = self.export()
@@ -111,6 +162,8 @@ class HandoffImportTests(unittest.TestCase):
         service, compiler = self.service()
         result = service.begin_edit_session("ActionOne", handoff_ref=self.export())
         self.assertEqual(result["handoff_status"], "source_target_diverged")
+        self.assertEqual(result["handoff"]["change_spec"], self.record["change_spec"])
+        self.assertFalse(result["handoff"]["approval_inherited"])
         service.state.create_session.assert_not_called()
         compiler.compile_patch.assert_not_called()
 
