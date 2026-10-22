@@ -27,7 +27,7 @@ Later operations in this batch can use @group_alias for action_group_key or targ
 
 ## Repair callback declarations
 
-set_event_callback_contract fields: action_group_key, component_type, event_name. Applies the complete verified event declaration to an existing JS callback. Preserves compatible positional input names and keys; otherwise introduces the audited default names. Does not rewrite expressions. Native regeneration and affected-binding checks must succeed.
+set_event_callback_contract fields: action_group_key, component_type, event_name. Applies the complete verified event declaration to an existing JS callback. Preserves compatible positional input names and keys; otherwise introduces the audited default names. Does not rewrite expressions. Use only for an in-scope declaration repair, not to force unrelated old metadata into agreement. A preexisting mismatch with unchanged binding identity and complete declarations is reported without blocking; the user decides whether to repair it. Native regeneration and affected-binding checks must succeed.
 
 ## Nodes
 

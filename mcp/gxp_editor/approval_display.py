@@ -292,12 +292,51 @@ def generation_review_summary(evidence: dict[str, Any]) -> str:
         "language_changed": "分组语言发生变化", "affected_group_limit": "受影响分组较多",
         "changed_node_limit": "改动节点较多", "affected_group_ratio": "受影响分组占比较高",
         "baseline_unavailable": "缺少可验证的旧画布", "baseline_artifacts_unavailable": "缺少完整旧代码快照"}
+    unreachable = (evidence.get("event_binding_validation") or {}).get("unreachable_diagnostics") or []
+    diagnostic_lines = []
+    if unreachable:
+        proof_labels = {"after_return": "无条件 return 后", "after_throw": "无条件 throw 后",
+            "constant_false_consequent": "常量条件排除的分支", "constant_true_alternate": "常量条件排除的分支",
+            "constant_false_loop": "常量假条件的循环体或更新", "literal_short_circuit": "字面量短路排除的表达式"}
+        diagnostic_lines.append("\n静态证明不会执行的引用问题（已记录，不阻断；运行效果未验证）：")
+        for finding in unreachable:
+            proof = finding["reachability"]
+            diagnostic_lines.append(f"分组 {finding['group_key']} · 第 {finding['line']} 行第 {finding['column'] + 1} 列："
+                f"{finding['identifier']} {'使用隐式事件实参' if finding.get('reason_code') == 'hidden_event_arguments' else '未声明'}；依据：{proof_labels[proof['reason_code']]}"
+                f"（第 {proof['line']} 行第 {proof['column'] + 1} 列）。")
+    diagnostics = (evidence.get("event_binding_validation") or {}).get("baseline_diagnostics") or []
+    if diagnostics:
+        diagnostic_lines.append("\n修改前已存在的代码问题（已检查，未验证；不阻断，是否修复由用户决定）：")
+        for finding in diagnostics:
+            old = finding.get("baseline") or {}
+            reason = {"preexisting_reserved_platform_identifier": "声明或覆盖平台保留名",
+                      "preexisting_hidden_event_arguments": "使用隐式事件实参",
+                      "preexisting_undeclared_identifier": "未声明"}.get(finding.get("reason_code", "preexisting_undeclared_identifier"), finding.get("reason_code"))
+            diagnostic_lines.append(f"分组 {finding['group_key']} · 第 {finding.get('line', '?')} 行："
+                f"{finding['identifier']} {reason}；基线第 {old.get('line', '?')} 行。")
+    for finding in (evidence.get("event_binding_validation") or {}).get("canvas_diagnostics", []):
+        diagnostic_lines.append(f"\n分组 {finding.get('group_key') or '全局变量'} · 节点 {finding.get('node_key') or '声明'} · {finding['path']}："
+            + ("显示值与生成表达式不一致" if finding["reason_code"] == "preexisting_paraminput_unsynchronized" else "使用平台保留名")
+            + "，与修改前的完整字段一致；已记录、未验证、不阻断，是否修复由用户决定。")
+    for check in (evidence.get("event_binding_validation") or {}).get("checks", []):
+        issue = check.get("binding_issue")
+        if issue:
+            reason = {"binding_component_identity_required": "缺少显式组件身份", "event_contract_unavailable": "事件合同不可用",
+                      "event_callback_missing": "回调缺失", "event_callback_group_invalid": "回调分组类型或绑定关系无效"}[issue["reason_code"]]
+            diagnostic_lines.append(f"\n分组 {check['source_group_key']} · 事件节点 {check['binding_node_key']}：{reason}；"
+                "绑定与回调声明和修改前一致，已记录、未验证、不阻断，是否修复由用户决定。")
+        for issue in check.get("parameter_issues", []):
+            actual = "、".join(f"{param.get('title', '?')}:{param.get('type', '?')}" for param in issue.get("actual_params", [])) or "无"
+            expected = "、".join(f"{param.get('title', '?')}:{param.get('type', '?')}" for param in issue.get("expected_params", [])) or "无"
+            diagnostic_lines.append(f"\n事件 {check['component_type']}.{check['event_name']} → 分组 {check['target_group_key']}："
+                f"{issue['section']} 声明（{actual}）与事件合同（{expected}）不一致，修改前已存在；已记录、不阻断，是否修复由用户决定。"
+                "保留原参数名、声明和业务引用，不自动调整。")
     if selection.get("selected_mode") == "full":
         return "\n".join([
             "请求模式：" + labels.get(selection.get("requested_mode"), "全量生成"),
             "实际模式：全量生成", "选择原因：" + reasons.get(selection.get("reason_code"), str(selection.get("reason_code") or "全量生成")),
             f"重新生成全部 {len(selection.get('scope', {}).get('affected_group_keys', [])) + len(selection.get('scope', {}).get('unaffected_group_keys', []))} 个候选动作分组。",
-            "完整候选已独立生成核对；词法检查和 C# 编译不代表业务运行验证通过。"])
+            "完整候选已独立生成核对；词法检查和 C# 编译不代表业务运行验证通过。"] + diagnostic_lines)
     regenerated = generation.get("regenerated_group_keys") or []
     preserved = generation.get("preserved_group_keys") or []
     lines = [f"原生重新生成 {len(regenerated)} 个动作分组；原样保留 {len(preserved)} 个动作分组。",
@@ -307,8 +346,4 @@ def generation_review_summary(evidence: dict[str, Any]) -> str:
     if selection:
         lines[:0] = ["请求模式：" + labels.get(selection.get("requested_mode"), "增量生成"),
                      "实际模式：增量生成", "选择原因：" + reasons.get(selection.get("reason_code"), str(selection.get("reason_code") or "增量生成"))]
-    diagnostics = (evidence.get("event_binding_validation") or {}).get("baseline_diagnostics") or []
-    if diagnostics:
-        lines.append("\n未改分组的旧引用问题（未验证，本次未修改）：")
-        lines.extend(f"分组 {d['group_key']}：{d['identifier']} 未声明" for d in diagnostics)
-    return "\n".join(lines)
+    return "\n".join(lines + diagnostic_lines)

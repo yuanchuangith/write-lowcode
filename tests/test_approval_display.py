@@ -17,6 +17,25 @@ from gxp_editor.approval_display import canvas_change_summary, execution_result_
 
 
 class ApprovalDisplayTests(unittest.TestCase):
+    def test_legacy_policy_findings_show_locations_and_user_decision(self):
+        text = generation_review_summary({'event_binding_validation':{
+            'baseline_diagnostics':[{'group_key':'callback','line':9,'identifier':'arguments',
+                'reason_code':'preexisting_hidden_event_arguments','baseline':{'line':8}}],
+            'canvas_diagnostics':[{'group_key':'callback','node_key':'legacy','path':'/inputParams/variableValue',
+                'reason_code':'preexisting_paraminput_unsynchronized'}],
+            'checks':[{'source_group_key':'main','binding_node_key':'binding','binding_issue':{'reason_code':'event_contract_unavailable'}}]}})
+        for expected in ('arguments 使用隐式事件实参','第 9 行','基线第 8 行','legacy','显示值与生成表达式不一致',
+                         '事件合同不可用','binding','是否修复由用户决定'):
+            self.assertIn(expected, text)
+
+    def test_old_event_parameter_mismatch_remains_a_user_decision(self):
+        text = generation_review_summary({'event_binding_validation':{'checks':[{
+            'component_type':'ExamSelect','event_name':'change','target_group_key':'callback',
+            'parameter_issues':[{'section':'inputParams'}]}]}})
+        self.assertIn('修改前已存在', text)
+        self.assertIn('是否修复由用户决定', text)
+        self.assertIn('保留原参数名、声明和业务引用', text)
+
     def test_auto_full_summary_counts_only_candidate_groups(self):
         text = generation_review_summary({"generation_selection": {
             "requested_mode": "auto", "selected_mode": "full", "reason_code": "affected_group_ratio",
@@ -26,6 +45,25 @@ class ApprovalDisplayTests(unittest.TestCase):
         self.assertIn("实际模式：全量生成", text)
         self.assertIn("全部 2 个候选动作分组", text)
         self.assertIn("受影响分组占比较高", text)
+
+    def test_full_summary_shows_unreachable_finding_and_its_control_flow_evidence(self):
+        text = generation_review_summary({"generation_selection": {"requested_mode": "full", "selected_mode": "full"},
+            "event_binding_validation": {"unreachable_diagnostics": [{"group_key": "legacy", "identifier": "missingContext",
+                "line": 8, "column": 12, "reachability": {"reason_code": "after_return", "line": 7, "column": 4}}]}})
+        self.assertIn("第 8 行第 13 列", text)
+        self.assertIn("missingContext 未声明", text)
+        self.assertIn("无条件 return 后（第 7 行第 5 列）", text)
+        self.assertIn("已记录，不阻断", text)
+        self.assertIn("运行效果未验证", text)
+
+    def test_full_summary_leaves_old_findings_for_user_decision(self):
+        text = generation_review_summary({"generation_selection": {"selected_mode": "full"},
+            "event_binding_validation": {"baseline_diagnostics": [{"group_key": "main", "identifier": "missingContext",
+                "line": 8, "baseline": {"line": 7}}]}})
+        self.assertIn("修改前已存在", text)
+        self.assertIn("是否修复由用户决定", text)
+        self.assertIn("第 8 行", text)
+        self.assertIn("基线第 7 行", text)
 
     def canvas(self):
         nodes = [

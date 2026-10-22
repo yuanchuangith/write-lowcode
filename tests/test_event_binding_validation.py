@@ -46,6 +46,63 @@ class EventBindingContractTests(unittest.TestCase):
         self.bridge = CompilerBridge(replace(editor_config(),frontend_repo=str(path.parents[2]),compiler_bridge=str(path)))
         self.design = {"actionData":[{"key":"main","title":"初始化","actionType":"js","data":[]}],"globalVariables":[]}
 
+    def test_legacy_policies_are_reported_and_independently_verified_in_every_mode(self):
+        from gxp_editor.transaction import _validate_event_compiler_evidence
+        initial = self.bridge.compile_patch(self.design, operations())
+        for legacy in ('hidden_arguments', 'reserved_identifier', 'editable_value', 'component_identity'):
+            design = deepcopy(initial['design'])
+            callback = design['actionData'][1]
+            if legacy == 'hidden_arguments':
+                callback['data'][0]['paramsValue']['inputParams']['variableValue'] = value('arguments[0].id')
+            elif legacy == 'reserved_identifier':
+                node = deepcopy(callback['data'][0]); node['key'] = 'legacy-reserved'
+                node['paramsValue']['outputParams']['variableName'] = value('Inbiz', 'any')
+                callback['data'].insert(0, node)
+            elif legacy == 'editable_value':
+                callback['data'][0]['paramsValue']['inputParams']['variableValue']['value'] = 'old display text'
+                entry = self.bridge.validate_design(design)
+                self.assertEqual(entry['canvas_diagnostics'][0]['reason_code'], 'preexisting_paraminput_unsynchronized')
+            else:
+                binding = next(n for n in design['actionData'][0]['data'] if n['elementKey'] == 'ComponentEvent')
+                binding['paramsValue']['inputParams']['name'] = value('trainee_task')
+            baseline = self.bridge._call({'command':'compile_design', 'design':design})
+            saved = {key:baseline[key] for key in ('js_code','csharp_code','relation_data')}
+            change = variable('changed', 'true', 'boolean'); change['action_group_key'] = callback['key']
+            for mode in ('full', 'incremental', 'auto'):
+                with self.subTest(legacy=legacy, mode=mode):
+                    result = self.bridge.compile_patch(design, [change], baseline_artifacts=saved, generation_mode=mode)
+                    proof = result['event_binding_validation']
+                    if legacy == 'editable_value':
+                        self.assertEqual(proof['canvas_diagnostics'][0]['reason_code'], 'preexisting_paraminput_unsynchronized')
+                    elif legacy == 'component_identity':
+                        self.assertEqual(proof['checks'][0]['binding_issue']['reason_code'], 'binding_component_identity_required')
+                    else:
+                        expected = 'preexisting_' + ('hidden_event_arguments' if legacy == 'hidden_arguments' else 'reserved_platform_identifier')
+                        self.assertEqual(proof['baseline_diagnostics'][0]['reason_code'], expected)
+                    self.assertEqual(result['design']['actionData'][1]['data'][:len(callback['data'])], callback['data'])
+                    self.assertEqual(self.bridge.verify_compiled_result(result)['event_binding_validation'], proof)
+                    _validate_event_compiler_evidence({'data':json.dumps(result['design'])}, proof)
+
+    def test_old_callback_type_mismatch_is_reported_without_changing_declarations_or_references(self):
+        initial = self.bridge.compile_patch(self.design, operations())
+        design = deepcopy(initial['design'])
+        callback = design['actionData'][1]
+        callback['inputParams'][0]['type'] = 'string'
+        old_declarations = deepcopy(callback['inputParams'])
+        baseline = self.bridge._call({'command':'compile_design', 'design':design})
+        saved = {key:baseline[key] for key in ('js_code','csharp_code','relation_data')}
+        change = variable('changed', 'true', 'boolean'); change['action_group_key'] = callback['key']
+        result = self.bridge.compile_patch(design, [change], baseline_artifacts=saved)
+        issue = result['event_binding_validation']['checks'][0]['parameter_issues'][0]
+        self.assertEqual(issue['reason_code'], 'preexisting_callback_parameter_mismatch')
+        self.assertEqual(issue['status'], 'unverified')
+        self.assertEqual(result['design']['actionData'][1]['inputParams'], old_declarations)
+        self.assertIn('action.id', result['js_code'])
+        verified = self.bridge.verify_compiled_result(result)
+        self.assertEqual(verified['event_binding_validation'], result['event_binding_validation'])
+        from gxp_editor.transaction import _validate_event_compiler_evidence
+        _validate_event_compiler_evidence({'data':json.dumps(result['design'])}, result['event_binding_validation'])
+
     def test_declared_payload_and_metadata_values_in_isolated_vm(self):
         result = self.bridge.compile_patch(self.design,operations())
         self.assertTrue(self.bridge.verify_compiled_result(result)["code_generation_complete"])
@@ -206,6 +263,34 @@ const innerInbiz=()=>({getText:()=>{childReads++;return '合格';}});
         op=variable('result','missingContext.id');op['action_group_key']='main'
         with self.assertRaisesRegex(CompilerError,'Undeclared action identifier missingContext'):
             self.bridge.compile_patch(self.design,[op])
+
+    def test_full_generation_records_unreachable_reference_and_independently_rechecks_it(self):
+        op = variable('result', 'false ? missingContext.id : "safe"'); op['action_group_key'] = 'main'
+        result = self.bridge.compile_patch(self.design, [op])
+        finding = result['event_binding_validation']['unreachable_diagnostics'][0]
+        self.assertEqual(finding['identifier'], 'missingContext')
+        self.assertEqual(finding['reachability']['reason_code'], 'constant_false_consequent')
+        verified = self.bridge.verify_compiled_result(result)
+        self.assertEqual(verified['event_binding_validation'], result['event_binding_validation'])
+
+    def test_full_generation_records_preexisting_reference_in_changed_group_but_blocks_added_one(self):
+        # Native generation establishes the baseline; do not execute its code.
+        old = variable('oldValue', 'missingContext.id'); old['action_group_key'] = 'main'
+        # Build the old native node without going through candidate lexical checks.
+        node = self.bridge._call({'command': 'compile_patch', 'design': self.design,
+            'operations': [dict(old, input_params={**old['input_params'], 'variableValue': value('"safe"')})]})
+        design = node['design']
+        design['actionData'][0]['data'][0]['paramsValue']['inputParams']['variableValue'] = value('missingContext.id')
+        baseline = self.bridge._call({'command': 'compile_design', 'design': design})
+        saved = {key: baseline[key] for key in ('js_code', 'csharp_code', 'relation_data')}
+        change = variable('changed', 'true', 'boolean'); change['action_group_key'] = 'main'
+        result = self.bridge.compile_patch(design, [change], baseline_artifacts=saved, generation_mode='full')
+        self.assertEqual(result['event_binding_validation']['baseline_diagnostics'][0]['identifier'], 'missingContext')
+        checked = self.bridge.verify_compiled_result(result)
+        self.assertEqual(checked['event_binding_validation'], result['event_binding_validation'])
+        change['input_params']['variableValue'] = value('newlyMissing.id')
+        with self.assertRaisesRegex(CompilerError, 'Undeclared action identifier newlyMissing'):
+            self.bridge.compile_patch(design, [change], baseline_artifacts=saved, generation_mode='full')
 
     def test_existing_eval_expressions_survive_full_generation_and_independent_recheck(self):
         ops = operations()

@@ -31,6 +31,12 @@ function uuidBytes(size, fallback) {
   }
   return Buffer.concat(parts).subarray(0, size);
 }
+function referenceBaseline(payload, compile) {
+  const design = payload.baseline || (payload.command === 'compile_patch' ? payload.design : null);
+  if (!design) return undefined;
+  return {design, js_code:typeof payload.baseline_artifacts?.js_code === 'string'
+    ? payload.baseline_artifacts.js_code : compile(design).js_code};
+}
 function adapt(source) {
   const replaceOnce = (needle, replacement) => {
     if (source.split(needle).length !== 2) throw new Error('Unsupported compiler bundle shape: ' + needle);
@@ -67,9 +73,9 @@ function adapt(source) {
     "if (payload && payload.command === 'describe_component_contract') return {command: payload.command, component: " + ext + '.componentContract(' + catalog + ', payload.component_type, ' + api + ')};\n' +
     "if (payload && payload.command === 'compile_design') { const validation = validateDesign(payload.design).validation; return Object.assign({command: payload.command, validation}, compileCode(payload.design)); }\n" +
     "if (payload && payload.command === 'compile_patch') { if (!Array.isArray(payload.operations) || !payload.operations.length) fail('At least one canvas operation is required'); validateDesign(payload.design); const design = clone(payload.design); const diff = applyOperations(design, payload.operations); recomputeDepths(design); const validation = validateDesign(design).validation; const result = Object.assign({command:payload.command, design, diff, validation}, " + generate + "); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
-    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.baseline || payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code, result.generation); result.event_binding_validation.generation_selection = result.generation_selection; return result; }\n' +
-    "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code)}; }\n' +
-    "if (payload && payload.command === 'verify_candidate') { const design = payload.design; const validation = validateDesign(design).validation; const compiled = " + generate + "; " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, compiled.generation); event_binding_validation.generation_selection = compiled.generation_selection; return Object.assign({command:payload.command, validation, event_binding_validation}, compiled); }\n');
+    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.baseline || payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code, result.generation, ' + runner + '.referenceBaseline(payload, compileCode)); result.event_binding_validation.generation_selection = result.generation_selection; return result; }\n' +
+    "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, undefined, ' + runner + '.referenceBaseline(payload, compileCode))}; }\n' +
+    "if (payload && payload.command === 'verify_candidate') { const design = payload.design; const validation = validateDesign(design).validation; const compiled = " + generate + "; " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, compiled.generation, ' + runner + '.referenceBaseline(payload, compileCode)); event_binding_validation.generation_selection = compiled.generation_selection; return Object.assign({command:payload.command, validation, event_binding_validation}, compiled); }\n');
   return source;
 }
 function main() {
@@ -79,7 +85,7 @@ function main() {
   compiler.paths = Module._nodeModulePaths(path.dirname(bridge));
   compiler._compile(adapt(fs.readFileSync(bridge, 'utf8')), bridge);
 }
-module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata, incremental, generationModes};
+module.exports = {adapt, reproducibleCompile, uuidBytes, referenceBaseline, interfaceMetadata, incremental, generationModes};
 if (require.main === module) {
   try { main(); } catch (error) {
     process.stdout.write(JSON.stringify({ok:false, error:error.message, details:error.details}), () => process.exit(1));

@@ -183,6 +183,18 @@ class CompilerBridgeTests(unittest.TestCase):
                 "elementKey": "SetVariable", "paramsValue": {"inputParams": {"variableValue": parameter}},
             }]}]})
 
+    def test_editable_old_field_is_reported_but_a_changed_inconsistency_blocks(self):
+        from copy import deepcopy
+        design = {'actionData':[{'key':'main','data':[{'key':'legacy','elementKey':'SetVariable',
+            'paramsValue':{'inputParams':{'variableValue':{'paramTypes':'custom','value':'display','code':'true'}}}}]}]}
+        candidate = deepcopy(design); candidate['actionData'][0]['data'].append({'key':'new','elementKey':'Other'})
+        finding = CompilerBridge._validate_editable_variable_values(candidate, design)[0]
+        self.assertEqual(finding['status'], 'unverified')
+        self.assertEqual(finding['baseline_snapshot_sha256'], finding['candidate_snapshot_sha256'])
+        candidate['actionData'][0]['data'][0]['paramsValue']['inputParams']['variableValue']['code'] = 'false'
+        with self.assertRaisesRegex(CompilerError, '显示值.*不一致'):
+            CompilerBridge._validate_editable_variable_values(candidate, design)
+
 
 if __name__ == "__main__":
     unittest.main()

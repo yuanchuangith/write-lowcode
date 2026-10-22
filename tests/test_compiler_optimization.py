@@ -63,6 +63,11 @@ class CompilerOptimizationTests(unittest.TestCase):
             CompilerBridge.guarded_no_changes(design, [request])
         self.assertEqual(caught.exception.details["reason_code"], "paraminput_unsynchronized")
 
+    def test_no_change_to_other_field_does_not_demand_old_paraminput_repair(self):
+        design = fixture(); node = design['actionData'][0]['data'][0]; node['elementKey'] = 'SetVariable'
+        node['paramsValue']['inputParams']['variableValue'] = {'paramTypes':'custom','value':'display','code':'true'}
+        self.assertTrue(CompilerBridge.guarded_no_changes(design, [operation(expected_element_key='SetVariable')]))
+
     def test_combined_verification_calls_one_process_and_still_compares_every_artifact(self):
         bridge = CompilerBridge(editor_config())
         design = fixture()

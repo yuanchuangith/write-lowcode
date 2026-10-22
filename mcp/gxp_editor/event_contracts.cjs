@@ -23,7 +23,11 @@ function enrich(contract, event, api) {
     runtime_verified:false, verification:complete?'catalog_only':'missing_input_contract'};
 }
 function requireComplete(contract) {
-  if (contract.signature_status === 'incomplete') throw new Error('Incomplete event parameter contract for ' + contract.component_type + '.' + contract.event_name + '; verify the runtime callsite before binding');
+  if (contract.signature_status === 'incomplete') {
+    const error = new Error('Incomplete event parameter contract for ' + contract.component_type + '.' + contract.event_name + '; verify the runtime callsite before binding');
+    error.code = 'event_contract_unavailable';
+    throw error;
+  }
   return contract;
 }
 function parametersMatch(actual, expected, contract, section) {

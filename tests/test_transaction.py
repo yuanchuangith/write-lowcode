@@ -13,6 +13,115 @@ from gxp_editor.transaction import RESTORE_RELATION_SQL, UPDATE_DESIGN_SQL, UPDA
 
 
 class TransactionTests(unittest.TestCase):
+    def test_old_canvas_field_findings_require_matching_unverified_evidence(self):
+        from gxp_editor.transaction import _validate_event_compiler_evidence
+        value = {'paramTypes':'custom','value':'display','code':'true'}
+        canvas = {'globalVariables':[], 'actionData':[{'key':'main','actionType':'js','data':[
+            {'key':'legacy','elementKey':'SetVariable','paramsValue':{'inputParams':{'variableValue':value}}}]}]}
+        desired = {'data':json.dumps(canvas)}
+        snapshot = {'group_key':'main','node_key':'legacy','element_key':'SetVariable','path':'/inputParams/variableValue','value':value}
+        finding = {**snapshot,'reason_code':'preexisting_paraminput_unsynchronized','status':'unverified','blocks_changed_candidate':False,
+            'baseline_snapshot_sha256':sha256_json(snapshot),'candidate_snapshot_sha256':sha256_json(snapshot)}
+        evidence = {'javascript_syntax_checked':True,'javascript_lexical_scope':'all_js_groups','javascript_group_keys':['main'],
+            'binding_node_keys':[],'checks':[],'canvas_diagnostics':[finding]}
+        _validate_event_compiler_evidence(desired, evidence)
+        for field, changed in [('status','passed'),('value',{}),('path','/inputParams/notThere'),
+                               ('baseline_snapshot_sha256','a'*64),('blocks_changed_candidate',True)]:
+            invalid = copy.deepcopy(evidence); invalid['canvas_diagnostics'][0][field] = changed
+            with self.subTest(field=field), self.assertRaises(TransactionPlanError):
+                _validate_event_compiler_evidence(desired, invalid)
+
+    def test_old_binding_issues_cannot_claim_success_or_use_other_declarations(self):
+        original = self._binding_transaction()
+        canvas = json.loads(original['desired_design']['data']); source, target = canvas['actionData']
+        snapshot = {'binding_node_key':'binding','source_group_key':source['key'],'target_group_key':target['key'],
+            'source_action_type':source['actionType'],'target_action_type':target['actionType'],
+            'binding_params':source['data'][0]['paramsValue'],'input_params':target['inputParams'],'output_params':target.get('outputParams') or []}
+        check = {'binding_node_key':'binding','source_group_key':source['key'],'target_group_key':target['key'], 'runtime_verified':False,
+            'binding_issue':{'group_key':source['key'],'node_key':'binding','reason_code':'event_contract_unavailable',
+                'status':'unverified','blocks_changed_candidate':False,'baseline_signature_sha256':sha256_json(snapshot),
+                'candidate_signature_sha256':sha256_json(snapshot)}}
+        proof = original['compiler_evidence']['event_binding_validation']; proof['checks'] = [check]
+        original['transaction_hash'] = transaction_binding_hash(original)
+        validate_transaction_artifact(original)
+        for field, changed in [('status','passed'),('candidate_signature_sha256','a'*64),('node_key','other')]:
+            invalid = copy.deepcopy(original)
+            invalid['compiler_evidence']['event_binding_validation']['checks'][0]['binding_issue'][field] = changed
+            invalid['transaction_hash'] = transaction_binding_hash(invalid)
+            with self.subTest(field=field), self.assertRaises(TransactionPlanError):
+                validate_transaction_artifact(invalid)
+
+    def test_old_event_parameter_mismatch_requires_unchanged_declaration_evidence(self):
+        original = self._binding_transaction()
+        canvas = json.loads(original['desired_design']['data'])
+        source, target = canvas['actionData']
+        check = original['compiler_evidence']['event_binding_validation']['checks'][0]
+        snapshot = {'binding_node_key':'binding', 'source_group_key':source['key'], 'target_group_key':target['key'],
+            'source_action_type':source['actionType'], 'target_action_type':target['actionType'],
+            'binding_params':source['data'][0]['paramsValue'], 'input_params':target['inputParams'], 'output_params':target.get('outputParams') or []}
+        check['parameter_status'] = 'preexisting_mismatch'
+        check['parameter_issues'] = [{'reason_code':'preexisting_callback_parameter_mismatch','section':'inputParams',
+            'actual_params':target['inputParams'], 'expected_params':[{'title':'value','type':'any'}],
+            'status':'unverified','blocks_changed_candidate':False,
+            'baseline_signature_sha256':sha256_json(snapshot),'candidate_signature_sha256':sha256_json(snapshot)}]
+        original['transaction_hash'] = transaction_binding_hash(original)
+        validate_transaction_artifact(original)
+        for field, value in [('baseline_signature_sha256','a'*64), ('candidate_signature_sha256','b'*64),
+                              ('status','passed'), ('blocks_changed_candidate',True), ('actual_params',[])]:
+            artifact = copy.deepcopy(original)
+            artifact['compiler_evidence']['event_binding_validation']['checks'][0]['parameter_issues'][0][field] = value
+            artifact['transaction_hash'] = transaction_binding_hash(artifact)
+            with self.subTest(field=field), self.assertRaisesRegex(TransactionPlanError, 'parameter mismatch'):
+                validate_transaction_artifact(artifact)
+
+    def test_unreachable_findings_require_located_proof_and_cannot_claim_runtime_success(self):
+        original = self._canvas_transaction([{"key": "main", "actionType": "js", "data": []}])
+        finding = {"group_key": "main", "identifier": "missingContext", "reason_code": "undeclared_identifier",
+            "line": 2, "column": 20, "status": "unverified", "blocks_changed_candidate": False,
+            "reachability": {"reason_code": "constant_false_consequent", "line": 2, "column": 4}}
+        original["compiler_evidence"]["event_binding_validation"]["unreachable_diagnostics"] = [finding]
+        original["transaction_hash"] = transaction_binding_hash(original)
+        validate_transaction_artifact(original)
+        for path, value in [(("status",), "passed"), (("group_key",), "unknown"),
+                            (("blocks_changed_candidate",), True), (("reachability",), None),
+                            (("reachability", "reason_code"), "unused_group"), (("reachability", "reason_code"), {}), (("line",), True),
+                            (("reachability", "column"), -1)]:
+            artifact = copy.deepcopy(original)
+            owner = artifact["compiler_evidence"]["event_binding_validation"]["unreachable_diagnostics"][0]
+            for key in path[:-1]:
+                owner = owner[key]
+            owner[path[-1]] = value
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(path=path), self.assertRaisesRegex(TransactionPlanError, "reachability evidence"):
+                validate_transaction_artifact(artifact)
+
+    def test_preserved_legacy_findings_without_baseline_proof_cannot_enter_approval(self):
+        artifact = self._generation_selection_transaction("incremental")
+        artifact["compiler_evidence"]["event_binding_validation"]["baseline_diagnostics"] = [{
+            "group_key": "g1", "identifier": "missingContext", "status": "unverified", "blocks_changed_candidate": False}]
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        with self.assertRaisesRegex(TransactionPlanError, "matching source evidence"):
+            validate_transaction_artifact(artifact)
+
+    def test_full_generation_accepts_located_old_findings_but_rejects_missing_or_passing_proof(self):
+        original = self._canvas_transaction([{"key": "main", "actionType": "js", "data": []}])
+        finding = {"group_key": "main", "identifier": "missingContext", "reason_code": "preexisting_undeclared_identifier",
+            "line": 3, "column": 8, "status": "unverified", "blocks_changed_candidate": False,
+            "baseline": {"source_sha256": "a" * 64, "reference_sha256": "b" * 64, "line": 2, "column": 8}}
+        original["compiler_evidence"]["event_binding_validation"]["baseline_diagnostics"] = [finding]
+        original["transaction_hash"] = transaction_binding_hash(original)
+        validate_transaction_artifact(original)
+        for path, value in [(("status",), "passed"), (("baseline",), None), (("baseline", "source_sha256"), "invalid"),
+                            (("baseline", "reference_sha256"), ""), (("baseline", "line"), False)]:
+            artifact = copy.deepcopy(original)
+            owner = artifact["compiler_evidence"]["event_binding_validation"]["baseline_diagnostics"][0]
+            for key in path[:-1]:
+                owner = owner[key]
+            owner[path[-1]] = value
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(path=path), self.assertRaisesRegex(TransactionPlanError, "matching source evidence"):
+                validate_transaction_artifact(artifact)
+
     @staticmethod
     def _canvas_transaction(groups, binding_checks=None):
         template = transaction()

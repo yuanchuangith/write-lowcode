@@ -478,7 +478,7 @@ class CompilerBridge:
     def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None, baseline_artifacts=None,
                           generation_mode="full"):
         """Independently reconstruct complete artifacts from the trusted baseline."""
-        self._validate_editable_variable_values(design)
+        self._validate_editable_variable_values(design, baseline_design)
         payload = {"command": "verify_candidate", "design": design, "js_code": artifacts["js_code"]}
         self._require_generation_mode(generation_mode)
         payload["generation_mode"] = generation_mode
@@ -579,6 +579,10 @@ class CompilerBridge:
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
         payload = {"command": "validate_event_bindings", "design": design,
                    "js_code": js_code, "binding_node_keys": evidence["binding_node_keys"]}
+        if baseline_design is not None:
+            payload["baseline"] = baseline_design
+            if baseline_artifacts is not None:
+                payload["baseline_artifacts"] = baseline_artifacts
         if "generation_selection" in evidence:
             if baseline_design is None:
                 raise CompilerError("Generation mode verification requires the trusted baseline design")
@@ -596,11 +600,16 @@ class CompilerBridge:
         return checked
 
     def validate_design(self, design: dict[str, Any]) -> dict[str, Any]:
-        self._validate_editable_variable_values(design)
-        return self._call_and_bind({"command": "validate_design", "design": design})
+        # This read-only entry inspects the existing draft; it is not a proposed
+        # edit. Preserve old field inconsistencies for review instead of asking
+        # the caller to silently repair them before a session can begin.
+        diagnostics = self._validate_editable_variable_values(design, design)
+        result = self._call_and_bind({"command": "validate_design", "design": design})
+        result["canvas_diagnostics"] = diagnostics
+        return result
 
     @staticmethod
-    def _validate_editable_variable_values(design: dict[str, Any]) -> None:
+    def _validate_editable_variable_values(design: dict[str, Any], baseline_design=None) -> list[dict[str, Any]]:
         """ParamInput displays value and recommits it as code on blur.
 
         Scope this contract to known ParamInput fields, rather than assuming all
@@ -611,6 +620,9 @@ class CompilerBridge:
                             ("outputParams", "variableName", "保存至变量")),
             "SetVariableValue": (("inputParams", "attributeValue", "属性值"),),
         }
+        old_nodes = {(group.get("key"), node.get("key")): node
+                     for group in (baseline_design or {}).get("actionData", []) for node in group.get("data", [])}
+        diagnostics = []
         for group in design.get("actionData") or []:
             for line, node in enumerate(group.get("data") or [], 1):
                 for section, field, title in fields.get(node.get("elementKey"), ()):
@@ -618,11 +630,23 @@ class CompilerBridge:
                     if not isinstance(value, dict) or value.get("paramTypes") != "custom":
                         continue
                     if not isinstance(value.get("value"), str) or value.get("value") != value.get("code"):
+                        old = old_nodes.get((group.get("key"), node.get("key")))
+                        if (group.get("key") and node.get("key") and old is not None
+                                and old.get("elementKey") == node.get("elementKey")
+                                and (old.get("paramsValue") or {}).get(section, {}).get(field) == value):
+                            snapshot = {"group_key": group["key"], "node_key": node["key"],
+                                        "element_key": node.get("elementKey"), "path": f"/{section}/{field}", "value": value}
+                            diagnostics.append({**snapshot, "reason_code": "preexisting_paraminput_unsynchronized",
+                                                "status": "unverified", "blocks_changed_candidate": False,
+                                                "baseline_snapshot_sha256": sha256_json(snapshot),
+                                                "candidate_snapshot_sha256": sha256_json(snapshot)})
+                            continue
                         location = f"{group.get('title') or group.get('key')} → 第 {line} 行 → {node.get('title') or node.get('elementKey')}"
                         raise CompilerError(
                             f"{location}：{title}的显示值 value 与生成表达式 code 不一致，"
                             "打开元件重新保存可能覆盖修改。请通过元件参数同步修改两者；已阻止生成审批。"
                         )
+        return diagnostics
 
     def describe_component_contract(self, component_type: str) -> dict[str, Any]:
         binding = self.compiler_binding()
@@ -779,7 +803,9 @@ class CompilerBridge:
             if tuple(parts[:2]) in known.get(node.get("elementKey"), set()) and len(parts) != 2:
                 reject("paraminput_record_required", "Submit the complete ParamInput record so value/code stay synchronized")
             try:
-                CompilerBridge._validate_editable_variable_values({"actionData": [{**groups[0], "data": [node]}]})
+                if tuple(parts[:2]) in known.get(node.get("elementKey"), set()):
+                    current_node = {**node, "paramsValue": {parts[0]: {parts[1]: actual}}}
+                    CompilerBridge._validate_editable_variable_values({"actionData": [{**groups[0], "data": [current_node]}]})
             except CompilerError as exc:
                 reject("paraminput_unsynchronized", str(exc))
         return True

@@ -33,7 +33,10 @@ class IncrementalContractTests(unittest.TestCase):
         evidence["generation"] = generation
         proof = evidence["event_binding_validation"]
         proof["generation"] = deepcopy(generation)
-        proof["baseline_diagnostics"] = [{"group_key": "old", "identifier": "missingContext", "status": "unverified", "blocks_changed_candidate": False}]
+        proof["baseline_diagnostics"] = []
+        proof["unreachable_diagnostics"] = [{"group_key": "old", "identifier": "missingContext",
+            "reason_code": "undeclared_identifier", "status": "unverified", "blocks_changed_candidate": False,
+            "line": 2, "column": 4, "reachability": {"reason_code": "constant_false_consequent", "line": 2, "column": 0}}]
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
         validate_transaction_artifact(artifact)
         display = generation_review_summary(evidence)
@@ -45,7 +48,7 @@ class IncrementalContractTests(unittest.TestCase):
             broken["transaction_hash"] = transaction_binding_hash(broken)
             with self.subTest(field=field), self.assertRaises(TransactionPlanError):
                 validate_transaction_artifact(broken)
-        proof["baseline_diagnostics"][0]["status"] = "passed"
+        proof["unreachable_diagnostics"][0]["status"] = "passed"
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
         with self.assertRaisesRegex(TransactionPlanError, "must remain unverified"):
             validate_transaction_artifact(artifact)
@@ -108,22 +111,32 @@ class NativeIncrementalCodegenTests(unittest.TestCase):
         self.assertEqual(evidence["generation"], result["generation"])
         return result, saved
 
-    def test_js_change_preserves_old_eval_and_undeclared_legacy_without_execution(self):
+    def test_js_change_reports_old_references_and_blocks_new_ones(self):
         # Compile source only. The legacy action must never be executed.
         full = self.bridge._call({"command": "compile_patch", "design": self.design, "operations": [
             self.variable("requestResult", '({Data:"[]"})', group="legacy"),
             self.variable("rows", "eval(requestResult.Data)", group="legacy")]})
         design = full["design"]
-        # Saved legacy source can depend on a host-module binding. Preserve it
-        # exactly, report it unverified, and do not add it to the global allowlist.
+        # Compare with saved source even when a group is preserved.
         saved = {k: deepcopy(full[k]) for k in ("js_code", "csharp_code", "relation_data")}
         saved["js_code"] = saved["js_code"].replace("eval(requestResult.Data)", "eval(requestResult.Data); missingContext.value")
         result, _ = self.compile(self.variable("value", '"new"'), design, saved)
+        old = result["event_binding_validation"]["baseline_diagnostics"][0]
+        self.assertEqual(old["identifier"], "missingContext")
+        self.assertEqual(old["status"], "unverified")
+        self.assertEqual(old["reason_code"], "preexisting_undeclared_identifier")
+        with self.assertRaisesRegex(CompilerError, "Undeclared action identifier newlyMissing"):
+            self.compile(self.variable("value", "newlyMissing.value"), design, saved)
+        saved["js_code"] = saved["js_code"].replace("; missingContext.value", "; if (false) missingContext.value")
+        result, _ = self.compile(self.variable("value", '"new"'), design, saved)
         self.assertEqual(result["generation"]["regenerated_group_keys"], ["main"])
         self.assertEqual(result["csharp_code"], saved["csharp_code"])
-        self.assertIn("eval(requestResult.Data); missingContext.value", result["js_code"])
-        self.assertEqual(result["event_binding_validation"]["baseline_diagnostics"][0]["status"], "unverified")
-        self.assertEqual(result["event_binding_validation"]["baseline_diagnostics"][0]["identifier"], "missingContext")
+        self.assertIn("eval(requestResult.Data); if (false) missingContext.value", result["js_code"])
+        self.assertEqual(result["event_binding_validation"]["baseline_diagnostics"], [])
+        finding = result["event_binding_validation"]["unreachable_diagnostics"][0]
+        self.assertEqual(finding["status"], "unverified")
+        self.assertEqual(finding["identifier"], "missingContext")
+        self.assertEqual(finding["reachability"]["reason_code"], "constant_false_consequent")
         with self.assertRaisesRegex(CompilerError, "Undeclared action identifier missingContext"):
             self.compile(self.variable("value", "eval(missingContext.value)"))
 

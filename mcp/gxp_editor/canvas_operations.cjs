@@ -112,9 +112,12 @@ function parameterDiffPaths(before, after) {
   return {diff_paths:paths, diff_paths_truncated:total > paths.length};
 }
 function eventContract(catalog, type, event, api, allowIncomplete = false) {
+  const missing = message => {const error = new Error(message); error.code = 'event_contract_unavailable'; throw error;};
   const components = catalog.filter(c => c.type === type);
+  if (!components.length) missing('Unknown or ambiguous component type: ' + type);
   if (components.length !== 1) throw new Error('Unknown or ambiguous component type: ' + type);
   const events = (components[0].event || []).filter(e => e.type === event);
+  if (!events.length) missing('Unknown or ambiguous component event: ' + type + '.' + event);
   if (events.length !== 1) throw new Error('Unknown or ambiguous component event: ' + type + '.' + event);
   const params = events[0].params || [];
   if (!Array.isArray(params)) throw new Error('Invalid event parameter contract');

@@ -351,13 +351,79 @@ def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) ->
         for field in ("baseline_sha256", "candidate_sha256"):
             if not re.fullmatch(r"[a-f0-9]{64}", str(generation.get(field) or "")):
                 raise TransactionPlanError("Incremental generation baseline binding is invalid")
-        diagnostics = evidence.get("baseline_diagnostics")
-        if not isinstance(diagnostics, list) or any(not isinstance(d, dict)
-            or d.get("group_key") not in generation["preserved_group_keys"] or d.get("status") != "unverified"
-            or d.get("blocks_changed_candidate") is not False for d in diagnostics):
-            raise TransactionPlanError("Preserved baseline diagnostics must remain unverified")
-    elif evidence.get("baseline_diagnostics"):
-        raise TransactionPlanError("Baseline diagnostics require incremental generation evidence")
+    diagnostics = evidence.get("baseline_diagnostics", [])
+    if not isinstance(diagnostics, list):
+        raise TransactionPlanError("Baseline diagnostics require matching source evidence")
+    for finding in diagnostics:
+        old = finding.get("baseline") if isinstance(finding, dict) else None
+        if (not isinstance(finding, dict) or finding.get("group_key") not in js_keys
+                or finding.get("reason_code") not in {"preexisting_undeclared_identifier",
+                    "preexisting_reserved_platform_identifier", "preexisting_hidden_event_arguments"}
+                or not isinstance(finding.get("identifier"), str) or not finding["identifier"]
+                or finding.get("status") != "unverified" or finding.get("blocks_changed_candidate") is not False
+                or not isinstance(old, dict)
+                or any(not re.fullmatch(r"[a-f0-9]{64}", str(old.get(field) or ""))
+                       for field in ("source_sha256", "reference_sha256"))
+                or any(type(record.get("line")) is not int or record["line"] < 1
+                       or type(record.get("column")) is not int or record["column"] < 0
+                       for record in (finding, old))):
+            raise TransactionPlanError("Baseline diagnostics must remain unverified and include matching source evidence")
+    unreachable = evidence.get("unreachable_diagnostics", [])
+    if not isinstance(unreachable, list):
+        raise TransactionPlanError("Unreachable diagnostics must include static reachability evidence")
+    for finding in unreachable:
+        proof = finding.get("reachability") if isinstance(finding, dict) else None
+        if (not isinstance(finding, dict) or finding.get("group_key") not in js_keys
+                or finding.get("reason_code") not in {"undeclared_identifier", "hidden_event_arguments"}
+                or not isinstance(finding.get("identifier"), str) or not finding["identifier"]
+                or finding.get("status") != "unverified" or finding.get("blocks_changed_candidate") is not False
+                or not isinstance(proof, dict) or not isinstance(proof.get("reason_code"), str) or proof["reason_code"] not in {
+                    "after_return", "after_throw", "constant_true_alternate", "constant_false_consequent",
+                    "constant_false_loop", "literal_short_circuit"}
+                or any(type(record.get("line")) is not int or record["line"] < 1
+                       or type(record.get("column")) is not int or record["column"] < 0
+                       for record in (finding, proof))):
+            raise TransactionPlanError("Unreachable diagnostics must remain unverified and include static reachability evidence")
+    canvas_diagnostics = evidence.get("canvas_diagnostics", [])
+    if not isinstance(canvas_diagnostics, list):
+        raise TransactionPlanError("Canvas diagnostics require unchanged baseline evidence")
+    for finding in canvas_diagnostics:
+        if not isinstance(finding, dict):
+            raise TransactionPlanError("Canvas diagnostics require unchanged baseline evidence")
+        group_key, node_key, path = finding.get("group_key"), finding.get("node_key"), finding.get("path")
+        snapshot = {"group_key": group_key, "node_key": node_key, "path": path}
+        try:
+            parts = path.split("/")[1:]
+            if group_key is None and node_key is None and len(parts) == 2 and parts[0] == "globalVariables":
+                value = canvas["globalVariables"][int(parts[1])]
+                valid = finding.get("reason_code") == "preexisting_reserved_platform_identifier" and value.get("name") in {"inbiz", "Inbiz"}
+                identifier = value.get("name")
+            elif node_key is None and group_key in js_keys and len(parts) == 2 and parts[0] == "outputParams":
+                value = groups[group_key]["outputParams"][int(parts[1])]
+                valid = finding.get("reason_code") == "preexisting_reserved_platform_identifier" and value.get("title") in {"inbiz", "Inbiz"}
+                identifier = value.get("title")
+            else:
+                owners = nodes.get(node_key, [])
+                if len(owners) != 1 or owners[0][0]["key"] != group_key:
+                    raise ValueError("Unknown node")
+                node = owners[0][1]
+                allowed = {"SetVariable": {("inputParams", "variableValue"), ("outputParams", "variableName")},
+                           "SetVariableValue": {("inputParams", "attributeValue")}}
+                value = node["paramsValue"][parts[0]][parts[1]]
+                valid = (finding.get("reason_code") == "preexisting_paraminput_unsynchronized"
+                         and tuple(parts) in allowed.get(node["elementKey"], set()) and value.get("paramTypes") == "custom"
+                         and (not isinstance(value.get("value"), str) or value.get("value") != value.get("code")))
+                snapshot["element_key"] = node["elementKey"]
+                identifier = None
+            snapshot["value"] = value
+        except (KeyError, IndexError, TypeError, ValueError, AttributeError) as exc:
+            raise TransactionPlanError("Canvas diagnostic does not identify a candidate field") from exc
+        digest = sha256_json(snapshot)
+        if (not valid or any(finding.get(field) != value for field, value in snapshot.items())
+                or (identifier is not None and finding.get("identifier") != identifier)
+                or finding.get("status") != "unverified" or finding.get("blocks_changed_candidate") is not False
+                or finding.get("baseline_snapshot_sha256") != digest or finding.get("candidate_snapshot_sha256") != digest):
+            raise TransactionPlanError("Canvas diagnostics must match the unchanged field and remain unverified")
     scope, checks = evidence.get("binding_node_keys"), evidence.get("checks")
     if not isinstance(scope, list) or any(not isinstance(key, str) or not key for key in scope) or len(set(scope)) != len(scope):
         raise TransactionPlanError("Event binding validation scope is invalid")
@@ -372,6 +438,24 @@ def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) ->
         inputs = params.get("inputParams") if isinstance(params, dict) else None
         name = inputs.get("name") if isinstance(inputs, dict) else None
         action = inputs.get("action") if isinstance(inputs, dict) else None
+        if isinstance(check, dict) and "binding_issue" in check:
+            issue = check["binding_issue"]
+            target = groups.get(action.get("value")) if isinstance(action, dict) else None
+            snapshot = {"binding_node_key": key, "source_group_key": source["key"],
+                        "target_group_key": target["key"] if target else None,
+                        "source_action_type": source.get("actionType"), "target_action_type": target.get("actionType") if target else None,
+                        "binding_params": params, "input_params": (target.get("inputParams") or []) if target else [],
+                        "output_params": (target.get("outputParams") or []) if target else []}
+            digest = sha256_json(snapshot)
+            if (not isinstance(issue, dict) or issue.get("reason_code") not in {"binding_component_identity_required",
+                    "event_contract_unavailable", "event_callback_missing", "event_callback_group_invalid"}
+                    or issue.get("status") != "unverified" or issue.get("blocks_changed_candidate") is not False
+                    or issue.get("node_key") != key or issue.get("group_key") != source["key"]
+                    or issue.get("baseline_signature_sha256") != digest or issue.get("candidate_signature_sha256") != digest
+                    or check.get("source_group_key") != source["key"] or check.get("target_group_key") != snapshot["target_group_key"]
+                    or check.get("runtime_verified") is not False):
+                raise TransactionPlanError("Old event binding issue requires unchanged declarations and unverified evidence")
+            continue
         if not isinstance(name, dict) or not isinstance(action, dict) or not isinstance(action.get("value"), str):
             raise TransactionPlanError("Event binding candidate parameters are invalid")
         target = groups.get(action["value"])
@@ -393,6 +477,32 @@ def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) ->
                 or check.get("parameters_declared") is not True or check.get("hidden_arguments_allowed") is not False
                 or check.get("signature_status") not in {"source_verified", "catalog_declared"}):
             raise TransactionPlanError("Event binding runtime contract evidence is incomplete")
+        parameter_issues = check.get("parameter_issues", [])
+        if not isinstance(parameter_issues, list) or (parameter_issues and check.get("parameter_status") != "preexisting_mismatch"):
+            raise TransactionPlanError("Event binding parameter mismatch evidence is incomplete")
+        snapshot = {"binding_node_key": key, "source_group_key": source["key"], "target_group_key": target["key"],
+                    "source_action_type": source.get("actionType"), "target_action_type": target.get("actionType"),
+                    "binding_params": params, "input_params": target.get("inputParams") or [],
+                    "output_params": target.get("outputParams") or []}
+        signature_sha256 = sha256_json(snapshot)
+        sections = set()
+        for issue in parameter_issues:
+            section = issue.get("section") if isinstance(issue, dict) else None
+            if (not isinstance(issue, dict) or not isinstance(section, str) or section not in {"inputParams", "outputParams"}
+                    or section in sections or issue.get("reason_code") != "preexisting_callback_parameter_mismatch"
+                    or issue.get("status") != "unverified" or issue.get("blocks_changed_candidate") is not False
+                    or issue.get("baseline_signature_sha256") != signature_sha256
+                    or issue.get("candidate_signature_sha256") != signature_sha256
+                    or issue.get("actual_params") != (target.get(section) or [])
+                    or not isinstance(issue.get("expected_params"), list)):
+                raise TransactionPlanError("Event binding parameter mismatch requires unchanged baseline evidence and unverified status")
+            sections.add(section)
+        if check.get("parameter_status") == "preexisting_mismatch" and not parameter_issues:
+            raise TransactionPlanError("Event binding parameter mismatch evidence is incomplete")
+    if "preexisting_parameter_issue_count" in evidence and (
+            type(evidence["preexisting_parameter_issue_count"]) is not int
+            or evidence["preexisting_parameter_issue_count"] != sum(len(check.get("parameter_issues", [])) for check in checks)):
+        raise TransactionPlanError("Event binding parameter mismatch count is invalid")
 
 
 def _validate_generation_selection(desired: dict[str, Any], compiler_evidence: dict[str, Any]) -> None:

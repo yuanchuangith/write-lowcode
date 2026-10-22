@@ -1,9 +1,16 @@
 'use strict';
 const test = require('node:test');
 const assert = require('node:assert/strict');
-const {applyOperations, componentContract} = require('../mcp/gxp_editor/canvas_operations.cjs');
+const {applyOperations, componentContract, eventContract} = require('../mcp/gxp_editor/canvas_operations.cjs');
 const {adapt} = require('../mcp/gxp_editor/compiler_runner.cjs');
 const catalog = [{type:'Button', title:'按钮', event:[{type:'click', title:'点击', params:[{name:'event',type:'input',dataType:'object',title:'点击事件'}]}]}];
+test('only missing or incomplete declarations are classified as legacy-compatible contract issues', () => {
+  for (const [items, type, event] of [[[], 'Button', 'click'], [catalog, 'Button', 'missing'],
+    [[{type:'Button',event:[{type:'click',params:[{name:'result',type:'output',dataType:'boolean'}]}]}], 'Button', 'click']]) {
+    assert.throws(() => eventContract(items, type, event), error => error.code === 'event_contract_unavailable');
+  }
+  assert.throws(() => eventContract([...catalog,...catalog], 'Button', 'click'), error => error.code === undefined);
+});
 const design = () => ({actionData:[{key:'main',title:'初始化',actionType:'js',data:[]}],globalVariables:[]});
 const create = () => ({operation:'create_action_group',group_alias:'handler',group_title:'点击回调',action_type:'js',event_contract:{component_type:'Button',event_name:'click'}});
 const bind = () => ({operation:'bind_component_event',action_group_key:'main',component_id:'button1',component_type:'Button',event_name:'click',target_action_group_key:'@handler'});
