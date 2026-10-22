@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import re
 import uuid
 from datetime import datetime
@@ -394,6 +395,94 @@ def _validate_event_compiler_evidence(desired: dict[str, Any], evidence: Any) ->
             raise TransactionPlanError("Event binding runtime contract evidence is incomplete")
 
 
+def _validate_generation_selection(desired: dict[str, Any], compiler_evidence: dict[str, Any]) -> None:
+    """Validate signed strategy evidence; the service independently recompiles it."""
+    event = compiler_evidence["event_binding_validation"]
+    if "generation_selection" not in compiler_evidence and "generation_selection" not in event:
+        return  # Existing artifacts created before selectable generation remain valid.
+    selection = compiler_evidence.get("generation_selection")
+    if not isinstance(selection, dict) or selection != event.get("generation_selection"):
+        raise TransactionPlanError("Generation selection evidence changed or is incomplete")
+    requested, selected = selection.get("requested_mode"), selection.get("selected_mode")
+    if not isinstance(requested, str) or requested not in {"full", "incremental", "auto"} or not isinstance(selected, str) or selected not in {"full", "incremental"}:
+        raise TransactionPlanError("Generation selection mode is invalid")
+    if selection.get("policy_version") != "action_groups_v1":
+        raise TransactionPlanError("Generation selection policy is invalid")
+    for field in ("baseline_sha256", "candidate_sha256"):
+        if not isinstance(selection.get(field), str) or not re.fullmatch(r"[a-f0-9]{64}", selection[field]):
+            raise TransactionPlanError("Generation selection hash binding is invalid")
+    thresholds = {"max_affected_groups": 3, "max_changed_nodes": 30, "max_affected_group_ratio": 0.5}
+    if selection.get("thresholds") != thresholds:
+        raise TransactionPlanError("Generation selection thresholds do not match the policy")
+    counts, scope = selection.get("counts"), selection.get("scope")
+    integer_counts = ("total_group_count", "direct_changed_group_count", "affected_group_count",
+                      "dependency_group_count", "changed_node_count", "language_changed_group_count")
+    if not isinstance(counts, dict) or any(type(counts.get(field)) is not int or counts[field] < 0 for field in integer_counts):
+        raise TransactionPlanError("Generation selection counts are invalid")
+    ratio = counts.get("affected_group_ratio")
+    if type(ratio) not in (int, float) or not 0 <= ratio <= 1 or not math.isfinite(ratio):
+        raise TransactionPlanError("Generation selection affected group ratio is invalid")
+    if not isinstance(scope, dict) or type(scope.get("shared_context_changed")) is not bool:
+        raise TransactionPlanError("Generation selection scope is invalid")
+    for field in ("affected_group_keys", "unaffected_group_keys", "removed_group_keys"):
+        keys = scope.get(field)
+        if not isinstance(keys, list) or any(not isinstance(key, str) or not key for key in keys) or len(set(keys)) != len(keys):
+            raise TransactionPlanError("Generation selection group scope is invalid")
+    canvas = json.loads(desired["data"])
+    candidate_keys = {group["key"] for group in canvas["actionData"]}
+    affected = scope["affected_group_keys"]
+    unaffected = scope["unaffected_group_keys"]
+    removed = scope["removed_group_keys"]
+    if set(affected) & set(unaffected) or set(affected + unaffected) != candidate_keys or set(removed) & candidate_keys:
+        raise TransactionPlanError("Generation selection scope does not cover exactly the candidate groups")
+    if scope["shared_context_changed"] and unaffected:
+        raise TransactionPlanError("Generation selection shared context change must affect all candidate groups")
+    total = len(candidate_keys) + len(removed)
+    affected_count = len(affected) + len(removed)
+    direct_count = counts["direct_changed_group_count"]
+    if (counts["total_group_count"] != total or counts["affected_group_count"] != affected_count
+            or direct_count > affected_count or counts["dependency_group_count"] != affected_count - direct_count
+            or counts["language_changed_group_count"] > direct_count
+            or ratio != (affected_count / total if total else 0)):
+        raise TransactionPlanError("Generation selection counts do not match its group scope")
+    generation = compiler_evidence.get("generation")
+    if selected == "full":
+        if generation is not None:
+            raise TransactionPlanError("Full generation selection cannot claim incremental preservation")
+    else:
+        if not isinstance(generation, dict):
+            raise TransactionPlanError("Incremental generation selection requires preservation evidence")
+        expected = {"regenerated_group_keys": affected, "preserved_group_keys": unaffected,
+                    "removed_group_keys": removed, "shared_context_changed": scope["shared_context_changed"],
+                    "baseline_sha256": selection["baseline_sha256"], "candidate_sha256": selection["candidate_sha256"]}
+        if any(generation.get(field) != value for field, value in expected.items()):
+            raise TransactionPlanError("Generation selection and incremental preservation evidence disagree")
+    reason = selection.get("reason_code")
+    if not isinstance(reason, str):
+        raise TransactionPlanError("Generation selection reason is invalid")
+    if requested != "auto":
+        if selected != requested or reason != "explicit_" + requested:
+            raise TransactionPlanError("Generation selection does not honor the explicit requested mode")
+    elif reason in {"baseline_unavailable", "baseline_artifacts_unavailable"}:
+        if selected != "full":
+            raise TransactionPlanError("Generation selection requires full generation without a saved baseline")
+    else:
+        if scope["shared_context_changed"]:
+            expected_reason = "shared_context_changed"
+        elif counts["language_changed_group_count"]:
+            expected_reason = "language_changed"
+        elif affected_count > thresholds["max_affected_groups"]:
+            expected_reason = "affected_group_limit"
+        elif counts["changed_node_count"] > thresholds["max_changed_nodes"]:
+            expected_reason = "changed_node_limit"
+        elif ratio >= thresholds["max_affected_group_ratio"]:
+            expected_reason = "affected_group_ratio"
+        else:
+            expected_reason = "small_change"
+        if reason != expected_reason or selected != ("incremental" if expected_reason == "small_change" else "full"):
+            raise TransactionPlanError("Generation selection does not match the automatic policy")
+
+
 def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
     transaction_id = str(artifact.get("transaction_id") or "")
     design_id = str(artifact.get("design_id") or "")
@@ -522,6 +611,7 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         _validate_event_compiler_evidence(desired, compiler_evidence.get("event_binding_validation"))
         if compiler_evidence.get("generation") != compiler_evidence["event_binding_validation"].get("generation"):
             raise TransactionPlanError("Incremental generation evidence changed")
+        _validate_generation_selection(desired, compiler_evidence)
         expected_hashes = {
             "data_sha256": sha256_text(str(desired.get("data") or "")),
             "js_sha256": sha256_text(str(desired.get("js_code") or "")),

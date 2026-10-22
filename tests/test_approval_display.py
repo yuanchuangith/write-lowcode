@@ -13,10 +13,20 @@ import pymysql
 from pymysql.constants import SERVER_STATUS
 
 from tests.helpers import PLUGIN_ROOT, baseline, editor_config, transaction
-from gxp_editor.approval_display import canvas_change_summary, execution_result_message, parameter_details, render_full_sql, statement_scope
+from gxp_editor.approval_display import canvas_change_summary, execution_result_message, generation_review_summary, parameter_details, render_full_sql, statement_scope
 
 
 class ApprovalDisplayTests(unittest.TestCase):
+    def test_auto_full_summary_counts_only_candidate_groups(self):
+        text = generation_review_summary({"generation_selection": {
+            "requested_mode": "auto", "selected_mode": "full", "reason_code": "affected_group_ratio",
+            "counts": {"total_group_count": 3}, "scope": {"affected_group_keys": ["changed"],
+                "unaffected_group_keys": ["unchanged"], "removed_group_keys": ["removed"]}}})
+        self.assertIn("请求模式：自动选择", text)
+        self.assertIn("实际模式：全量生成", text)
+        self.assertIn("全部 2 个候选动作分组", text)
+        self.assertIn("受影响分组占比较高", text)
+
     def canvas(self):
         nodes = [
             {"key": "new", "title": "定义变量", "elementKey": "SetVariable", "paramsValue": {"inputParams": {"variableValue": {"code": '(inbiz.getPageMode()=="add")'}}, "outputParams": {"variableName": {"code": "IsNewRecord"}}}},

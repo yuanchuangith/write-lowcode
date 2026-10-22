@@ -1,0 +1,483 @@
+{
+  "scope": "synthetic offline generation; full mode; zero business writes",
+  "unmeasured": [
+    "model requests",
+    "database",
+    "network",
+    "business checks",
+    "UI approval"
+  ],
+  "comparison": "current cold cache versus current warm cache; no pre-change timing baseline",
+  "native": [
+    {
+      "scenario": "small_cold",
+      "operation_count": 1,
+      "blocked": false,
+      "node_calls": {
+        "compile_patch": 1,
+        "describe_registry": 1,
+        "verify_candidate": 1
+      },
+      "trace_id": "19fe3ce9651844d6825eceb556906989",
+      "total_elapsed_ms": 5856.575,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.517,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 286.843
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1049.36
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 283.776
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 311.681
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 320.228
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 820.898
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 335.203
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1478.143,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 349.91
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 231.919
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 350.311
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1177.049
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 317.637
+        }
+      ],
+      "js_sha256": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8"
+    },
+    {
+      "scenario": "small_warm",
+      "operation_count": 1,
+      "blocked": false,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      },
+      "trace_id": "f4084350f64e48408cf201ca2475b405",
+      "total_elapsed_ms": 4324.199,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.303,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 309.252
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1051.453
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 376.06
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 314.76
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.659,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 287.039
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 244.133
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 291.71
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1103.222
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 325.401
+        }
+      ],
+      "js_sha256": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8"
+    },
+    {
+      "scenario": "broad_cold",
+      "operation_count": 6,
+      "blocked": false,
+      "node_calls": {
+        "compile_patch": 1,
+        "describe_registry": 1,
+        "verify_candidate": 1
+      },
+      "trace_id": "708bb895953d46e580e5c3a4fa83c741",
+      "total_elapsed_ms": 5445.89,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 1.031,
+          "operation_count": 6
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 341.098
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1024.943
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 283.352
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 304.083
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 368.439
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 787.477
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 299.156
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1455.972,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 281.893
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 195.562
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 285.923
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 962.541
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 295.867
+        }
+      ],
+      "js_sha256": "64d561e709a28d5a49c55425e86284253dc9f3422bed99dfffdf7c02f5f7b55d"
+    },
+    {
+      "scenario": "broad_warm",
+      "operation_count": 6,
+      "blocked": false,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      },
+      "trace_id": "31fc8975822240e0be9fec20dd055b24",
+      "total_elapsed_ms": 4194.259,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.705,
+          "operation_count": 6
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 285.682
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 985.209
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 293.662
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 332.839
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.821,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 289.24
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 228.33
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 350.981
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1073.146
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 333.032
+        }
+      ],
+      "js_sha256": "64d561e709a28d5a49c55425e86284253dc9f3422bed99dfffdf7c02f5f7b55d"
+    },
+    {
+      "scenario": "error_second_operation",
+      "operation_count": 2,
+      "blocked": true,
+      "node_calls": {},
+      "trace_id": "36f51213829c4074bece81cf588e734b",
+      "total_elapsed_ms": 0.638,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.355,
+          "operation_count": 2
+        }
+      ]
+    },
+    {
+      "scenario": "error_corrected",
+      "operation_count": 2,
+      "blocked": false,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      },
+      "trace_id": "84fffbf789c24ba18f9a63cedbfbc73d",
+      "total_elapsed_ms": 3899.835,
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.407,
+          "operation_count": 2
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 281.971
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 956.468
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 285.415
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 315.802
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.953,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 285.85
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 203.989
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 289.774
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 962.868
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 296.071
+        }
+      ],
+      "js_sha256": "3bbd5baf27d461cf08966b678997bf583cf5865b89faca55ceaf3da59e0232f1"
+    }
+  ],
+  "csharp": [
+    {
+      "scenario": "cold",
+      "error_code": "",
+      "total_elapsed_ms": 5589.512,
+      "timings": [
+        {
+          "stage": "runtime.references",
+          "elapsed_ms": 0.0
+        },
+        {
+          "stage": "runtime.sdk",
+          "elapsed_ms": 203.0
+        },
+        {
+          "stage": "runtime.workspace",
+          "elapsed_ms": 0.0,
+          "cache_hit": false,
+          "slot_wait_ms": 0.0
+        },
+        {
+          "stage": "runtime.workspace_restore",
+          "elapsed_ms": 922.0,
+          "cold": true
+        },
+        {
+          "stage": "runtime.csharp_build",
+          "elapsed_ms": 4407.0,
+          "cache_hit": false
+        },
+        {
+          "stage": "runtime.references_verify",
+          "elapsed_ms": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "warm",
+      "error_code": "",
+      "total_elapsed_ms": 3309.731,
+      "timings": [
+        {
+          "stage": "runtime.references",
+          "elapsed_ms": 0.0
+        },
+        {
+          "stage": "runtime.sdk",
+          "elapsed_ms": 172.0
+        },
+        {
+          "stage": "runtime.workspace",
+          "elapsed_ms": 0.0,
+          "cache_hit": true,
+          "slot_wait_ms": 0.0
+        },
+        {
+          "stage": "runtime.csharp_build",
+          "elapsed_ms": 3094.0,
+          "cache_hit": true
+        },
+        {
+          "stage": "runtime.references_verify",
+          "elapsed_ms": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "invalid",
+      "error_code": "compilation_failed",
+      "total_elapsed_ms": 2158.217,
+      "timings": [
+        {
+          "stage": "runtime.references",
+          "elapsed_ms": 0.0
+        },
+        {
+          "stage": "runtime.sdk",
+          "elapsed_ms": 156.0
+        },
+        {
+          "stage": "runtime.workspace",
+          "elapsed_ms": 0.0,
+          "cache_hit": true,
+          "slot_wait_ms": 0.0
+        },
+        {
+          "stage": "runtime.csharp_build",
+          "elapsed_ms": 1968.0,
+          "cache_hit": true,
+          "error_code": "compilation_failed"
+        },
+        {
+          "stage": "runtime.references_verify",
+          "elapsed_ms": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "recovery",
+      "error_code": "",
+      "total_elapsed_ms": 3603.039,
+      "timings": [
+        {
+          "stage": "runtime.references",
+          "elapsed_ms": 0.0
+        },
+        {
+          "stage": "runtime.sdk",
+          "elapsed_ms": 219.0
+        },
+        {
+          "stage": "runtime.workspace",
+          "elapsed_ms": 0.0,
+          "cache_hit": true,
+          "slot_wait_ms": 0.0
+        },
+        {
+          "stage": "runtime.csharp_build",
+          "elapsed_ms": 3375.0,
+          "cache_hit": true
+        },
+        {
+          "stage": "runtime.references_verify",
+          "elapsed_ms": 0.0
+        }
+      ]
+    }
+  ],
+  "csharp_scope": "actual SDK direct helper smoke with no application references; not production compatibility"
+}

@@ -4,6 +4,9 @@ import json
 import hashlib
 import re
 import subprocess
+import shutil
+import threading
+from collections import OrderedDict
 from copy import deepcopy
 from pathlib import Path
 from typing import Any
@@ -11,6 +14,28 @@ from typing import Any
 from .config import EditorConfig
 from .hashing import compiler_binding_payload, sha256_json, sha256_text
 from .reference_repair import scan_references
+from .telemetry import stage
+
+_REGISTRY_CACHE = OrderedDict()
+_CONTRACT_CACHE = OrderedDict()
+_CACHE_LOCK = threading.RLock()
+_CACHE_LIMIT = 8
+
+
+def _cached(cache, key):
+    with _CACHE_LOCK:
+        value = cache.get(key)
+        if value is not None:
+            cache.move_to_end(key)
+        return deepcopy(value)
+
+
+def _remember(cache, key, value):
+    with _CACHE_LOCK:
+        cache[key] = deepcopy(value)
+        cache.move_to_end(key)
+        while len(cache) > _CACHE_LIMIT:
+            cache.popitem(last=False)
 
 
 class CompilerError(RuntimeError):
@@ -19,7 +44,7 @@ class CompilerError(RuntimeError):
         self.details = self._bounded_details(details)
 
     @staticmethod
-    def _bounded_details(details: Any) -> dict[str, Any]:
+    def _bounded_details(details: Any, _depth: int = 0) -> dict[str, Any]:
         if not isinstance(details, dict):
             return {}
         index = details.get("operation_index")
@@ -29,6 +54,41 @@ class CompilerError(RuntimeError):
             result[field] = value[:256] if isinstance(value, str) else None
         reason = details.get("reason_code")
         result["reason_code"] = reason if isinstance(reason, str) and re.fullmatch(r"[a-z_]{1,64}", reason) else "operation_rejected"
+        phase = details.get("phase")
+        if isinstance(phase, str) and re.fullmatch(r"[a-z_]{1,64}", phase):
+            result["phase"] = phase
+        for field in ("issues", "pending_checks"):
+            if _depth == 0 and isinstance(details.get(field), list):
+                rows = []
+                for item in details[field][:20]:
+                    if not isinstance(item, dict):
+                        continue
+                    row = CompilerError._bounded_details(item, _depth=1)
+                    for name in ("message", "refresh_scope", "next_step", "expected_shape", "context_ref"):
+                        value = item.get(name)
+                        try:
+                            if value is not None and len(json.dumps(value, ensure_ascii=False, allow_nan=False)) <= 2048:
+                                row[name] = deepcopy(value)
+                        except (TypeError, ValueError, RecursionError):
+                            pass
+                    rows.append(row)
+                result[field] = rows
+                result[field + "_truncated"] = len(details[field]) > len(rows) or bool(details.get(field + "_truncated"))
+        for name in ("issue_count", "operation_count", "line", "column"):
+            if type(details.get(name)) is int:
+                result[name] = details[name]
+        if "issues" in result:
+            result["next_step"] = "Correct the reported operations and resubmit the complete batch against the same baseline and review expectations."
+        for name in ("expected_shape", "context_ref", "refresh_scope", "next_step", "diff_paths", "mapping_status", "identifier"):
+            value = details.get(name)
+            try:
+                if value is not None and len(json.dumps(value, ensure_ascii=False, allow_nan=False)) <= 4096:
+                    result[name] = deepcopy(value)
+            except (TypeError, ValueError, RecursionError):
+                pass
+        for name in ("issues_truncated", "diff_paths_truncated"):
+            if type(details.get(name)) is bool:
+                result[name] = result.get(name, False) or details[name]
         return result
 
 
@@ -41,6 +101,11 @@ class CompilerBridge:
     def __init__(self, config: EditorConfig):
         self.config = config
         self._registry: dict[str, Any] | None = None
+        self._node_identity_value = None
+        self._provenance = None
+        self._registry_key_value = None
+        self._verified_call = None
+        self._binding_call_active = False
 
     @property
     def frontend_repo(self) -> Path:
@@ -104,10 +169,14 @@ class CompilerBridge:
         }
 
     def _call(self, payload: dict[str, Any], *, timeout_seconds: int = 60) -> dict[str, Any]:
+        self._verified_call = None
         if not self.path.exists():
             raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}")
-        source_hash = self._verify_native_sources()
-        process = subprocess.run(
+        with stage("compiler.source_verification"):
+            source_key = self._source_key()
+            source_hash = source_key[4]
+        with stage("compiler." + str(payload.get("command", "unknown"))):
+            process = subprocess.run(
             ["node", str(Path(__file__).with_name("compiler_runner.cjs")), str(self.path)],
             input=json.dumps(payload, ensure_ascii=False),
             text=True,
@@ -116,25 +185,52 @@ class CompilerBridge:
             cwd=self.config.frontend_repo,
             timeout=timeout_seconds,
             check=False,
-        )
+            )
+        # Reject changes during the isolated command as well as before launch.
+        with stage("compiler.source_verification_final"):
+            if self._source_key() != source_key:
+                raise CompilerError("Compiler source or adapter binding changed during generation")
         if process.returncode != 0:
             try:
                 failure = json.loads(process.stdout)
             except json.JSONDecodeError:
                 failure = None
             if isinstance(failure, dict) and failure.get("error"):
-                raise CompilerError(str(failure["error"]), details=failure.get("details"))
+                from .operation_preflight import enrich_diagnostics
+                raise CompilerError(str(failure["error"]), details=enrich_diagnostics(payload.get("design"), failure.get("details")))
             raise CompilerError((process.stderr or process.stdout or "compiler failed").strip())
         try:
             result = json.loads(process.stdout)
         except json.JSONDecodeError as exc:
             raise CompilerError(f"Compiler returned invalid JSON: {exc}") from exc
         if not result.get("ok"):
-            raise CompilerError(str(result.get("error") or "compiler rejected request"), details=result.get("details"))
+            from .operation_preflight import enrich_diagnostics
+            raise CompilerError(str(result.get("error") or "compiler rejected request"), details=enrich_diagnostics(payload.get("design"), result.get("details")))
         evidence = result.get("validation", result)
         if source_hash and "rule_source_sha256" in evidence and evidence["rule_source_sha256"] != source_hash:
             raise CompilerError("Compiler rule hash does not match its embedded source manifest; rebuild the bridge")
+        # This receipt is private, belongs to this exact subprocess response and
+        # is consumed once by the immediately following binding step. It is not
+        # candidate validation evidence or a reusable successful-result cache.
+        if self._binding_call_active:
+            self._verified_call = (result, source_key)
         return result
+
+    def _consume_call_source_key(self, result):
+        receipt, self._verified_call = self._verified_call, None
+        return receipt[1] if receipt is not None and receipt[0] is result else None
+
+    def _call_and_bind(self, payload, **kwargs):
+        # The receipt never crosses this synchronous call/bind boundary. Direct
+        # _call consumers and delayed/mock binding paths do their normal checks.
+        self._verified_call = None
+        self._binding_call_active = True
+        try:
+            result = self._call(payload, **kwargs)
+            return self._bind_registry_hash(result)
+        finally:
+            self._binding_call_active = False
+            self._verified_call = None
 
     def _verify_native_sources(self) -> str:
         """Reject stale native rules before a session can report compiler readiness."""
@@ -200,17 +296,55 @@ class CompilerBridge:
             }
         )
 
+    def _node_identity(self):
+        if self._node_identity_value is None:
+            executable = shutil.which("node")
+            if not executable:
+                raise CompilerError("Node executable was not found")
+            result = subprocess.run([executable, "--version"], stdin=subprocess.DEVNULL,
+                capture_output=True, text=True, encoding="utf-8", timeout=10, check=False)
+            if result.returncode != 0 or not re.fullmatch(r"v\d+\.\d+\.\d+\s*", result.stdout):
+                raise CompilerError("Cannot determine Node compiler version")
+            self._node_identity_value = (str(Path(executable).resolve()), result.stdout.strip())
+        return self._node_identity_value
+
+    def _source_key(self):
+        return (str(self.frontend_repo), str(self.path.resolve()),
+                sha256_text(self.path.read_text(encoding="utf-8")), self._adapter_sha256(),
+                self._verify_native_sources())
+
+    def _registry_key(self):
+        with stage("compiler.rule_binding"):
+            return (*self._source_key(), self._node_identity(), "compiler_protocol_v1")
+
     def describe_registry(self) -> dict[str, Any]:
         if self._registry is not None:
-            source_hash = self._verify_native_sources()
-            if (source_hash != self._registry["rule_source_sha256"]
-                    or sha256_text(self.path.read_text(encoding="utf-8")) != self._registry["bridge_sha256"]):
+            current_key = self._registry_key()
+            if current_key[2] != self._registry_key_value[2] or current_key[4] != self._registry_key_value[4]:
                 raise CompilerError("Compiler bridge changed; start a new validated compiler session")
-            if self._adapter_sha256() != self._registry["adapter_sha256"]:
+            if current_key[3] != self._registry_key_value[3]:
                 raise CompilerError("Compiler adapter changed; start a new validated compiler session")
+            if current_key != self._registry_key_value:
+                raise CompilerError("Compiler runtime binding changed; start a new validated compiler session")
         if self._registry is None:
-            result = self._call({"command": "describe_registry"})
-            if result.get("command") != "describe_registry":
+            key = self._registry_key()
+            result = _cached(_REGISTRY_CACHE, key)
+            with stage("compiler.registry", cache_hit=result is not None) as tags:
+                try:
+                    cache_valid = (isinstance(result, dict) and result.get("command") == "describe_registry"
+                        and isinstance(result.get("elements"), list) and bool(result["elements"])
+                        and all(isinstance(element, dict) and isinstance(element.get("key"), str) and element["key"]
+                                for element in result["elements"])
+                        and result.get("registry_hash") == self._stable_registry_hash(result)
+                        and result.get("bridge_sha256") == key[2] and result.get("adapter_sha256") == key[3])
+                except (TypeError, ValueError, AttributeError, KeyError):
+                    cache_valid = False
+                if result is not None and not cache_valid:
+                    result = None
+                    tags["cache_hit"] = False
+                if result is None:
+                    result = self._call({"command": "describe_registry"})
+            if not isinstance(result, dict) or result.get("command") != "describe_registry":
                 raise CompilerError("Compiler registry response has an invalid command identity")
             if not isinstance(result.get("elements"), list) or not result["elements"]:
                 raise CompilerError("Compiler registry did not return any ActionDesign elements")
@@ -218,16 +352,27 @@ class CompilerBridge:
                 if not re.fullmatch(r"[0-9a-f]{64}", str(result.get(field) or "").lower()):
                     raise CompilerError(f"Compiler registry field {field} is missing or invalid")
             result["registry_hash"] = self._stable_registry_hash(result)
-            result["bridge_sha256"] = sha256_text(self.path.read_text(encoding="utf-8"))
-            result["adapter_sha256"] = self._adapter_sha256()
+            result["bridge_sha256"] = key[2]
+            result["adapter_sha256"] = key[3]
             result["supported_operations"] = [
                 "insert_before", "insert_after", "replace_params", "replace_block",
                 "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
                 "append_node", "insert_in_block", "bind_component_event", "set_parameter", "set_array_item",
             ]
-            result["source_provenance"] = self.source_provenance()
-            result["compiler_binding_sha256"] = sha256_json(self._binding_fields(result))
+            if self._registry_key() != key or result.get("rule_source_sha256") != key[4]:
+                raise CompilerError("Compiler source or runtime binding changed while loading its registry")
+            self._verified_call = None
+            _remember(_REGISTRY_CACHE, key, result)
             self._registry = result
+            self._registry_key_value = key
+        return self._registry_snapshot()
+
+    def _registry_snapshot(self):
+        if self._provenance is None:
+            with stage("compiler.git_provenance"):
+                self._provenance = self.source_provenance()
+        self._registry["source_provenance"] = deepcopy(self._provenance)
+        self._registry["compiler_binding_sha256"] = sha256_json(self._binding_fields(self._registry))
         return deepcopy(self._registry)
 
     @staticmethod
@@ -235,7 +380,8 @@ class CompilerBridge:
         return sha256_json({name: sha256_text(Path(__file__).with_name(name).read_text(encoding="utf-8"))
                             for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
                                          "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
-                                         "incremental_codegen.cjs")})
+                                         "incremental_codegen.cjs", "generation_modes.cjs",
+                                         "operation_contracts.json", "operation_preflight.py", "edit_context.py")})
 
     @staticmethod
     def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:
@@ -247,8 +393,23 @@ class CompilerBridge:
         binding["compiler_binding_sha256"] = sha256_json(binding)
         return binding
 
-    def _bind_registry_hash(self, result: dict[str, Any]) -> dict[str, Any]:
+    def registry_and_binding(self) -> tuple[dict[str, Any], dict[str, Any]]:
+        """One verified snapshot for adjacent registry and binding consumers.
+
+        Callers must not retain this as a drift-check shortcut across external
+        work. Ordinary compiler_binding() always verifies current contents.
+        """
         registry = self.describe_registry()
+        binding = self._binding_fields(registry)
+        binding["compiler_binding_sha256"] = sha256_json(binding)
+        return registry, binding
+
+    def _bind_registry_hash(self, result: dict[str, Any]) -> dict[str, Any]:
+        source_key = self._consume_call_source_key(result) if self._binding_call_active else None
+        registry = (self._registry_snapshot() if source_key is not None
+                    and self._registry is not None and self._provenance is not None
+                    and source_key == self._registry_key_value[:5]
+                    else self.describe_registry())
         validation = result.get("validation")
         if not isinstance(validation, dict) or validation.get("valid") is not True:
             raise CompilerError("ActionDesign compiler did not confirm a valid canvas")
@@ -291,7 +452,7 @@ class CompilerBridge:
     def _verify_codegen_consistency(self, design: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
         """Regenerate with the same native compiler instead of trusting code hashes alone."""
         self._validate_editable_variable_values(design)
-        regenerated = self._bind_registry_hash(self._call({"command": "compile_design", "design": design}))
+        regenerated = self._call_and_bind({"command": "compile_design", "design": design})
         if regenerated.get("command") != "compile_design":
             raise CompilerError("Native code regeneration returned an invalid command identity")
         return self._compare_codegen_artifacts(design, artifacts, regenerated)
@@ -310,12 +471,17 @@ class CompilerBridge:
             raise CompilerError("Saved interface metadata changed during independent code generation")
         if "generation" in artifacts and regenerated.get("generation") != artifacts["generation"]:
             raise CompilerError("Incremental generation evidence changed during independent code generation")
+        if "generation_selection" in artifacts and regenerated.get("generation_selection") != artifacts["generation_selection"]:
+            raise CompilerError("Generation mode selection changed during independent code generation")
         return regenerated
 
-    def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None, baseline_artifacts=None):
+    def _verify_candidate(self, design, artifacts, *, baseline_design=None, binding_node_keys=None, baseline_artifacts=None,
+                          generation_mode="full"):
         """Independently reconstruct complete artifacts from the trusted baseline."""
         self._validate_editable_variable_values(design)
         payload = {"command": "verify_candidate", "design": design, "js_code": artifacts["js_code"]}
+        self._require_generation_mode(generation_mode)
+        payload["generation_mode"] = generation_mode
         if baseline_design is not None:
             payload["baseline"] = baseline_design
         else:
@@ -324,14 +490,22 @@ class CompilerBridge:
             if baseline_design is None:
                 raise CompilerError("Incremental verification requires the saved baseline canvas")
             payload["baseline_artifacts"] = baseline_artifacts
-        regenerated = self._bind_registry_hash(self._call(payload))
+        regenerated = self._call_and_bind(payload)
         if regenerated.get("command") != "verify_candidate":
             raise CompilerError("Native code regeneration returned an invalid command identity")
         if not isinstance(regenerated.get("event_binding_validation"), dict):
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
         return self._compare_codegen_artifacts(design, artifacts, regenerated)
 
-    def verify_compiled_result(self, result: dict[str, Any], *, baseline_design=None, baseline_artifacts=None) -> dict[str, Any]:
+    def verify_compiled_result(self, result: dict[str, Any], *, baseline_design=None, baseline_artifacts=None,
+                               generation_mode=None) -> dict[str, Any]:
+        context = result.get("_generation_context") or {}
+        if baseline_design is None:
+            baseline_design = context.get("baseline_design")
+        if baseline_artifacts is None:
+            baseline_artifacts = context.get("baseline_artifacts")
+        if generation_mode is None:
+            generation_mode = context.get("generation_mode", "full")
         design = result.get("design")
         if not isinstance(design, dict):
             raise CompilerError("Compiler did not return a design object")
@@ -348,7 +522,7 @@ class CompilerBridge:
         if not isinstance(event_validation, dict) or not isinstance(event_validation.get("binding_node_keys"), list):
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
         revalidation = self._verify_candidate(design, result, binding_node_keys=event_validation["binding_node_keys"],
-            baseline_design=baseline_design, baseline_artifacts=baseline_artifacts)
+            baseline_design=baseline_design, baseline_artifacts=baseline_artifacts, generation_mode=generation_mode)
         if revalidation["event_binding_validation"] != event_validation:
             raise CompilerError("Event binding validation evidence changed")
         if revalidation.get("validation") != result.get("validation"):
@@ -362,6 +536,7 @@ class CompilerBridge:
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
             **({"generation": deepcopy(revalidation["generation"])} if revalidation.get("generation") else {}),
+            **({"generation_selection": deepcopy(revalidation["generation_selection"])} if revalidation.get("generation_selection") else {}),
             **({"interface_metadata": deepcopy(revalidation["interface_metadata"])}
                if revalidation.get("interface_metadata", {}).get("interface_count") else {}),
         }
@@ -372,6 +547,7 @@ class CompilerBridge:
         desired: dict[str, Any],
         *, baseline_design: dict[str, Any] | None = None,
         baseline_artifacts: dict[str, Any] | None = None,
+        generation_mode: str = "full",
     ) -> dict[str, Any]:
         for field in ("js_code", "csharp_code", "relation_data"):
             if field not in desired:
@@ -383,7 +559,7 @@ class CompilerBridge:
             relation_data=desired["relation_data"],
         )
         validation = self._verify_candidate(design, desired, baseline_design=baseline_design or design,
-                                          baseline_artifacts=baseline_artifacts)
+                                          baseline_artifacts=baseline_artifacts, generation_mode=generation_mode)
         event_validation = validation["event_binding_validation"]
         return {
             "event_binding_validation": event_validation,
@@ -392,23 +568,36 @@ class CompilerBridge:
             "code_generation_complete": True,
             "generated_code_consistency_verified": True,
             **({"generation": deepcopy(validation["generation"])} if validation.get("generation") else {}),
+            **({"generation_selection": deepcopy(validation["generation_selection"])} if validation.get("generation_selection") else {}),
             **({"interface_metadata": deepcopy(validation["interface_metadata"])}
                if validation.get("interface_metadata", {}).get("interface_count") else {}),
         }
 
-    def verify_event_binding_validation(self, design, js_code, evidence):
+    def verify_event_binding_validation(self, design, js_code, evidence, *, baseline_design=None,
+                                        baseline_artifacts=None, generation_mode="full"):
         if not isinstance(evidence, dict) or not isinstance(evidence.get("binding_node_keys"), list):
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
-        checked = self._call({"command": "validate_event_bindings", "design": design,
-                              "js_code": js_code, "binding_node_keys": evidence["binding_node_keys"]})["event_binding_validation"]
+        payload = {"command": "validate_event_bindings", "design": design,
+                   "js_code": js_code, "binding_node_keys": evidence["binding_node_keys"]}
+        if "generation_selection" in evidence:
+            if baseline_design is None:
+                raise CompilerError("Generation mode verification requires the trusted baseline design")
+            self._require_generation_mode(generation_mode)
+            payload.update(command="verify_candidate", baseline=baseline_design,
+                           generation_mode=generation_mode)
+            if baseline_artifacts is not None:
+                payload["baseline_artifacts"] = baseline_artifacts
+        result = self._call(payload)
+        if payload["command"] == "verify_candidate" and result.get("js_code") != js_code:
+            raise CompilerError("Generated JavaScript changed during independent event validation")
+        checked = result["event_binding_validation"]
         if checked != evidence:
             raise CompilerError("Event binding validation evidence changed")
         return checked
 
     def validate_design(self, design: dict[str, Any]) -> dict[str, Any]:
         self._validate_editable_variable_values(design)
-        result = self._call({"command": "validate_design", "design": design})
-        return self._bind_registry_hash(result)
+        return self._call_and_bind({"command": "validate_design", "design": design})
 
     @staticmethod
     def _validate_editable_variable_values(design: dict[str, Any]) -> None:
@@ -436,13 +625,38 @@ class CompilerBridge:
                         )
 
     def describe_component_contract(self, component_type: str) -> dict[str, Any]:
-        result = self._call({"command": "describe_component_contract", "component_type": component_type})
+        binding = self.compiler_binding()
+        # compiler_binding() just measured this exact key. Keep the independent
+        # final content scan below, including on cache hits.
+        key = (self._registry_key_value, component_type)
+        cached = _cached(_CONTRACT_CACHE, key)
+        result = None
+        try:
+            if isinstance(cached, dict) and isinstance(cached.get("payload"), dict):
+                if cached.get("sha256") == sha256_json(cached["payload"]):
+                    result = cached["payload"]
+        except (TypeError, ValueError, RecursionError):
+            pass  # A malformed preparation cache must take the cold path.
+        with stage("compiler.component_contract", cache_hit=result is not None):
+            if result is None:
+                result = self._call({"command": "describe_component_contract", "component_type": component_type})
         if result.get("command") != "describe_component_contract" or not isinstance(result.get("component"), dict):
             raise CompilerError("Compiler returned an invalid component contract")
-        return {"component": result["component"], "compiler_binding": self.compiler_binding(),
+        if self._registry_key() != key[0]:
+            raise CompilerError("Compiler binding changed while reading the component contract")
+        _remember(_CONTRACT_CACHE, key, {"payload": result, "sha256": sha256_json(result)})
+        return {"component": result["component"], "compiler_binding": binding,
                 "component_instance_verified": False}
 
-    def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]], *, baseline_artifacts=None) -> dict[str, Any]:
+    @staticmethod
+    def _require_generation_mode(generation_mode):
+        if generation_mode not in ("full", "incremental", "auto"):
+            raise CompilerError("generation_mode must be full, incremental, or auto")
+
+    def compile_patch(self, design: dict[str, Any], operations: list[dict[str, Any]], *, baseline_artifacts=None,
+                      baseline_design=None, generation_mode="full") -> dict[str, Any]:
+        self._require_generation_mode(generation_mode)
+        self.preflight_operations(design, operations)
         if not operations:
             raise CompilerError("At least one canvas operation is required")
         if len(operations) > 100:
@@ -460,11 +674,26 @@ class CompilerBridge:
                     details={"operation_index": index, "group_key": operation.get("action_group_key"),
                              "node_key": operation.get("target_node_key") or operation.get("anchor_node_key"),
                              "path": operation.get("path"), "reason_code": "invalid_operation"})
-        payload = {"command": "compile_patch", "design": design, "operations": operations}
+        payload = {"command": "compile_patch", "design": design, "operations": operations,
+                   "generation_mode": generation_mode}
+        if baseline_design is not None:
+            payload["baseline"] = baseline_design
         if baseline_artifacts is not None:
             payload["baseline_artifacts"] = baseline_artifacts
-        result = self._call(payload)
-        return self._bind_registry_hash(result)
+        result = self._call_and_bind(payload)
+        result["_generation_context"] = {"baseline_design": deepcopy(baseline_design if baseline_design is not None else design),
+            "baseline_artifacts": deepcopy(baseline_artifacts), "generation_mode": generation_mode}
+        return result
+
+    @staticmethod
+    def preflight_operations(design, operations):
+        from .operation_preflight import preflight_batch
+        with stage("operations.preflight", operation_count=len(operations) if isinstance(operations, list) else 0):
+            report = preflight_batch(design, operations)
+        if report["issues"]:
+            first = report["issues"][0]
+            raise CompilerError(first.get("message", "Canvas batch preflight failed"), details={**report, **first})
+        return report
 
     @staticmethod
     def guarded_no_changes(design: dict[str, Any], operations: list[dict[str, Any]]) -> bool:
@@ -555,13 +784,14 @@ class CompilerBridge:
                 reject("paraminput_unsynchronized", str(exc))
         return True
 
-    def compile_reference_repair(self, repaired: dict[str, Any]) -> dict[str, Any]:
+    def compile_reference_repair(self, repaired: dict[str, Any], *, baseline_design=None, baseline_artifacts=None) -> dict[str, Any]:
         """Compile only a completely resolved structured candidate, never the diagnostic projection."""
         design = repaired["design"]
         if scan_references(design, self.describe_registry())["summary"]["total"]:
             raise CompilerError("Repaired candidate still contains invalid variable bindings")
         self.validate_design(design)
-        result = self.compile_patch(design, repaired["operations"])
+        result = self.compile_patch(design, repaired["operations"], baseline_design=baseline_design,
+                                    baseline_artifacts=baseline_artifacts, generation_mode="full")
         if scan_references(result["design"], self.describe_registry())["summary"]["total"]:
             raise CompilerError("Native parameter generation reintroduced invalid variable bindings")
         result["reference_repairs"] = deepcopy(repaired["repairs"])

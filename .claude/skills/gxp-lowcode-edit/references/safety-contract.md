@@ -6,7 +6,18 @@ Skip standalone plan previews, including when diagnosing a failed plan; use the
 returned issues and read-only evidence queries. `open_plan_review` is optional
 and requires an explicit user request for that separate window.
 Opening, previewing, navigating or reopening never approves or executes SQL;
-per-statement human approval and final execution confirmation remain in the app.
+actual-SQL human approval and final execution confirmation remain in the app.
+
+For one draft, combine all confirmed canvas operations into one plan, one
+`prepare_write` call and one approval transaction/window. The complete canvas,
+JS and C# update the same draft row in one UPDATE, approved once regardless of
+component count. For example, changing 10 components with no relation changes
+produces one main-row SQL approval. Actual extra SQL for added/changed/removed
+relation rows is reviewed separately in that window: SQL plus bound parameters
+and target row identify the item, not the SQL template alone. Never split
+approvals by canvas operation or automatically approve every SQL as a batch.
+The final save confirmation executes the already-approved transaction; it does
+not approve those SQL statements again.
 
 The local approval application defaults to a read-only component preview derived
 from the session baseline and signed desired canvas. Clicking expands a component;
@@ -47,7 +58,7 @@ raw nodes remain available.
 - The MCP server creates plans but has no tool that directly executes a write transaction.
 - Chat cancellation is limited to a specifically inspected, unexecuted edit flow after the user's explicit agreement. The cancellation fingerprint, ownership and current local records are checked atomically against execution, and the actual confirmation reply is retained in the audit. It cancels pending review and releases local occupancy without business SQL; it never approves a save or closes saved, restore or uncertain results. The manual handling window remains available.
 - The interactive approval application requires one manual approval per exact statement and one final execute click.
-- Each approval item contains exactly one SQL statement targeting exactly one row. Multiple changes must be separate single-row statements with a nonempty ID; stacked SQL, batch VALUES, OR/IN/range guards, duplicate targets, and empty/list IDs are blocked by the independent single-row checker.
+- Each SQL approval item contains exactly one statement targeting exactly one row. Multiple field/component changes to the same draft row stay together in its single UPDATE. Writes to different actual rows require separate statements with nonempty IDs, including when their SQL templates match; stacked SQL, batch VALUES, OR/IN/range guards, duplicate targets, and empty/list IDs are blocked by the independent single-row checker.
 - Before the first database write, the executor verifies a full single-column unique index on each target table's id, locks and checks every target, verifies relation ownership, and rejects zero/multiple existing matches or an already-existing insert ID. Every affected-row count must remain exactly one; all statements retain one atomic transaction.
 - The approval window defaults to a plain-language canvas location and before/after summary. Complete SQL, complete parameters and raw node evidence remain separate review tabs; an unsafe statement is blocked with a visible error before approval or execution.
 - All approvals bind the statement hash, parameters, design ID, old/new content hashes, expiry, transaction ID, blocking compiler evidence, candidate C# compilation evidence, and complete transaction metadata hash.

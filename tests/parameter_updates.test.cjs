@@ -32,7 +32,11 @@ test('checked no-op parameter updates preserve the canvas without native generat
 test('operation errors carry bounded identity and path without parameter data',()=>{
   const request=op({expected_old_value:'private expected data'});
   assert.throws(()=>apply(design(),[op({value:'active'}),request]),error=>{
-    assert.deepEqual(error.details,{operation_index:1,group_key:'g',node_key:'n',path:'/inputParams/status',reason_code:'old_value_mismatch'});
+    assert.deepEqual(Object.fromEntries(['operation_index','group_key','node_key','path','reason_code'].map(key=>[key,error.details[key]])),
+      {operation_index:1,group_key:'g',node_key:'n',path:'/inputParams/status',reason_code:'old_value_mismatch'});
+    assert.equal(error.details.phase,'canvas_operation');
+    assert.equal(error.details.expected_shape.operation,'set_parameter');
+    assert.equal(error.details.refresh_scope,'target_context');
     assert.ok(!JSON.stringify(error.details).includes('private'));return true;
   });
   assert.throws(()=>apply(design(),[op({path:'/inputParams/'+ 'x'.repeat(1000)})]),error=>error.details.path.length===256);
@@ -122,7 +126,11 @@ test('record replacements cannot add/remove keys or swap container types',()=>{
 });
 test('native changes to unrelated parameters fail without changing the input canvas',()=>{
   const d=design(),before=structuredClone(d);
-  assert.throws(()=>apply(d,[op()],(candidate,ops)=>{const result=native(candidate,ops);candidate.actionData[0].data[0].paramsValue.inputParams.match='OR';return result;}),/outside the requested value/);
+  assert.throws(()=>apply(d,[op()],(candidate,ops)=>{const result=native(candidate,ops);candidate.actionData[0].data[0].paramsValue.inputParams.match='OR';return result;}),error=>{
+    assert.match(error.message,/outside the requested value/);
+    assert.deepEqual(error.details.diff_paths,['/paramsValue/inputParams/match']);
+    assert.equal(error.details.diff_paths_truncated,false);return true;
+  });
   assert.deepEqual(d,before);
 });
 test('native omission of an empty unused parameter section is equivalent',()=>{

@@ -31,6 +31,22 @@ class ConversationToolContractTests(unittest.TestCase):
         fake.cancel_unexecuted_session.assert_called_once_with('old-session', 'a' * 64, '同意取消上述旧审核')
         self.assertFalse(result['write_executed'])
 
+    def test_local_release_tool_requires_scoped_confirmation_and_forwards_it(self):
+        from unittest.mock import Mock
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        self.assertEqual(set(tools["release_local_session"].inputSchema["required"]),
+                         {"session_id", "recovery_fingerprint", "user_confirmation"})
+        fake = Mock()
+        fake.release_local_session.return_value = {"session_released": True, "verified": False, "business_data_written": False}
+        with patch.object(SERVER, "service", return_value=fake) as factory:
+            _, result = asyncio.run(SERVER.mcp.call_tool("release_local_session", {"session_id": "s",
+                "recovery_fingerprint": "a" * 64, "user_confirmation": "同意保留当前数据并释放上述本地流程",
+                "conversation_id": "owner"}))
+        factory.assert_called_once_with("owner")
+        fake.release_local_session.assert_called_once_with("s", "a" * 64, "同意保留当前数据并释放上述本地流程")
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["business_data_written"])
+
     def test_new_tools_and_default_summary_are_exposed(self):
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
         self.assertIn("inspect_edit_context", tools)
@@ -52,6 +68,28 @@ class ConversationToolContractTests(unittest.TestCase):
         self.assertEqual(result["error_details"]["operation_index"], 2)
         self.assertEqual(result["error_details"]["reason_code"], "old_value_mismatch")
         self.assertNotIn("private", str(result))
+
+    def test_generation_modes_are_exposed_and_forwarded_with_full_default(self):
+        from unittest.mock import Mock
+        from mcp.server.fastmcp.exceptions import ToolError
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        mode = tools["plan_canvas_patch"].inputSchema["properties"]["generation_mode"]
+        self.assertEqual(mode["default"], "full")
+        self.assertEqual(set(mode["enum"]), {"full", "incremental", "auto"})
+        fake = Mock()
+        fake.plan_canvas_patch.return_value = {"plan_created": True}
+        with patch.object(SERVER, "service", return_value=fake):
+            for requested in (None, "full", "incremental", "auto"):
+                arguments = {"session_id": "s", "operations": []}
+                if requested is not None:
+                    arguments["generation_mode"] = requested
+                asyncio.run(SERVER.mcp.call_tool("plan_canvas_patch", arguments))
+                self.assertEqual(fake.plan_canvas_patch.call_args.kwargs["generation_mode"], requested or "full")
+            calls = fake.plan_canvas_patch.call_count
+            with self.assertRaisesRegex(ToolError, "generation_mode"):
+                asyncio.run(SERVER.mcp.call_tool("plan_canvas_patch", {"session_id": "s", "operations": [],
+                                                                      "generation_mode": "invalid"}))
+            self.assertEqual(fake.plan_canvas_patch.call_count, calls)
 
     def test_registered_tools_expose_dialogue_scope_and_explicit_takeover(self) -> None:
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
@@ -92,13 +130,15 @@ class ConversationToolContractTests(unittest.TestCase):
             ):
                 with self.subTest(arguments=arguments):
                     _, result = asyncio.run(SERVER.mcp.call_tool("editor_status", arguments))
-                    self.assertEqual(result, expected)
+                    self.assertEqual({key: value for key, value in result.items() if key not in {"trace_id", "timings", "total_elapsed_ms"}}, expected)
+                    self.assertRegex(result["trace_id"], r"^[0-9a-f]{32}$")
             _, result = asyncio.run(
                 SERVER.mcp.call_tool(
                     "attach_edit_session", {"session_id": "shared-flow", "conversation_id": "dialogue-b"}
                 )
             )
-            self.assertEqual(result, {"conversation_id": "dialogue-b", "session_id": "shared-flow"})
+            self.assertEqual({key: value for key, value in result.items() if key not in {"trace_id", "timings", "total_elapsed_ms"}},
+                {"conversation_id": "dialogue-b", "session_id": "shared-flow"})
 
 
 if __name__ == "__main__":

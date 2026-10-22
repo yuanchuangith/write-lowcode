@@ -5,8 +5,68 @@ import json
 import os
 import re
 import subprocess
+import time
 
 from .execution_lock import ExecutionBusyError
+
+
+def terminate_exact_process(pid: int, process_token: str, *, timeout_seconds: float = 3.0) -> bool:
+    """Stop only the creation identity already validated by a startup receipt.
+
+    This is deliberately not a process-tree kill: compiler children cannot save
+    data and must never broaden a window-recovery request to unrelated work.
+    """
+    if type(pid) is not int or pid <= 0 or pid == os.getpid() or not process_token:
+        return False
+    if os.name == "nt":
+        import ctypes
+        from ctypes import wintypes
+        kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+        kernel.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+        kernel.OpenProcess.restype = wintypes.HANDLE
+        kernel.GetProcessTimes.argtypes = (wintypes.HANDLE, *(ctypes.POINTER(wintypes.FILETIME),) * 4)
+        kernel.GetProcessTimes.restype = wintypes.BOOL
+        kernel.TerminateProcess.argtypes = (wintypes.HANDLE, wintypes.UINT)
+        kernel.TerminateProcess.restype = wintypes.BOOL
+        kernel.WaitForSingleObject.argtypes = (wintypes.HANDLE, wintypes.DWORD)
+        kernel.WaitForSingleObject.restype = wintypes.DWORD
+        kernel.CloseHandle.argtypes = (wintypes.HANDLE,)
+        handle = kernel.OpenProcess(0x1000 | 0x0001 | 0x00100000, False, pid)
+        if not handle:
+            return False
+        try:
+            created, exited, kernel_time, user_time = (wintypes.FILETIME() for _ in range(4))
+            if not kernel.GetProcessTimes(handle, ctypes.byref(created), ctypes.byref(exited),
+                                          ctypes.byref(kernel_time), ctypes.byref(user_time)):
+                return False
+            actual = str((created.dwHighDateTime << 32) | created.dwLowDateTime)
+            if actual != process_token:
+                return False
+            return bool(kernel.TerminateProcess(handle, 2)) and kernel.WaitForSingleObject(
+                handle, int(max(0, min(timeout_seconds, 5)) * 1000)) == 0
+        finally:
+            kernel.CloseHandle(handle)
+    # Linux pidfd retains the process identity across PID reuse.
+    import signal
+    from .ui_launch import _process_info
+    if not hasattr(os, "pidfd_open") or not hasattr(signal, "pidfd_send_signal"):
+        return False
+    try:
+        descriptor = os.pidfd_open(pid)
+        try:
+            if _process_info(pid) != (True, process_token):
+                return False
+            signal.pidfd_send_signal(descriptor, signal.SIGTERM)
+            deadline = time.monotonic() + max(0, min(timeout_seconds, 5))
+            while time.monotonic() < deadline:
+                if _process_info(pid) != (True, process_token):
+                    return True
+                time.sleep(0.02)
+            return False
+        finally:
+            os.close(descriptor)
+    except OSError:
+        return False
 
 
 def approval_process_ids(transaction_id: str) -> list[int]:

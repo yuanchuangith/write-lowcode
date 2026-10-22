@@ -61,6 +61,42 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.save_artifact.assert_not_called()
         self.execute_approved_transaction.assert_not_called()
 
+    def test_first_screen_does_not_wait_for_preview_metadata_and_result_updates_on_ui_thread(self):
+        self.window.close()
+        entered, release = threading.Event(), threading.Event()
+        def metadata(config, expected):
+            self.assertIsNot(QThread.currentThread(), self.window.qt_app.thread())
+            entered.set()
+            release.wait(2)
+            return {"Test": {"key": "Test"}}, "metadata ready"
+        self.addCleanup(release.set)
+        with patch.object(self.app, "preview_registry_metadata", side_effect=metadata), \
+             patch.object(self.app.ApprovalWindow, "load_preview_registry", side_effect=AssertionError("No synchronous metadata")):
+            started = time.monotonic()
+            self.window = self.app.ApprovalWindow("test", "review", 1)
+            self.addCleanup(self.dispose_window, self.window)
+            self.assertLess(time.monotonic() - started, 1)
+            self.window.root.show()
+            self.window.qt_app.processEvents()
+            self.assertTrue(entered.wait(0.5))
+            self.assertTrue(self.window.root.isVisible())
+            self.assertFalse(self.window.component_review.registry)
+            observed_threads = []
+            original = self.window.component_review.registry_note.setText
+            def record(text):
+                observed_threads.append(QThread.currentThread())
+                original(text)
+            with patch.object(self.window.component_review.registry_note, "setText", side_effect=record):
+                release.set()
+                deadline = time.monotonic() + 1
+                while not self.window.component_review.registry and time.monotonic() < deadline:
+                    QTest.qWait(10)
+            self.assertEqual(self.window.component_review.registry_note.text(), "metadata ready")
+            self.assertTrue(observed_threads)
+            self.assertTrue(all(thread is self.window.qt_app.thread() for thread in observed_threads))
+        self.assertFalse(self.artifact["approvals"])
+        self.execute_approved_transaction.assert_not_called()
+
     def test_small_window_keeps_action_buttons_visible_and_clickable(self):
         self.use_multiple_statements()
         self.messagebox.askyesno.return_value = False

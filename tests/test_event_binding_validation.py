@@ -257,7 +257,10 @@ const innerInbiz=()=>({getText:()=>{childReads++;return '合格';}});
         self.assertIn('var innerInbiz = action.innerInbiz;', result['js_code'])
         self.assertTrue(self.bridge.verify_compiled_result(result)['generated_code_consistency_verified'])
         evidence = result['event_binding_validation']
-        self.bridge.verify_event_binding_validation(result['design'], result['js_code'], evidence)
+        self.bridge.verify_event_binding_validation(result['design'], result['js_code'], evidence,
+                                                     baseline_design=self.design)
+        with self.assertRaisesRegex(CompilerError, 'trusted baseline'):
+            self.bridge.verify_event_binding_validation(result['design'], result['js_code'], evidence)
 
     def test_changed_action_checks_existing_child_groups_too(self):
         broken=deepcopy(self.design)

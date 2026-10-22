@@ -12,11 +12,13 @@ session. A different target in the same dialogue returns `blocked=true` and
 opens a local session handling window before backup or compiler work. Another
 dialogue's exclusive target reports the conflict without opening its window.
 Closing the handling window retains its session; never treat it as cancellation.
-`abort_edit_session` opens this window and returns `aborted=false`. After the
+`abort_edit_session` requests this window and returns `aborted=false`; use its
+startup result to distinguish opened, still starting and failed. After the
 human resolves it, recheck `editor_status.active_session` before retrying entry.
 Cancellation invalidates unexecuted plans and approvals while retaining backup
 and audit records. For a chat-authorized cancellation, use the procedure below;
-the handling window remains available. Never forcibly clear live or uncertain execution.
+the handling window and explicitly confirmed local release remain available.
+Never forcibly clear live execution or silently discard an uncertain result.
 
 ## Chat-authorized cancellation of unexecuted work
 
@@ -24,8 +26,9 @@ When the user wants AI to cancel an old unexecuted workflow, call
 `inspect_session_cancellation(session_id, conversation_id)`. Show the action name
 and code, the exact plan/approval IDs and the effect: invalidate that review,
 release the local session, retain current business data, backups and history.
-If `cancellable=false`, explain the returned reason and use recovery or the
-handling window; do not fabricate a cancellation fingerprint.
+If `cancellable=false`, explain the returned reason and use recovery, the
+handling window or the separate local-release procedure below. Do not fabricate
+a cancellation fingerprint or describe local release as proof that no write occurred.
 
 After presenting this concrete scope, ask whether AI may cancel it. Only an
 explicit user reply agreeing to that scope authorizes
@@ -44,6 +47,37 @@ outside this tool. Never call local state/closure helpers as a substitute.
 Cancellation neither approves nor executes business SQL; future saves still
 require the complete compiler checks and the human approval application.
 
+## Chat-authorized local release
+
+When verification is unavailable, the user may choose to keep the current
+business data and release local occupancy without establishing whether the old
+save succeeded. Call `inspect_session_cancellation(session_id, conversation_id)`
+and inspect its separate `local_release` object: `available`, `fingerprint`,
+`requires_user_confirmation`, `reason` and `meaning`. Show the action, session,
+exact plan/approval scope and returned meaning before requesting agreement.
+
+Only an explicit reply agreeing to that displayed local-release scope authorizes
+`release_local_session(session_id, recovery_fingerprint, user_confirmation, conversation_id)`.
+Use `local_release.fingerprint` as `recovery_fingerprint` and quote the actual
+reply. An existing explicit agreement covering that scope need not be requested
+again. Permission to cancel an unexecuted review, repair the plugin or save a
+business change does not authorize discarding an unverified workflow.
+
+The tool archives only local state. It retains current business data, backups
+and audit history, invalidates pending plans/approvals and returns an unverified
+result. It neither writes/restores business data nor proves that the old save
+succeeded or never happened. Never report local release as verified saving or
+publication. Subsequent editing must reread the draft, regenerate its plan and
+obtain new human approval; old approvals cannot be reused.
+
+Close this workflow's approval programs first. Window/executor locks, the legacy
+process check, ownership and exact inspected snapshot still guard release.
+If `available=false` or release is blocked, report the reason and resolve that
+condition; a timeout never supplies permission or proves execution stopped.
+If the scope changes, inspect and present the changed scope before obtaining
+new agreement. Never call local closure/state helpers as a substitute for the
+dedicated tool or automatically release a session after an error.
+
 ## Explicit multi-action queues
 
 For an explicitly authorized request covering several identified actions, call
@@ -52,8 +86,13 @@ entry. Keep expectations, backup, plan and transaction separate for each draft.
 `prepare_write` opens the queue window for the first ready action; later ready
 actions join that window automatically. Do not reopen each queued action.
 Use `get_edit_queue` to track all items, including preparation still in progress.
-The human approves single-row statements and confirms each action's save, with
-no inherited approvals. These are independent transactions: a later failure
+For each draft, batch its confirmed operations into one plan and one approval
+transaction/window, not one submission per component. The main draft-row UPDATE
+contains data, JS and C# together and is approved once. Only actual additional
+SQL is approved separately, by SQL plus bound parameters/target row even when
+templates match. The human's final save confirmation executes those approved
+statements rather than approving them again. Approvals are never inherited or
+automatically granted to the whole SQL list. These are independent transactions: a later failure
 does not roll back earlier saves. An unknown outcome pauses the queue for
 recovery. Closing the window retains queued work; reopening neither signs nor
 writes. A transferred session leaves its original queue and opens independently.
@@ -97,8 +136,11 @@ does not imply that the original canvas is valid.
    `plan_canvas_patch` cannot operate on a repair session.
    Keep the MCP's default summary response; use `read_plan_review` for selected
    issues rather than repeating the complete repair report in the model context.
-6. Open the validated repair approval directly with `prepare_write`, then retain per-statement human
-   approval, saved-draft verification and finish steps. `prepare_write` rechecks
+6. Open the validated repair approval directly with one `prepare_write` for the
+   draft's batch. Human approval covers each actual SQL statement with its bound
+   parameters/target row, not each repair or component; the main draft UPDATE is
+   approved once. Retain final execution confirmation, saved-draft verification
+   and finish steps. `prepare_write` rechecks
    reference provenance and the complete candidate; the approval window includes
    a signed, read-only “引用修复来源” tab. The bindings explicitly selected for repair
    must resolve; other static variable/action diagnostics are advisory.
@@ -121,7 +163,30 @@ does not imply that the original canvas is valid.
 - A `saved` transaction without `verified=true` and `session_released=true` still
   needs verification and finish, including saves made by older approval apps.
   Do not prompt platform saving/publication while that session is unfinished.
-- If the approval window fails to launch, retry once with `reopen_approval` and the returned transaction ID without another opening confirmation; report a repeated launch failure instead of looping.
+- Approval/handling window startup uses bounded receipts. Follow `window_starting`,
+  `startup_error` and the returned handling alternatives from `reopen_approval`,
+  `get_write_status` or `abort_edit_session`; starting is not opened or failed.
+  While startup is pending, check status without launching another window.
+- `startup_timeout` means no visible-window receipt arrived within 30 seconds;
+  it does not prove the process stopped or that execution never began. Use the
+  returned process ID and log for diagnosis without repeatedly spawning windows.
+  An inspected unexecuted review can still use confirmed chat cancellation;
+  uncertain results retain the live-process and executor protections until the
+  original process is closed or finishes. Never clear those locks to hide a hang.
+- Explicit `reopen_approval` can recover a stalled single-action window only after
+  its startup ID, actual UI process creation identity and current unexecuted state
+  are rechecked under the execution lock. It reopens the existing pending flow;
+  it neither approves, executes nor releases the session. Recovery refusal returns
+  handling alternatives. Queue processes are not force-stopped: corrupted
+  unexecuted candidates are isolated and retryable while healthy entries continue;
+  uncertain execution stops the queue. Registry display metadata loads after the
+  first visible screen and does not replace artifact validation.
+- If startup reports a failure and the pending artifact remains valid, retry once
+  with `reopen_approval` and the returned transaction ID without another opening
+  confirmation. Report a repeated failure and use the returned alternatives
+  instead of looping. A missing/corrupt/incompatible approval artifact cannot be
+  repaired by reopening it: inspect cancellation or local release, explain the
+  concrete scope and obtain the corresponding confirmation before acting.
 - If the user intentionally closes the window, reopen that pending review only after a continuation request, without asking for another opening confirmation. Reopening neither approves nor executes statements. Do not repeatedly reopen a dismissed window.
 - Expired approvals can be renewed by the user in the same window; execution
   continues to verify every signature and expiry.
@@ -134,19 +199,19 @@ does not imply that the original canvas is valid.
   `finish_edit_session`. A match to the original releases the failed session.
 - The executor and recovery share an OS lock. Recovery cannot release a live
   executor. Old executing records without this protocol cannot be assumed dead.
-- If neither snapshot matches, the session window offers an explicit human choice
-  to keep current database data and close the session. This archives the mismatch,
-  does not restore or overwrite data, and does not assert successful execution.
+- If neither snapshot matches, use the handling window's explicit human choice
+  or the chat-authorized local-release procedure to retain current database data
+  and close the session. This archives the mismatch without asserting execution
+  success or overwriting data.
 - If configuration, database access, a missing/corrupt approval file, a damaged
-  local baseline, or a legacy execution record prevents verification, open
-  `abort_edit_session` with this dialogue's marker. Its separate “保留数据并释放本地流程”
-  button lets the user explicitly archive an unverified flow and retain current
-  database data without depending on configuration, compilers or database reads.
-  The user must close all approval programs first. Window/executor locks and a
-  legacy process check block release while the workflow is still running. Closure
-  retains backups and an audit snapshot, invalidates remaining plans/approvals,
-  and never reports successful verification. Never call the local closure helper
-  from the model or treat opening this window as completed release.
+  local baseline, or a legacy execution record prevents verification, either open
+  `abort_edit_session` with this dialogue's marker or use chat-authorized local
+  release. The window's “保留数据并释放本地流程” and the dedicated release tool
+  archive an unverified flow without configuration, compiler or database reads.
+  Both retain backups/audit and require explicit agreement and stopped approval
+  programs. If window startup also fails, use the inspected local-release scope;
+  do not send the user repeatedly to a window that never opened. Never call a
+  local closure helper or treat a launch request as completed release.
 - When entry is blocked, the session handling window is also available for saved,
   verified, pending restore, and uncertain sessions; do not repeatedly retry entry.
 

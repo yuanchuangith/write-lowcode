@@ -9,7 +9,7 @@ import unittest
 from pathlib import Path
 from unittest.mock import Mock, patch
 
-from tests.helpers import baseline, editor_config, transaction
+from tests.helpers import MCP_ROOT, baseline, editor_config, transaction
 from gxp_editor.approval import save_artifact, transaction_binding_hash
 from gxp_editor.execution_lock import ExecutionBusyError, execution_lock
 from gxp_editor.recovery import recover_session
@@ -63,7 +63,8 @@ class RecoveryTests(unittest.TestCase):
 
     def test_executor_lock_is_released_when_process_dies(self):
         code = "from gxp_editor.execution_lock import execution_lock; import sys,os;\nwith execution_lock(sys.argv[1]):\n print(os.getpid(), flush=True)\n sys.stdin.read()\n"
-        process = subprocess.Popen([sys.executable, '-c', code, str(self.path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        process = subprocess.Popen([sys.executable, '-c', code, str(self.path)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE, text=True, env={**os.environ, "PYTHONPATH": str(MCP_ROOT)})
         try:
             executor_pid = int(process.stdout.readline().strip())
             with self.assertRaises(ExecutionBusyError):

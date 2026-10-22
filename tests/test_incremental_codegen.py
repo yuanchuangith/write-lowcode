@@ -102,7 +102,7 @@ class NativeIncrementalCodegenTests(unittest.TestCase):
         design = self.design if design is None else design
         baseline = self.baseline if baseline is None else baseline
         saved = {k: deepcopy(baseline[k]) for k in ("js_code", "csharp_code", "relation_data")}
-        result = self.bridge.compile_patch(design, [operation], baseline_artifacts=saved)
+        result = self.bridge.compile_patch(design, [operation], baseline_artifacts=saved, generation_mode="incremental")
         evidence = self.bridge.verify_compiled_result(result, baseline_design=design, baseline_artifacts=saved)
         self.assertTrue(evidence["generated_code_consistency_verified"])
         self.assertEqual(evidence["generation"], result["generation"])
@@ -150,7 +150,7 @@ class NativeIncrementalCodegenTests(unittest.TestCase):
             desired[field] = value
             with self.subTest(field=field), self.assertRaisesRegex(CompilerError, "does not match"):
                 self.bridge.verify_candidate_artifact(result["design"], desired,
-                    baseline_design=self.design, baseline_artifacts=saved)
+                    baseline_design=self.design, baseline_artifacts=saved, generation_mode="incremental")
 
     def test_reserved_names_and_platform_mount_writes_still_block(self):
         for name, expression in (("inbiz", "1"), ("Inbiz", "1"), ("value", "(window.inbiz = {})")):

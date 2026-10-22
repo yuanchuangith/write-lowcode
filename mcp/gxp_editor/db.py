@@ -10,6 +10,7 @@ from pymysql.connections import Connection
 from pymysql.cursors import DictCursor
 
 from .config import DatabaseConfig, load_secret
+from .telemetry import timed
 
 
 class DatabaseError(RuntimeError):
@@ -22,6 +23,7 @@ class DatabaseSession:
         self.cursor: DictCursor = connection.cursor()
         self.rollback_confirmed = False
 
+    @timed("database.read")
     def query(
         self,
         sql: str,

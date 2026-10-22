@@ -119,6 +119,7 @@ CREATE TABLE IF NOT EXISTS transactions (
             db.execute("CREATE TABLE IF NOT EXISTS session_closures (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS edit_queues (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS edit_queue_items (queue_id TEXT NOT NULL, session_id TEXT PRIMARY KEY, owner_revision INTEGER NOT NULL, position INTEGER NOT NULL, context_json TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS review_spec_checkpoints (session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, sha256 TEXT NOT NULL)")
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -250,6 +251,50 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             row["baseline"] = json.loads(baseline_json)
         return row
 
+    @staticmethod
+    def _review_spec_payload(session, spec):
+        baseline = json.loads(session["baseline_json"])
+        return {"schema_version": 1, "session_id": session["id"],
+                "baseline_content_hash": baseline["content_hash"], "compiler_hash": session["compiler_hash"],
+                "spec": spec}
+
+    def review_spec_checkpoint(self, session_id: str, *, conversation_id: str = "", owner_revision: int | None = None):
+        """Requirements survive disposable candidate files; this is not approval."""
+        with self._connection() as db:
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+            self._assert_owner(session, conversation_id, owner_revision)
+            row = db.execute("SELECT payload_json,sha256 FROM review_spec_checkpoints WHERE session_id=?", (session_id,)).fetchone()
+            if row is None:
+                return None
+            try:
+                payload = json.loads(row["payload_json"])
+                if (not isinstance(payload, dict) or not isinstance(payload.get("spec"), dict)
+                        or sha256_json(payload) != row["sha256"]
+                        or payload != self._review_spec_payload(session, payload["spec"])):
+                    raise ValueError("checkpoint mismatch")
+            except (ValueError, TypeError, KeyError) as exc:
+                raise StateError("已确认要求的独立记录损坏或基线不匹配；请重新确认完整修改范围，不可清空旧要求重试。") from exc
+        return {"spec": payload["spec"], "sha256": row["sha256"]}
+
+    def save_review_spec_checkpoint(self, session_id: str, spec: dict[str, Any], *, expected_sha256: str | None,
+                                    conversation_id: str = "", owner_revision: int | None = None):
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+            self._assert_owner(session, conversation_id, owner_revision)
+            if session["state"] not in {"locked", "planned"}:
+                raise StateError("当前会话不能变更已确认要求。")
+            current = db.execute("SELECT sha256 FROM review_spec_checkpoints WHERE session_id=?", (session_id,)).fetchone()
+            if (current["sha256"] if current else None) != expected_sha256:
+                raise StateError("已确认要求被另一请求更新，请重新读取后规划。")
+            payload = self._review_spec_payload(session, spec)
+            encoded = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+            if len(encoded.encode("utf-8")) > 2 * 1024 * 1024:
+                raise StateError("已确认要求记录超过 2 MiB。")
+            fingerprint = sha256_json(payload)
+            db.execute("INSERT OR REPLACE INTO review_spec_checkpoints VALUES (?,?,?)", (session_id, encoded, fingerprint))
+        return fingerprint
+
     def update_session(self, session_id: str, state: str, *, conversation_id: str | None = "", owner_revision: int | None = None, expected_states: tuple[str, ...] | None = None, expected_transaction_id: str | None = None, **fields: Any) -> None:
         allowed = {"plan_id", "transaction_id"}
         assignments = ["state=?", "updated_at=?"]
@@ -270,7 +315,21 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError("当前审批流程已变化，请重新核对后操作。")
             db.execute(f"UPDATE sessions SET {', '.join(assignments)} WHERE id=?", values)
 
-    def create_plan(self, session_id: str, artifact_path: str, base_hash: str, new_hash: str, compiler_hash: str, *, conversation_id: str | None = "", owner_revision: int | None = None, initial_status: str = "ready", expected_plan_id: Any = _UNSET_PLAN) -> str:
+    def _assert_review_checkpoint(self, db, session, expected_sha256):
+        if expected_sha256 is _UNSET_PLAN:
+            return
+        row = db.execute("SELECT payload_json,sha256 FROM review_spec_checkpoints WHERE session_id=?", (session["id"],)).fetchone()
+        if expected_sha256 is None and row is None:
+            return
+        try:
+            payload = json.loads(row["payload_json"]) if row else None
+            if (not row or row["sha256"] != expected_sha256 or sha256_json(payload) != expected_sha256
+                    or payload != self._review_spec_payload(session, payload["spec"])):
+                raise ValueError("checkpoint changed")
+        except (ValueError, KeyError, TypeError) as exc:
+            raise StateError("已确认要求已变化或损坏，请按当前要求重新生成计划。") from exc
+
+    def create_plan(self, session_id: str, artifact_path: str, base_hash: str, new_hash: str, compiler_hash: str, *, conversation_id: str | None = "", owner_revision: int | None = None, initial_status: str = "ready", expected_plan_id: Any = _UNSET_PLAN, expected_review_checkpoint: Any = _UNSET_PLAN) -> str:
         if initial_status not in {"ready", "blocked"}:
             raise StateError("A new plan must be ready or blocked")
         plan_id = uuid.uuid4().hex
@@ -282,6 +341,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError("Session can no longer be planned")
             if expected_plan_id is not _UNSET_PLAN and session["plan_id"] != expected_plan_id:
                 raise StateError("Current plan changed while this candidate was being generated; retry from the current plan")
+            self._assert_review_checkpoint(db, session, expected_review_checkpoint)
             db.execute("UPDATE plans SET status='superseded' WHERE session_id=? AND status IN ('ready','blocked')", (session_id,))
             db.execute(
                 "INSERT INTO plans VALUES (?,?,?,?,?,?,?,?)",
@@ -314,6 +374,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         transaction_id: str | None = None,
         conversation_id: str | None = "",
         owner_revision: int | None = None,
+        expected_review_checkpoint: Any = _UNSET_PLAN,
     ) -> str:
         transaction_id = transaction_id or uuid.uuid4().hex
         now = datetime.now().isoformat(timespec="seconds")
@@ -330,6 +391,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             allowed = {"planned"} if kind == "write" else {"saved", "saved_state_pending", "verified"}
             if not session or session["state"] not in allowed or (kind == "write" and session["plan_id"] != plan_id):
                 raise StateError("Session can no longer enter approval")
+            self._assert_review_checkpoint(db, session, expected_review_checkpoint)
             db.execute(
                 "INSERT INTO transactions VALUES (?,?,?,?,?,?,?,?,?)",
                 (transaction_id, session_id, plan_id, kind, "awaiting_approval", artifact_path, "", now, now),
@@ -510,12 +572,20 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 
     def archive_session(self, session_id: str, *, conversation_id: str, owner_revision: int,
                         expected_session_state: str, expected_transaction_id: str | None,
-                        expected_transaction_state: str | None) -> None:
-        """Manual local closure only; caller holds window/executor locks and checks processes."""
+                        expected_transaction_state: str | None, expected_fingerprint: str | None = None,
+                        user_confirmation: str = "") -> None:
+        """Local closure only; caller holds window/executor locks and checks processes."""
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
             self._assert_owner(session, conversation_id, owner_revision)
+            confirmed_snapshot = None
+            if expected_fingerprint is not None:
+                if not isinstance(user_confirmation, str) or not user_confirmation.strip() or len(user_confirmation) > 2000:
+                    raise StateError("需要用户对本次保留数据并释放本地流程的明确确认原文。")
+                confirmed_snapshot = self._cancellation_snapshot(db, session)
+                if confirmed_snapshot["fingerprint"] != expected_fingerprint:
+                    raise StateError("会话、计划或审批已变化，请重新展示本地释放范围并取得用户确认。")
             if session["state"] not in ACTIVE_STATES or session["state"] != expected_session_state or session["transaction_id"] != expected_transaction_id:
                 raise StateError("会话状态或审批流程已变化，请重新打开处理窗口。")
             transaction = db.execute("SELECT * FROM transactions WHERE id=?", (expected_transaction_id,)).fetchone()
@@ -527,6 +597,9 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                         "conversation_id": conversation_id, "owner_revision": owner_revision, "transactions": transactions,
                         "verified": False, "business_data_written": False,
                         "reason": "User chose to retain current database data and release local occupancy without asserting execution success"}
+            if confirmed_snapshot is not None:
+                snapshot.update({"event": "user_authorized_local_release", "confirmation_channel": "chat",
+                                 "user_confirmation": user_confirmation, "confirmation_snapshot": confirmed_snapshot})
             db.execute("INSERT INTO session_closures VALUES (?,?,?,?)", (uuid.uuid4().hex, session_id, json.dumps(snapshot, ensure_ascii=False), now))
             db.execute("UPDATE transactions SET state='closed_unverified',updated_at=? WHERE session_id=? AND state IN ('awaiting_approval','executing','failed','saved_state_pending')", (now, session_id))
             db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status IN ('ready','blocked','frozen')", (session_id,))

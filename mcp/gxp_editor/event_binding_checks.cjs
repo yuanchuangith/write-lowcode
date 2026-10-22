@@ -5,20 +5,31 @@ const {parametersMatch} = require('./event_contracts.cjs');
 const {createRequire} = require('node:module');
 const GLOBALS = new Set(['console','JSON','Math','Date','Array','Object','String','Number','Boolean','RegExp','Map','Set','WeakMap','WeakSet','Promise','Error','TypeError','RangeError','Symbol','BigInt','Intl','URL','URLSearchParams','undefined','NaN','Infinity','parseInt','parseFloat','isNaN','isFinite','encodeURIComponent','decodeURIComponent','setTimeout','clearTimeout','setInterval','clearInterval','window','document','navigator','localStorage','sessionStorage']);
 const RESERVED_PLATFORM_IDENTIFIERS = new Set(['inbiz', 'Inbiz']);
-function rejectReservedName(name, group) {
+const MAX_DIAGNOSTIC_ISSUES = 20;
+function diagnostic(reason, group, node, extra = {}) {
+  const result = {phase:'javascript_lexical', reason_code:reason, group_key:typeof group?.key === 'string' ? group.key.slice(0,256) : null,
+    mapping_status:'group_only', ...extra};
+  if (node?.loc?.start) {
+    result.line = node.loc.start.line;
+    result.column = Math.max(0,node.loc.start.column - (result.line === 1 ? 1 : 0));
+  }
+  return result;
+}
+function rejectWithDetails(message, details) { const error = new Error(message); error.details = details; throw error; }
+function rejectReservedName(name, group, node) {
   if (!RESERVED_PLATFORM_IDENTIFIERS.has(name)) return;
   const error = new Error('Reserved platform identifier ' + name + ' cannot be declared or overwritten in ' + group.title);
-  error.details = {reason_code:'reserved_platform_identifier', group_key:group.key};
+  error.details = diagnostic('reserved_platform_identifier', group, node, {identifier:name});
   throw error;
 }
 function inspectWriteTarget(node, group) {
   if (!node) return;
-  if (node.type === 'Identifier') rejectReservedName(node.name, group);
+  if (node.type === 'Identifier') rejectReservedName(node.name, group, node);
   else if (node.type === 'MemberExpression') {
     const owner = node.object;
     const name = !node.computed && node.property.type === 'Identifier' ? node.property.name
       : node.computed && node.property.type === 'StringLiteral' ? node.property.value : null;
-    if (owner.type === 'Identifier' && ['window', 'globalThis'].includes(owner.name)) rejectReservedName(name, group);
+    if (owner.type === 'Identifier' && ['window', 'globalThis'].includes(owner.name)) rejectReservedName(name, group, node);
   } else if (node.type === 'ObjectPattern') {
     for (const property of node.properties) inspectWriteTarget(property.type === 'RestElement' ? property.argument : property.value, group);
   } else if (node.type === 'ArrayPattern') {
@@ -43,6 +54,7 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets, preserved = 
   const ast = parser.parse('(' + code + ')', {sourceType:'script'});
   const factory = ast.program.body[0]?.expression;
   const pending = new Map(groups.map(group=>[group.key, group]));
+  const lexicalIssues = [], seenIssues = new Set(); let issueCount = 0;
   traverse(ast, {AssignmentExpression(p) {
     // Native group declarations belong to the generated factory. Assignments
     // inside an action (including an IIFE wrapping another group for in-flight
@@ -54,12 +66,12 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets, preserved = 
     const group = pending.get(left.property.name);
     if (!group) return;
     const fn = p.get('right');
-    if (!fn.isFunctionExpression()) throw new Error('Event callback is not the declared native function: ' + group.key);
+    if (!fn.isFunctionExpression()) rejectWithDetails('Event callback is not the declared native function: ' + group.key, diagnostic('native_function_expected', group, fn.node));
     const names = fn.node.params.map(param=>param.type === 'AssignmentPattern' ? param.left.name : param.name);
     const expected = (group.inputParams || []).map(param=>param.title);
-    if (JSON.stringify(names) !== JSON.stringify(expected)) throw new Error('Generated callback signature does not match canvas parameters: ' + group.title);
+    if (JSON.stringify(names) !== JSON.stringify(expected)) rejectWithDetails('Generated callback signature does not match canvas parameters: ' + group.title, diagnostic('callback_signature_mismatch', group, fn.node));
     fn.traverse({
-      BindingIdentifier(ref) { rejectReservedName(ref.node.name, group); },
+      BindingIdentifier(ref) { rejectReservedName(ref.node.name, group, ref.node); },
       AssignmentExpression(ref) { inspectWriteTarget(ref.node.left, group); },
       UpdateExpression(ref) { inspectWriteTarget(ref.node.argument, group); },
       UnaryExpression(ref) { if (ref.node.operator === 'delete') inspectWriteTarget(ref.node.argument, group); },
@@ -68,19 +80,32 @@ function inspectFunctions(code, groups, frontendRoot, eventTargets, preserved = 
       const name = ref.node.name;
       if (name === 'arguments') {
         const owner = ref.findParent(parent=>parent.isFunction() && !parent.isArrowFunctionExpression());
-        if (owner === fn && eventTargets.has(group.key)) throw new Error('Hidden event arguments are forbidden in ' + group.title + '; declare the callback input and use its named parameter');
+        if (owner === fn && eventTargets.has(group.key)) rejectWithDetails('Hidden event arguments are forbidden in ' + group.title + '; declare the callback input and use its named parameter', diagnostic('hidden_event_arguments', group, ref.node));
       }
       if (!ref.scope.hasBinding(name, true) && !allowed.has(name) && name !== 'arguments') {
         if (preserved.has(group.key)) {
           if (!diagnostics.some(d => d.group_key === group.key && d.identifier === name)) diagnostics.push({
             group_key: group.key, identifier: name, reason_code: 'preserved_undeclared_identifier',
             status: 'unverified', blocks_changed_candidate: false});
-        } else throw new Error('Undeclared ' + (eventTargets.has(group.key) ? 'callback' : 'action') + ' identifier ' + name + ' in ' + group.title);
+        } else {
+          const identity = JSON.stringify([group.key,name]);
+          if (!seenIssues.has(identity)) {
+            seenIssues.add(identity); issueCount++;
+            if (lexicalIssues.length < MAX_DIAGNOSTIC_ISSUES) lexicalIssues.push(diagnostic('undeclared_identifier', group, ref.node,
+              {identifier:name.slice(0,256), callback:eventTargets.has(group.key)}));
+          }
+        }
       }
     }});
     pending.delete(group.key);
   }});
-  if (pending.size) throw new Error('Generated event callback function is missing: ' + [...pending.keys()].join(', '));
+  if (pending.size) rejectWithDetails('Generated event callback function is missing: ' + [...pending.keys()].join(', '),
+    diagnostic('native_function_missing', pending.values().next().value));
+  if (lexicalIssues.length) {
+    const first = lexicalIssues[0], group = groups.find(group=>group.key === first.group_key);
+    rejectWithDetails('Undeclared ' + (first.callback ? 'callback' : 'action') + ' identifier ' + first.identifier + ' in ' + group.title,
+      {...first, issues:lexicalIssues, issue_count:issueCount, issues_truncated:issueCount > lexicalIssues.length, refresh_scope:'group_context'});
+  }
 }
 function collectScope(before, design) {
   const old = new Map(before.actionData.map(group=>[group.key,group]));
@@ -95,21 +120,29 @@ function collectScope(before, design) {
   return nodes;
 }
 function validateBindings(design, scope, api, getContract, code, generation) {
-  if (!Array.isArray(scope) || new Set(scope).size !== scope.length) throw new Error('Invalid event binding validation scope');
+  if (!Array.isArray(scope) || new Set(scope).size !== scope.length) rejectWithDetails('Invalid event binding validation scope',
+    {phase:'event_binding',reason_code:'invalid_binding_scope',mapping_status:'unresolved'});
   const checks = [], groups = [];
   for (const key of scope) {
     const owners = design.actionData.flatMap(group=>group.data.filter(n=>n.key===key).map(node=>({group,node})));
-    if (owners.length !== 1 || owners[0].node.elementKey !== 'ComponentEvent') throw new Error('Event binding validation target is missing or ambiguous: ' + key);
+    if (owners.length !== 1 || owners[0].node.elementKey !== 'ComponentEvent') rejectWithDetails('Event binding validation target is missing or ambiguous: ' + key,
+      {phase:'event_binding',reason_code:'binding_target_missing',node_key:typeof key === 'string' ? key.slice(0,256) : null,mapping_status:'unresolved'});
     const {group,node} = owners[0];
+    const bindingDetails = (reason, path) => ({phase:'event_binding',reason_code:reason,group_key:group.key,node_key:node.key,
+      mapping_status:'node',...(path ? {path} : {}),refresh_scope:'target_context'});
     const input = node.paramsValue?.inputParams;
     const name = input?.name;
-    if (name?.paramTypes !== 'componentsVariable' || !name.dataType || typeof name.value !== 'string' || !name.value.startsWith('componentsVariable-')) throw new Error('Event binding needs an explicit component ID and type from page evidence');
-    const contract = getContract(api.catalog(), name.dataType, input.eventName, api);
-    const target = api.actionByKey(design, input.action?.value);
-    if (group.actionType !== 'js' || target.actionType !== 'js' || target.key===group.key) throw new Error('Event callback must be a different JS group');
+    if (name?.paramTypes !== 'componentsVariable' || !name.dataType || typeof name.value !== 'string' || !name.value.startsWith('componentsVariable-')) rejectWithDetails('Event binding needs an explicit component ID and type from page evidence',bindingDetails('binding_component_identity_required','/inputParams/name'));
+    let contract, target;
+    try { contract = getContract(api.catalog(), name.dataType, input.eventName, api); }
+    catch (error) { error.details = bindingDetails('event_contract_unavailable','/inputParams/eventName'); throw error; }
+    try { target = api.actionByKey(design, input.action?.value); }
+    catch (error) { error.details = bindingDetails('event_callback_missing','/inputParams/action'); throw error; }
+    if (group.actionType !== 'js' || target.actionType !== 'js' || target.key===group.key) rejectWithDetails('Event callback must be a different JS group',bindingDetails('event_callback_group_invalid','/inputParams/action'));
     for (const [section, expected] of [['inputParams',contract.input_params],['outputParams',contract.output_params]]) {
       const actual = target[section] || [];
-      if (!parametersMatch(actual, expected, contract, section)) throw new Error('Event callback ' + section + ' does not match the runtime contract: ' + target.title);
+      if (!parametersMatch(actual, expected, contract, section)) rejectWithDetails('Event callback ' + section + ' does not match the runtime contract: ' + target.title,
+        {...bindingDetails('callback_parameter_mismatch','/inputParams/action'),callback_group_key:target.key});
     }
     groups.push(target);
     checks.push({binding_node_key:key, source_group_key:group.key, target_group_key:target.key,

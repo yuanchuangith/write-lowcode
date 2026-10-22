@@ -6,6 +6,12 @@ All operations edit one existing unpublished ActionDesign. Creating a child acti
 
 Check `supported_operations` from session entry or the latest readiness evidence before planning extended operations; call `editor_status` only if that evidence is missing. If the requested operation is absent, reload the updated MCP plugin. Do not substitute arbitrary JSON or SQL. Read inspect_component_contract(component_type) for the compiled component's event names and callback input/output declarations. This query does not verify a component instance on a page; establish its current page, ID, type and visible title through readonly page evidence first.
 
+## Internal batch preflight
+
+`plan_canvas_patch` preflights the entire submitted operation batch before native generation or C# compilation; do not add another model tool round trip. It checks later operations as well as the first, simulates sequential existing-parameter changes on a private baseline copy and validates field/path/old-value/array-selector/alias rules. Structural operations whose generated defaults or keys are not yet available make dependent checks pending; `pending_checks` does not certify native validity.
+
+Failures expose bounded `error_details.issues`, `issue_count`, `issues_truncated`, `pending_checks`, a zero-based `operation_index`, trusted group/node/path, `reason_code`, `expected_shape` and `refresh_scope`. Correct the shown independent errors and resubmit the complete batch; if truncated, subsequent bounded results may reveal remaining errors. Preserve expectations and resubmit from the immutable session baseline, never append operations to a failed candidate or approve an older plan automatically. See [evidence-and-performance.md](evidence-and-performance.md) for templates and repair scope.
+
 ## Group creation
 
 create_action_group fields:

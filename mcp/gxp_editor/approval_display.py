@@ -285,12 +285,28 @@ def reference_repair_summary(repairs: list[dict[str, Any]]) -> str:
 
 def generation_review_summary(evidence: dict[str, Any]) -> str:
     generation = evidence.get("generation") or {}
+    selection = evidence.get("generation_selection") or {}
+    labels = {"full": "全量生成", "incremental": "增量生成", "auto": "自动选择"}
+    reasons = {"explicit_full": "按指定模式全量生成", "explicit_incremental": "按指定模式增量生成",
+        "small_change": "改动和依赖范围较小", "shared_context_changed": "共享配置发生变化",
+        "language_changed": "分组语言发生变化", "affected_group_limit": "受影响分组较多",
+        "changed_node_limit": "改动节点较多", "affected_group_ratio": "受影响分组占比较高",
+        "baseline_unavailable": "缺少可验证的旧画布", "baseline_artifacts_unavailable": "缺少完整旧代码快照"}
+    if selection.get("selected_mode") == "full":
+        return "\n".join([
+            "请求模式：" + labels.get(selection.get("requested_mode"), "全量生成"),
+            "实际模式：全量生成", "选择原因：" + reasons.get(selection.get("reason_code"), str(selection.get("reason_code") or "全量生成")),
+            f"重新生成全部 {len(selection.get('scope', {}).get('affected_group_keys', [])) + len(selection.get('scope', {}).get('unaffected_group_keys', []))} 个候选动作分组。",
+            "完整候选已独立生成核对；词法检查和 C# 编译不代表业务运行验证通过。"])
     regenerated = generation.get("regenerated_group_keys") or []
     preserved = generation.get("preserved_group_keys") or []
     lines = [f"原生重新生成 {len(regenerated)} 个动作分组；原样保留 {len(preserved)} 个动作分组。",
              "重新生成：" + ("、".join(regenerated) or "无"),
              "原样保留：" + ("、".join(preserved) or "无"),
              "完整候选已独立重建核对；保留旧代码不代表运行验证通过。"]
+    if selection:
+        lines[:0] = ["请求模式：" + labels.get(selection.get("requested_mode"), "增量生成"),
+                     "实际模式：增量生成", "选择原因：" + reasons.get(selection.get("reason_code"), str(selection.get("reason_code") or "增量生成"))]
     diagnostics = (evidence.get("event_binding_validation") or {}).get("baseline_diagnostics") or []
     if diagnostics:
         lines.append("\n未改分组的旧引用问题（未验证，本次未修改）：")

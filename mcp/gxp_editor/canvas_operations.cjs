@@ -1,28 +1,42 @@
 'use strict';
 const crypto = require('node:crypto');
 const runtimeContracts = require('./event_contracts.cjs');
+const operationContracts = require('./operation_contracts.json');
 const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'insert_in_block', 'bind_component_event', 'set_parameter', 'set_array_item'];
 const NATIVE = ['insert_before', 'insert_after', 'replace_params', 'replace_block', 'delete_block', 'move_block'];
 const TYPES = new Set(['string', 'number', 'double', 'boolean', 'object', 'dictionary', 'array', 'dateTime', 'any']);
-const FORBIDDEN = ['key', 'depth', 'title', 'description', 'js_code', 'csharp_code', 'relation_data', 'sql', 'raw_code'];
+const FORBIDDEN = operationContracts.forbidden_fields;
 function cloneParameters(params) { return JSON.parse(JSON.stringify(params || [])); }
 function text(value, field) {
   if (typeof value !== 'string' || !value.trim()) reject('invalid_operation', field + ' must be a nonblank string');
   return value;
 }
 function fields(op, names) {
+  const contract = operationContracts.operations[op.operation];
+  if (names.includes('operation') && contract?.strict_fields) names = [...contract.required, ...contract.optional];
   for (const key of Object.keys(op)) if (!names.includes(key)) reject('invalid_operation', 'Unsupported field for ' + op.operation + ': ' + key);
 }
-function reject(reason, message) { const error = new Error(message); error.reason_code = reason; throw error; }
+function reject(reason, message, details) { const error = new Error(message); error.reason_code = reason; if (details) error.details = details; throw error; }
 function operationFailure(error, op, index) {
   if (!(error instanceof Error)) error = new Error('Canvas operation rejected');
   const bounded = value => typeof value === 'string' ? value.slice(0, 256) : null;
-  const reason = typeof error.reason_code === 'string' && /^[a-z_]{1,64}$/.test(error.reason_code) ? error.reason_code : 'operation_rejected';
+  const prior = object(error.details) ? error.details : {};
+  const candidateReason = error.reason_code || prior.reason_code;
+  const reason = typeof candidateReason === 'string' && /^[a-z_]{1,64}$/.test(candidateReason) ? candidateReason : 'operation_rejected';
   error.details = {operation_index:index, group_key:bounded(op?.action_group_key),
     node_key:bounded(op?.target_node_key || op?.anchor_node_key), path:bounded(op?.path), reason_code:reason};
+  // Preserve only known diagnostics, never arbitrary native error payloads or parameter values.
+  const contract = operationContracts.operations[op?.operation];
+  error.details.phase = 'canvas_operation';
+  if (contract) error.details.expected_shape = {operation:op.operation, required_fields:contract.required, optional_fields:contract.optional, strict_fields:contract.strict_fields};
+  error.details.refresh_scope = ['old_value_mismatch','element_type_mismatch','target_not_found','ambiguous_target','native_parameter_drift'].includes(reason) ? 'target_context' : 'submitted_operations';
+  if (Array.isArray(prior.diff_paths)) error.details.diff_paths = prior.diff_paths.filter(value=>typeof value === 'string').slice(0, 32).map(bounded);
+  if (typeof prior.diff_paths_truncated === 'boolean') error.details.diff_paths_truncated = prior.diff_paths_truncated;
+  for (const field of ['mapping_status','identifier']) if (typeof prior[field] === 'string') error.details[field] = bounded(prior[field]);
+  for (const field of ['line','column']) if (Number.isSafeInteger(prior[field]) && prior[field] >= 0) error.details[field] = prior[field];
   return error;
 }
-const UNSAFE_KEYS = new Set(['__proto__', 'constructor', 'prototype']);
+const UNSAFE_KEYS = new Set(operationContracts.unsafe_keys);
 function object(value) { return value !== null && typeof value === 'object' && !Array.isArray(value); }
 function sameJson(left, right) {
   if (left === right) return true;
@@ -74,10 +88,7 @@ function checkedParameters(params) {
   return result;
 }
 function checkEditableInput(element, parts, params) {
-  const known = {
-    SetVariable: [['inputParams', 'variableValue'], ['outputParams', 'variableName']],
-    SetVariableValue: [['inputParams', 'attributeValue']],
-  };
+  const known = operationContracts.atomic_parameters;
   for (const [section, name] of known[element] || []) {
     const record = params[section]?.[name];
     if (parts[0] === section && parts[1] === name && parts.length !== 2) {
@@ -87,6 +98,18 @@ function checkEditableInput(element, parts, params) {
       reject('paraminput_unsynchronized', 'Custom ParamInput value and code must be synchronized');
     }
   }
+}
+function parameterDiffPaths(before, after) {
+  const paths = []; let total = 0;
+  const pointer = value => value.replace(/~/g, '~0').replace(/\//g, '~1');
+  function walk(left, right, at) {
+    if (sameJson(left, right)) return;
+    if (object(left) && object(right)) {
+      for (const key of new Set([...Object.keys(left), ...Object.keys(right)])) walk(left[key], right[key], at + '/' + pointer(key));
+    } else { total++; if (paths.length < 32) paths.push(at.slice(0, 256)); }
+  }
+  walk(before, after, '');
+  return {diff_paths:paths, diff_paths_truncated:total > paths.length};
 }
 function eventContract(catalog, type, event, api, allowIncomplete = false) {
   const components = catalog.filter(c => c.type === type);
@@ -251,7 +274,9 @@ function applyOperations(design, operations, native, api) {
       const generated = candidateGroup.data[at];
       if (candidateGroup.data.length !== group.data.length || generated.key !== current.key || generated.elementKey !== current.elementKey ||
           !sameJson(generated.depth, current.depth) || !sameJson(checkedParameters(generated.paramsValue), params)) {
-        reject('native_parameter_drift', 'Native regeneration changed parameters outside the requested value; inspect the native contract and use an explicit complete replacement');
+        reject('native_parameter_drift', 'Native regeneration changed parameters outside the requested value; inspect the native contract and use an explicit complete replacement',
+          parameterDiffPaths({key:current.key, elementKey:current.elementKey, depth:current.depth, paramsValue:params},
+            {key:generated.key, elementKey:generated.elementKey, depth:generated.depth, paramsValue:generated.paramsValue}));
       }
       group.data[at] = generated;
       diff.push(...nativeDiff.map(item => ({...item, operation_index:index, operation:op.operation,

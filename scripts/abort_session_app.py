@@ -8,6 +8,7 @@ from tkinter import messagebox, ttk
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from gxp_editor.state import StateError, StateStore
 from gxp_editor.service import EditorService
+from gxp_editor.ui_launch import managed_window_launch, report_window_startup
 
 
 class AbortSessionWindow:
@@ -90,6 +91,9 @@ class AbortSessionWindow:
             result = EditorService(conversation_id=self.conversation_id).reopen_approval(
                 session["transaction_id"], owner_revision=self.owner_revision,
             )
+            if result.get("approval_window_starting"):
+                messagebox.showinfo("审批窗口正在启动", "尚未收到窗口就绪回执，当前处理窗口会保留。稍后可重新查询启动结果。", parent=self.root)
+                return
             if not result.get("approval_window_opened"):
                 raise StateError(result.get("approval_window_error") or result.get("message") or "审批窗口未能打开，请重试。")
             self.root.destroy()
@@ -150,7 +154,16 @@ class AbortSessionWindow:
             messagebox.showerror("流程未释放", str(exc), parent=self.root)
 
     def run(self):
-        self.root.mainloop()
+        def report_visible():
+            if self.root.winfo_viewable():
+                report_window_startup("ready")
+            else:
+                self.root.after(25, report_visible)
+        self.root.after_idle(report_visible)
+        try:
+            self.root.mainloop()
+        finally:
+            report_window_startup("closed")
 
 
 def main() -> int:
@@ -161,8 +174,10 @@ def main() -> int:
             sys.argv[1], sys.argv[2] if len(sys.argv) == 4 else "",
             int(sys.argv[3]) if len(sys.argv) == 4 else None,
         ).run()
-    except (StateError, ValueError) as exc:
-        messagebox.showerror("会话处理窗口不可用", str(exc))
+    except Exception as exc:
+        report_window_startup("failed", error=str(exc))
+        if not managed_window_launch():
+            messagebox.showerror("会话处理窗口不可用", str(exc))
         return 1
     return 0
 

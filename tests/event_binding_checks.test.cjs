@@ -74,4 +74,26 @@ for (const name of ['inbiz', 'Inbiz']) {
   ]}, [], {frontendRoot}, null, 'function (inbiz) { var self = {}; self.main = function () {}; return self; }'), /Reserved platform identifier/);
 }
 assert.throws(() => validate('return missingContext.id;'), /Undeclared action identifier missingContext/);
+assert.throws(() => validate('const one = missingContext.id; return anotherMissing.value + missingContext.name;'), error => {
+  assert.equal(error.details.phase,'javascript_lexical');
+  assert.equal(error.details.reason_code,'undeclared_identifier');
+  assert.equal(error.details.group_key,'main');
+  assert.equal(error.details.mapping_status,'group_only');
+  assert.equal(error.details.node_key,undefined);
+  assert.equal(error.details.issue_count,2);
+  assert.deepEqual(error.details.issues.map(issue=>issue.identifier),['missingContext','anotherMissing']);
+  assert.ok(error.details.issues.every(issue=>Number.isInteger(issue.line) && Number.isInteger(issue.column)));
+  assert.equal(error.details.issues_truncated,false);return true;
+});
+assert.throws(() => validate(Array.from({length:40},(_,i)=>'missing'+i+'.value;').join('\n')), error => {
+  assert.equal(error.details.issue_count,40);
+  assert.equal(error.details.issues.length,20);
+  assert.equal(error.details.issues_truncated,true);return true;
+});
+assert.throws(() => validateBindings({globalVariables:[], actionData:[
+  {key:'main',title:'Wrong signature',actionType:'js',inputParams:[{title:'params'}],data:[]},
+]},[],{frontendRoot},null,'function(inbiz){var self={};self.main=function(action){};return self;}'),error=>{
+  assert.equal(error.details.reason_code,'callback_signature_mismatch');
+  assert.equal(error.details.mapping_status,'group_only');return true;
+});
 process.stdout.write('Builtin and reserved platform identifier checks passed\n');

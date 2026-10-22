@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "forbidden_fields": ["key", "depth", "title", "description", "js_code", "csharp_code", "relation_data", "sql", "raw_code"],
+  "unsafe_keys": ["__proto__", "constructor", "prototype"],
+  "atomic_parameters": {
+    "SetVariable": [["inputParams", "variableValue"], ["outputParams", "variableName"]],
+    "SetVariableValue": [["inputParams", "attributeValue"]]
+  },
+  "operations": {
+    "set_parameter": {"required": ["operation", "action_group_key", "target_node_key", "expected_element_key", "path", "expected_old_value", "value"], "optional": [], "strict_fields": true},
+    "set_array_item": {"required": ["operation", "action_group_key", "target_node_key", "expected_element_key", "path", "item_key", "expected_old_value", "value"], "optional": [], "strict_fields": true},
+    "create_action_group": {"required": ["operation", "group_alias", "group_title", "action_type"], "optional": ["group_description", "input_params", "output_params", "event_contract"], "strict_fields": true},
+    "set_event_callback_contract": {"required": ["operation", "action_group_key", "component_type", "event_name"], "optional": [], "strict_fields": true},
+    "append_node": {"required": ["operation", "action_group_key", "element_key"], "optional": ["input_params", "output_params", "node_alias"], "strict_fields": true},
+    "insert_in_block": {"required": ["operation", "action_group_key", "target_node_key", "element_key"], "optional": ["input_params", "output_params", "node_alias"], "strict_fields": true},
+    "bind_component_event": {"required": ["operation", "action_group_key", "component_id", "component_type", "event_name", "target_action_group_key"], "optional": ["component_title", "target_node_key", "anchor_node_key", "position"], "strict_fields": true},
+    "insert_before": {"required": ["operation", "action_group_key", "anchor_node_key", "element_key"], "optional": ["input_params", "output_params", "node_alias"], "strict_fields": false},
+    "insert_after": {"required": ["operation", "action_group_key", "anchor_node_key", "element_key"], "optional": ["input_params", "output_params", "node_alias"], "strict_fields": false},
+    "replace_params": {"required": ["operation", "action_group_key", "target_node_key"], "optional": ["input_params", "output_params"], "strict_fields": false},
+    "replace_block": {"required": ["operation", "action_group_key", "target_node_key", "element_key"], "optional": ["input_params", "output_params"], "strict_fields": false},
+    "delete_block": {"required": ["operation", "action_group_key", "target_node_key"], "optional": [], "strict_fields": false},
+    "move_block": {"required": ["operation", "action_group_key", "target_node_key", "anchor_node_key", "position"], "optional": [], "strict_fields": false}
+  }
+}

@@ -9,7 +9,7 @@ from tests.helpers import baseline, editor_config, relation, runtime_validation,
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.approval import statement_hash, transaction_binding_hash
 from gxp_editor.hashing import compiler_binding_payload, normalized_relation_rows, relation_snapshot_hash, sha256_json, sha256_text
-from gxp_editor.transaction import RESTORE_RELATION_SQL, UPDATE_RELATION_SQL, TransactionPlanError, build_transaction_artifact, validate_transaction_artifact
+from gxp_editor.transaction import RESTORE_RELATION_SQL, UPDATE_DESIGN_SQL, UPDATE_RELATION_SQL, TransactionPlanError, build_transaction_artifact, validate_transaction_artifact
 
 
 class TransactionTests(unittest.TestCase):
@@ -88,6 +88,129 @@ class TransactionTests(unittest.TestCase):
                 with self.assertRaisesRegex(TransactionPlanError, "binding.*(check|contract)"):
                     validate_transaction_artifact(artifact)
 
+    @classmethod
+    def _generation_selection_transaction(cls, requested="full", selected=None):
+        selected = requested if selected is None else selected
+        artifact = cls._canvas_transaction([{"key": f"g{i}", "actionType": "js", "data": []} for i in range(6)])
+        selection = {"requested_mode": requested, "selected_mode": selected,
+            "reason_code": "small_change" if requested == "auto" else "explicit_" + requested,
+            "policy_version": "action_groups_v1",
+            "counts": {"total_group_count": 6, "direct_changed_group_count": 1, "affected_group_count": 1,
+                       "dependency_group_count": 0, "changed_node_count": 1, "affected_group_ratio": 1 / 6,
+                       "language_changed_group_count": 0},
+            "thresholds": {"max_affected_groups": 3, "max_changed_nodes": 30, "max_affected_group_ratio": 0.5},
+            "scope": {"affected_group_keys": ["g0"], "unaffected_group_keys": [f"g{i}" for i in range(1, 6)],
+                      "removed_group_keys": [], "shared_context_changed": False},
+            "baseline_sha256": "a" * 64, "candidate_sha256": "b" * 64}
+        evidence = artifact["compiler_evidence"]
+        evidence["generation_selection"] = selection
+        proof = evidence["event_binding_validation"]
+        proof["generation_selection"] = copy.deepcopy(selection)
+        if selected == "incremental":
+            evidence["generation"] = {"mode": "incremental_action_groups", "regenerated_group_keys": ["g0"],
+                "preserved_group_keys": [f"g{i}" for i in range(1, 6)], "removed_group_keys": [],
+                "shared_context_changed": False, "preserved_source_verified": True,
+                "baseline_sha256": "a" * 64, "candidate_sha256": "b" * 64}
+            proof["generation"] = copy.deepcopy(evidence["generation"])
+            proof["baseline_diagnostics"] = []
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        return artifact
+
+    def test_generation_selection_is_optional_for_old_artifacts_and_valid_for_both_modes(self):
+        validate_transaction_artifact(transaction())
+        for requested, selected in (("full", "full"), ("incremental", "incremental"), ("auto", "incremental")):
+            with self.subTest(requested=requested, selected=selected):
+                validate_transaction_artifact(self._generation_selection_transaction(requested, selected))
+
+    def test_generation_selection_must_match_event_evidence(self):
+        for target in ("compiler_evidence", "event_binding_validation"):
+            artifact = self._generation_selection_transaction()
+            owner = artifact["compiler_evidence"]
+            if target == "event_binding_validation":
+                owner = owner[target]
+            owner["generation_selection"]["selected_mode"] = "incremental"
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(target=target), self.assertRaisesRegex(TransactionPlanError, "Generation selection evidence changed"):
+                validate_transaction_artifact(artifact)
+
+    def test_generation_selection_structural_tampering_is_blocked_after_rebinding(self):
+        original = self._generation_selection_transaction()
+        changes = [
+            (("requested_mode",), "fast"), (("selected_mode",), ["full"]), (("policy_version",), "unknown"),
+            (("baseline_sha256",), "invalid"), (("candidate_sha256",), "g" * 64),
+            (("thresholds", "max_affected_groups"), 100),
+            (("counts", "changed_node_count"), True), (("counts", "direct_changed_group_count"), -1),
+            (("counts", "affected_group_ratio"), float("nan")), (("counts", "affected_group_ratio"), 0.5),
+            (("counts", "total_group_count"), 7), (("counts", "affected_group_count"), 2),
+            (("counts", "dependency_group_count"), 1), (("counts", "language_changed_group_count"), 2),
+            (("scope", "affected_group_keys"), ["g0", "g0"]),
+            (("scope", "unaffected_group_keys"), ["g0", "g2", "g3", "g4", "g5"]),
+            (("scope", "removed_group_keys"), ["g1"]), (("scope", "shared_context_changed"), "false"),
+            (("scope", "shared_context_changed"), True), (("reason_code",), "small_change")]
+        for path, value in changes:
+            artifact = copy.deepcopy(original)
+            evidence = artifact["compiler_evidence"]
+            for selection in (evidence["generation_selection"], evidence["event_binding_validation"]["generation_selection"]):
+                owner = selection
+                for key in path[:-1]:
+                    owner = owner[key]
+                owner[path[-1]] = value
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(path=path, value=value), self.assertRaisesRegex(TransactionPlanError, "Generation selection"):
+                validate_transaction_artifact(artifact)
+
+    def test_generation_selection_cannot_misstate_full_or_incremental_preservation(self):
+        for requested, selected in (("full", "incremental"), ("incremental", "full")):
+            artifact = self._generation_selection_transaction(requested, selected)
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(requested=requested), self.assertRaisesRegex(TransactionPlanError, "explicit requested mode"):
+                validate_transaction_artifact(artifact)
+        full = self._generation_selection_transaction()
+        inc = self._generation_selection_transaction("incremental")
+        for target in (full["compiler_evidence"], full["compiler_evidence"]["event_binding_validation"]):
+            target["generation"] = copy.deepcopy(inc["compiler_evidence"]["generation"])
+        full["compiler_evidence"]["event_binding_validation"]["baseline_diagnostics"] = []
+        full["transaction_hash"] = transaction_binding_hash(full)
+        with self.assertRaisesRegex(TransactionPlanError, "Full generation selection cannot claim"):
+            validate_transaction_artifact(full)
+        for target in (inc["compiler_evidence"], inc["compiler_evidence"]["event_binding_validation"]):
+            target.pop("generation")
+        inc["transaction_hash"] = transaction_binding_hash(inc)
+        with self.assertRaisesRegex(TransactionPlanError, "requires preservation evidence"):
+            validate_transaction_artifact(inc)
+
+    def test_incremental_selection_hashes_and_group_scope_must_match_preservation(self):
+        for field, value in (("baseline_sha256", "c" * 64), ("candidate_sha256", "c" * 64),
+                             ("regenerated_group_keys", ["g1"]), ("removed_group_keys", ["old"]),
+                             ("shared_context_changed", True)):
+            artifact = self._generation_selection_transaction("incremental")
+            for owner in (artifact["compiler_evidence"], artifact["compiler_evidence"]["event_binding_validation"]):
+                owner["generation"][field] = value
+                if field == "regenerated_group_keys":
+                    owner["generation"]["preserved_group_keys"] = ["g0", "g2", "g3", "g4", "g5"]
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(field=field), self.assertRaisesRegex(TransactionPlanError, "preservation evidence disagree"):
+                validate_transaction_artifact(artifact)
+
+    def test_automatic_generation_selection_must_follow_recorded_size_and_reason(self):
+        for changed_nodes, reason, selected in ((31, "small_change", "incremental"), (1, "changed_node_limit", "full"),
+                                                (1, "baseline_artifacts_unavailable", "incremental")):
+            artifact = self._generation_selection_transaction("auto", selected)
+            for selection in (artifact["compiler_evidence"]["generation_selection"],
+                              artifact["compiler_evidence"]["event_binding_validation"]["generation_selection"]):
+                selection["counts"]["changed_node_count"] = changed_nodes
+                selection["reason_code"] = reason
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            with self.subTest(changed_nodes=changed_nodes, reason=reason), self.assertRaisesRegex(TransactionPlanError, "Generation selection"):
+                validate_transaction_artifact(artifact)
+        valid = self._generation_selection_transaction("auto", "full")
+        for selection in (valid["compiler_evidence"]["generation_selection"],
+                          valid["compiler_evidence"]["event_binding_validation"]["generation_selection"]):
+            selection["counts"]["changed_node_count"] = 31
+            selection["reason_code"] = "changed_node_limit"
+        valid["transaction_hash"] = transaction_binding_hash(valid)
+        validate_transaction_artifact(valid)
+
     def test_actual_compiler_binding_is_accepted_by_approval_validation(self):
         artifact = transaction()
         evidence = artifact["compiler_evidence"]
@@ -149,6 +272,51 @@ class TransactionTests(unittest.TestCase):
         self.assertEqual(artifact["old_relation_hash"], relation_snapshot_hash([original]))
         self.assertEqual(artifact["expected_relation_hash"], artifact["old_relation_hash"])
         self.assertEqual(current, original)
+
+    def test_multiple_canvas_and_both_language_changes_share_one_draft_update(self):
+        current = relation()
+        template = transaction(current_relations=[current], desired_relations={"node-1": current["data"]})
+        groups = [{"key": language, "actionType": language, "data": [
+            {"key": f"{language}-{index}", "elementKey": "SetVariable",
+             "paramsValue": {"inputParams": {"variableValue": "new"}}} for index in range(2)]}
+            for language in ("js", "csharp")]
+        old_groups = copy.deepcopy(groups)
+        for group in old_groups:
+            for node in group["data"]:
+                node["paramsValue"]["inputParams"]["variableValue"] = "old"
+        base = baseline(data=json.dumps({"actionData": old_groups, "globalVariables": []}))
+        desired = {**template["desired_design"], "data": json.dumps({"actionData": groups, "globalVariables": []})}
+        compiler = copy.deepcopy(template["compiler_evidence"])
+        compiler["hashes"]["data_sha256"] = sha256_text(desired["data"])
+        compiler["event_binding_validation"]["javascript_group_keys"] = ["js"]
+        artifact = build_transaction_artifact(transaction_id="combined-draft", session_id="session", plan_id="plan", kind="write",
+            baseline=base, desired_design=desired, current_relations=[current], desired_relations={"node-1": current["data"]},
+            database_safety=template["database_safety"], runtime_validation=template["runtime_validation"], compiler_evidence=compiler)
+
+        self.assertNotEqual(desired["js_code"], base["js_code"])
+        self.assertNotEqual(desired["csharp_code"], base["csharp_code"])
+        self.assertEqual([item["kind"] for item in artifact["statements"]], ["update_design"])
+        statement = artifact["statements"][0]
+        self.assertEqual(statement["sql"], UPDATE_DESIGN_SQL)
+        self.assertEqual(statement["params"][:3], [desired["data"], desired["js_code"], desired["csharp_code"]])
+        self.assertEqual(statement["params"][4], base["id"])
+        self.assertEqual(artifact["expected_relation_hash"], artifact["old_relation_hash"])
+
+    def test_different_relation_rows_have_distinct_parameter_bound_approvals(self):
+        rows = [relation(id=f"relation-{index}", action_data_id=f"node-{index}") for index in (1, 2)]
+        artifact = transaction(current_relations=rows, desired_relations={"node-1": '{"new":true}', "node-2": '{"new":true}'})
+        self.assertEqual([item["kind"] for item in artifact["statements"]], ["update_design", "update_relation", "update_relation"])
+        first, second = artifact["statements"][1:]
+        self.assertEqual(first["sql"], UPDATE_RELATION_SQL)
+        self.assertEqual(first["sql"], second["sql"])
+        self.assertEqual(first["sql_sha256"], second["sql_sha256"])
+        self.assertEqual(first["params"][-2:], ["relation-1", "design-1"])
+        self.assertEqual(second["params"][-2:], ["relation-2", "design-1"])
+        self.assertNotEqual(first["params"], second["params"])
+        self.assertNotEqual(first["statement_hash"], second["statement_hash"])
+        # Different row parameters require distinct approvals even if the
+        # statement identity is held equal for this hash comparison.
+        self.assertNotEqual(statement_hash(first), statement_hash({**second, "id": first["id"]}))
 
     def test_changed_relation_data_updates_timestamp_and_expected_snapshot(self):
         current = relation()

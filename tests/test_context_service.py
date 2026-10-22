@@ -36,9 +36,11 @@ class ContextServiceTests(unittest.TestCase):
         self.registry = {"elements": [{"key": "GetData", "name": "查询", "input_params": [], "output_params": []}]}
         self.repository = Mock()
         self.repository.load_draft_by_id.return_value = copy.deepcopy(self.draft)
+        self.repository.load_relations.return_value = []
         self.compiler = Mock()
         self.compiler.describe_registry.return_value = self.registry
         self.compiler.compiler_binding.return_value = self.binding
+        self.compiler.registry_and_binding.side_effect = lambda: (self.compiler.describe_registry(), self.compiler.compiler_binding())
         self.service = self.service_for(self.owner)
         self.components = Mock(return_value=(editor_config(), object(), self.repository, self.compiler, object()))
         self.enterContext(patch.object(self.service, "_components", self.components))

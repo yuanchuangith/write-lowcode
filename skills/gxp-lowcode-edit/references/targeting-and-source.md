@@ -15,6 +15,10 @@
 
 `begin_edit_session` 已返回 `supported_operations`、`source_repositories` 和 `readiness_snapshot`，无需为相同证据再调用 `editor_status`。状态工具默认 `probe_runtime=false`；只有排查 SDK 或引用可用性时才显式使用 `true`，候选 C# 的强制编译检查不受此选项影响。`inspect_edit_context` 只读取已确认目标，不用于搜索未知节点；先用只读定位缩小范围。
 
+只读工具已导出交接时，向 `begin_edit_session` 传 `handoff_ref`；匹配返回的 `edit_context` 可直接复用，不重复检查相同目标。环境、草稿及目标不匹配或发布／草稿参数有差异时只补查返回位置；失效交接不会建立新占用。跨对话明确选择记录并确认本次范围，不继承旧会话或审批，仍须显式启用编辑技能。详见 [evidence-and-performance.md](evidence-and-performance.md)。
+
+`inspect_edit_context` 返回的 `edit_options.parameter_operations` 是未填完的操作模板，引用当前完整原值；按 `required_inputs` 填写。`params_value` 始终是完整参数，`operation_cursor` 只分页模板（每页最多 64 条）。有 `next_operation_cursor` 时以相同有序 targets 继续；版本变化重新核对。响应超过 1 MiB 应缩小目标集，不能把未返回内容当成空参数。模板与预检共用操作契约，不代表元件源码函数体或运行验证已检查。
+
 ## 与只读技能一致的仓库
 
 当前选定的前后端源码与 `gxp-lowcode-debug` 一致：

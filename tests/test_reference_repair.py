@@ -161,6 +161,18 @@ class ReferenceRepairTests(unittest.TestCase):
             with self.assertRaisesRegex(CompilerError, "reintroduced"):
                 bridge.compile_reference_repair(repaired)
 
+    def test_reference_repair_always_compiles_full_with_original_baseline(self):
+        original = design()
+        repaired = build_repair(original, scan_references(original, REGISTRY), [])
+        saved = {"js_code": "saved-js", "csharp_code": "", "relation_data": {}}
+        bridge = CompilerBridge(editor_config())
+        with patch.object(bridge, "describe_registry", return_value=REGISTRY), patch.object(
+            bridge, "validate_design"
+        ), patch.object(bridge, "compile_patch", return_value={"design": repaired["design"]}) as compile_patch:
+            bridge.compile_reference_repair(repaired, baseline_design=original, baseline_artifacts=saved)
+        self.assertEqual(compile_patch.call_args.kwargs, {
+            "baseline_design": original, "baseline_artifacts": saved, "generation_mode": "full"})
+
 
 class RepairServiceTests(unittest.TestCase):
     def setUp(self):
@@ -177,6 +189,7 @@ class RepairServiceTests(unittest.TestCase):
         self.repository = Mock()
         self.repository.load_draft_by_identifier.return_value = self.draft
         self.repository.load_draft_by_id.return_value = self.draft
+        self.repository.load_relations.return_value = []
         self.components = (editor_config(), object(), self.repository, self.compiler, UnavailableRuntimeValidator(editor_config().runtime_references))
 
     def start(self):
@@ -214,7 +227,8 @@ class RepairServiceTests(unittest.TestCase):
         with patch.object(self.service, "_components", return_value=self.components), patch(
             "gxp_editor.service.runtime_root", return_value=self.root
         ), self.assertRaisesRegex(CompilerError, "whole candidate invalid"):
-            self.service.plan_reference_repairs(session["session_id"])
+            self.service.plan_reference_repairs(session["session_id"], review_spec={
+                "schema_version": 1, "revision": "repair-check", "scope_policy": "manual_review", "requirements": []})
         self.assertFalse((self.root / "plans").exists())
         self.assertFalse((self.root / "transactions").exists())
 

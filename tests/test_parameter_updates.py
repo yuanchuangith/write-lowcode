@@ -106,8 +106,11 @@ class NativeParameterUpdateTests(unittest.TestCase):
         self.assertEqual(no_change["design"], result["design"])
         with self.assertRaises(CompilerError) as caught:
             self.bridge.compile_patch(result["design"], [request])
-        self.assertEqual(caught.exception.details, {"operation_index": 0, "group_key": "main", "node_key": node["key"],
-                         "path": "/inputParams/config/paramSettings", "reason_code": "old_value_mismatch"})
+        self.assertEqual({key: caught.exception.details[key] for key in ("operation_index", "group_key", "node_key", "path", "reason_code")},
+            {"operation_index": 0, "group_key": "main", "node_key": node["key"],
+             "path": "/inputParams/config/paramSettings", "reason_code": "old_value_mismatch"})
+        self.assertEqual(caught.exception.details["phase"], "operation_preflight")
+        self.assertEqual(caught.exception.details["expected_shape"]["operation"], "set_array_item")
 
     def test_native_array_parameter_replacement_preserves_existing_rows(self):
         row = {"name": {"paramTypes": "custom", "value": "first", "code": "first", "label": "message"}}

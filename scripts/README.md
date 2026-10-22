@@ -54,3 +54,16 @@ samples and one separately instrumented pass). JSON output contains timings,
 call counts and validation flags; business expressions and source code are not
 included. Use the editor's Python environment so its existing dependencies are
 available.
+
+`benchmark_edit_pipeline.py` needs no saved business input. It builds a synthetic
+six-group canvas and compares cold/warm full generation, independent regeneration,
+and an invalid second operation followed by a corrected batch:
+
+```powershell
+python scripts/benchmark_edit_pipeline.py --frontend path/to/frontend --output output/optimization-benchmark.json
+```
+
+Optional `--csharp` uses the real SDK with a synthetic net9.0 class and zero
+application references to measure restore/build workspace reuse. It is a direct
+helper smoke, not production compatibility or approval evidence. See
+`docs/optimization-performance-report.md` for measured scope and limitations.

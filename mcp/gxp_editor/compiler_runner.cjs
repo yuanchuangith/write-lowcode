@@ -7,6 +7,7 @@ const extensionPath = path.join(__dirname, 'canvas_operations.cjs');
 const checksPath = path.join(__dirname, 'event_binding_checks.cjs');
 const interfaceMetadata = require('./interface_metadata.cjs');
 const incremental = require('./incremental_codegen.cjs');
+const generationModes = require('./generation_modes.cjs');
 const crypto = require('node:crypto');
 let compilationSeed = null;
 let compilationCounter = 0;
@@ -56,7 +57,7 @@ function adapt(source) {
   const checks = 'require(' + JSON.stringify(checksPath) + ')';
   const ext = 'require(' + JSON.stringify(extensionPath) + ')';
   const runner = 'require(' + JSON.stringify(__filename) + ')';
-  const generate = runner + '.incremental.generate(payload.baseline || payload.design, design, payload.baseline_artifacts, nativeCompileCode, {frontendRoot:' + JSON.stringify(process.cwd()) + ', reproducibleCompile:' + runner + '.reproducibleCompile, interfaceMetadata:' + runner + '.interfaceMetadata})';
+  const generate = runner + '.generationModes.compile(payload.baseline || payload.design, design, payload.baseline_artifacts, payload.generation_mode, {fullCompile:compileCode, incrementalCompile:(before,after,baseline)=>' + runner + '.incremental.generate(before, after, baseline, nativeCompileCode, {frontendRoot:' + JSON.stringify(process.cwd()) + ', reproducibleCompile:' + runner + '.reproducibleCompile, interfaceMetadata:' + runner + '.interfaceMetadata})})';
   replaceOnce('function applyOperations(design, operations) {',
     'function applyOperations(design, operations) { return ' + ext + '.applyOperations(design, operations, nativeApplyOperations, ' + api + '); }\nfunction nativeApplyOperations(design, operations) {');
   replaceOnce('error: error instanceof Error ? error.message : String(error),',
@@ -65,10 +66,10 @@ function adapt(source) {
     'function executeCompilerCommand(payload) {\n' +
     "if (payload && payload.command === 'describe_component_contract') return {command: payload.command, component: " + ext + '.componentContract(' + catalog + ', payload.component_type, ' + api + ')};\n' +
     "if (payload && payload.command === 'compile_design') { const validation = validateDesign(payload.design).validation; return Object.assign({command: payload.command, validation}, compileCode(payload.design)); }\n" +
-    "if (payload && payload.command === 'compile_patch') { let result; if (payload.baseline_artifacts) { if (!Array.isArray(payload.operations) || !payload.operations.length) fail('At least one canvas operation is required'); validateDesign(payload.design); const design = clone(payload.design); const diff = applyOperations(design, payload.operations); recomputeDepths(design); const validation = validateDesign(design).validation; result = Object.assign({command:payload.command, design, diff, validation}, " + generate + "); } else result = compilePatch(payload.design, payload.operations); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
-    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code, result.generation); return result; }\n' +
+    "if (payload && payload.command === 'compile_patch') { if (!Array.isArray(payload.operations) || !payload.operations.length) fail('At least one canvas operation is required'); validateDesign(payload.design); const design = clone(payload.design); const diff = applyOperations(design, payload.operations); recomputeDepths(design); const validation = validateDesign(design).validation; const result = Object.assign({command:payload.command, design, diff, validation}, " + generate + "); result.no_change = result.diff.length > 0 && result.diff.every(item => item.no_change === true); " +
+    checks + '.assertJavascriptSyntax(result.js_code); result.event_binding_validation = ' + checks + '.validateBindings(result.design, ' + checks + '.collectScope(payload.baseline || payload.design, result.design), ' + api + ', ' + ext + '.eventContract, result.js_code, result.generation); result.event_binding_validation.generation_selection = result.generation_selection; return result; }\n' +
     "if (payload && payload.command === 'validate_event_bindings') { " + checks + '.assertJavascriptSyntax(payload.js_code); return {command: payload.command, event_binding_validation: ' + checks + '.validateBindings(payload.design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, payload.design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code)}; }\n' +
-    "if (payload && payload.command === 'verify_candidate') { const design = payload.design; const validation = validateDesign(design).validation; const compiled = payload.baseline_artifacts ? " + generate + " : compileCode(design); " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, compiled.generation); return Object.assign({command:payload.command, validation, event_binding_validation}, compiled); }\n');
+    "if (payload && payload.command === 'verify_candidate') { const design = payload.design; const validation = validateDesign(design).validation; const compiled = " + generate + "; " + checks + '.assertJavascriptSyntax(payload.js_code); const event_binding_validation = ' + checks + '.validateBindings(design, payload.baseline ? ' + checks + '.collectScope(payload.baseline, design) : payload.binding_node_keys, ' + api + ', ' + ext + '.eventContract, payload.js_code, compiled.generation); event_binding_validation.generation_selection = compiled.generation_selection; return Object.assign({command:payload.command, validation, event_binding_validation}, compiled); }\n');
   return source;
 }
 function main() {
@@ -78,7 +79,7 @@ function main() {
   compiler.paths = Module._nodeModulePaths(path.dirname(bridge));
   compiler._compile(adapt(fs.readFileSync(bridge, 'utf8')), bridge);
 }
-module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata, incremental};
+module.exports = {adapt, reproducibleCompile, uuidBytes, interfaceMetadata, incremental, generationModes};
 if (require.main === module) {
   try { main(); } catch (error) {
     process.stdout.write(JSON.stringify({ok:false, error:error.message, details:error.details}), () => process.exit(1));

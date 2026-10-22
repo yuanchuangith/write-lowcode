@@ -13,8 +13,10 @@ from .state import StateStore, StateError
 from .transaction import validate_transaction_artifact
 
 
-def archive_edit_session(session_id: str, *, state=None, conversation_id: str = "", owner_revision: int | None = None, expected_snapshot: dict | None = None) -> dict:
-    """Called only from the human window after explicit keep-current-data confirmation."""
+def archive_edit_session(session_id: str, *, state=None, conversation_id: str = "", owner_revision: int | None = None,
+                         expected_snapshot: dict | None = None, expected_fingerprint: str | None = None,
+                         user_confirmation: str = "") -> dict:
+    """Release locally after a human window choice or snapshot-bound chat confirmation."""
     from contextlib import ExitStack
     from .execution_lock import approval_window_lock
     from .process_check import assert_approval_process_stopped
@@ -38,6 +40,7 @@ def archive_edit_session(session_id: str, *, state=None, conversation_id: str = 
             session_id, conversation_id=conversation_id, owner_revision=session["owner_revision"],
             expected_session_state=session["state"], expected_transaction_id=session.get("transaction_id"),
             expected_transaction_state=current["state"] if current else None,
+            expected_fingerprint=expected_fingerprint, user_confirmation=user_confirmation,
         )
     return {"session_id": session_id, "outcome": "closed_unverified", "verified": False,
             "session_released": True, "business_data_written": False}

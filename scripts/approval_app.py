@@ -1,15 +1,22 @@
 """Local Qt review application; SQL approval and execution remain human actions."""
 from __future__ import annotations
 
+import copy
 import json
 import sys
+import threading
 from pathlib import Path
 from typing import Any
 
 PLUGIN_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 
+from gxp_editor.ui_launch import register_window_process, report_window_heartbeat
+register_window_process()
+report_window_heartbeat(phase="loading_artifact")
+
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
+from shiboken6 import isValid
 from PySide6.QtWidgets import (
     QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QListWidget,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
@@ -25,7 +32,7 @@ from gxp_editor.approval_display import (
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.component_preview import component_changes
 from gxp_editor.config import load_config
-from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_queue_lock, approval_window_lock
+from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_queue_lock, approval_window_lock, execution_lock
 from gxp_editor.hashing import sha256_text
 from gxp_editor.qt_review_ui import CodeReview, ComponentReview
 from gxp_editor.logic_review import require_write_business_review, validate_business_review
@@ -35,6 +42,7 @@ from gxp_editor.single_row_checker import SingleRowCheckError
 from gxp_editor.state import StateError, StateStore
 from gxp_editor.transaction import TransactionPlanError, validate_transaction_artifact
 from gxp_editor.writer import execute_approved_transaction
+from gxp_editor.ui_launch import managed_window_launch, report_window_startup, report_window_heartbeat
 
 
 class MessageBoxes:
@@ -75,6 +83,52 @@ class ExecutionThread(QThread):
             self.failed.emit(str(exc))
 
 
+class PreviewMetadataThread(QObject):
+    """Only load immutable display metadata here; widgets stay on the UI thread."""
+    completed = Signal(object, str, str)
+    finished = Signal()
+
+    def __init__(self, config, expected, transaction_id):
+        super().__init__()  # Retained until finished, even if its window closes.
+        self.config = config
+        self.expected = copy.deepcopy(expected)
+        self.transaction_id = transaction_id
+
+    def run(self):
+        try:
+            registry, note = preview_registry_metadata(self.config, self.expected)
+            self.completed.emit(registry, note, self.transaction_id)
+        finally:
+            self.finished.emit()
+
+    def start(self):
+        # A daemon metadata reader must not keep a closed UI process alive.
+        # It owns no widgets, approvals, execution locks or database connection.
+        self.thread = threading.Thread(target=self.run, daemon=True, name="gxp-preview-metadata")
+        self.thread.start()
+
+
+_PREVIEW_WORKERS = set()
+
+
+def preview_registry_metadata(config, expected):
+    if not expected:
+        return {}, "未绑定元件标题元数据；按实际参数 Key 展示完整配置。"
+    try:
+        bridge = CompilerBridge(config)
+        if sha256_text(bridge.path.read_text(encoding="utf-8")) != expected.get("bridge_sha256"):
+            raise ValueError("bridge changed")
+        registry = bridge._call({"command": "describe_registry"}, timeout_seconds=8)
+        if (registry.get("command") != "describe_registry"
+                or bridge._stable_registry_hash(registry) != expected.get("registry_hash")
+                or registry.get("rule_source_sha256") != expected.get("rule_source_sha256")
+                or registry.get("frontend_version") != expected.get("frontend_version")):
+            raise ValueError("registry changed")
+        return {element["key"]: element for element in registry["elements"]}, "配置来自草稿备份与待保存画布；参数名称来自本次审批绑定的真实元件注册表。"
+    except Exception:
+        return {}, "未能核对元件标题元数据；按实际参数 Key 展示，配置值保持完整。"
+
+
 class ApprovalShell(QMainWindow):
     def __init__(self, controller):
         super().__init__()
@@ -98,6 +152,9 @@ class ApprovalShell(QMainWindow):
             event.ignore()
             return
         self.controller.timer.stop()
+        heartbeat = getattr(self.controller, "heartbeat_timer", None)
+        if heartbeat is not None:
+            heartbeat.stop()
         self.controller._release_window_lock()
         event.accept()
 
@@ -139,22 +196,60 @@ class ApprovalWindow(QObject):
         self._review_blocked = False
 
     def _initialize(self):
+        report_window_heartbeat(phase="loading_artifact")
         self._load_transaction()
         self.qt_app = application()
         self.root = ApprovalShell(self)
         self.timer = QTimer(self.root)
         self.timer.timeout.connect(self.refresh_approval_state)
+        self._initialize_heartbeat()
         self._show_transaction()
         self.root.fit_to_screen()
         self.timer.start(1000)
 
     def _show_transaction(self):
+        self._metadata_request_id = None
         self._canvas_sources = None
         context = self.artifact.get("action_context") or action_context(self.session.get("baseline"))
         self.root.setWindowTitle(f"GXP 草稿保存审批 · {context_summary(context)} · {self.session_marker()}")
-        registry, registry_note = self.load_preview_registry()
-        self._build_ui(registry, registry_note)
+        self._build_ui({}, "正在加载元件标题元数据；当前按实际参数 Key 展示完整配置。")
         self.render()
+        QTimer.singleShot(0, self._start_preview_metadata)
+
+    def _initialize_heartbeat(self):
+        self.heartbeat_timer = QTimer(self.root)
+        self.heartbeat_timer.timeout.connect(self._heartbeat)
+        self.heartbeat_timer.start(1000)
+
+    def _heartbeat(self):
+        report_window_heartbeat(phase="executing" if self._executing else "loading_preview" if getattr(self, "_metadata_pending", False) else "review",
+                                executing=self._executing)
+
+    def _start_preview_metadata(self):
+        if not isValid(self.root) or not self.root.isVisible() or not getattr(self, "_active_review", True):
+            return
+        if getattr(self, "_metadata_request_id", None) == self.transaction_id:
+            return
+        self._metadata_request_id = self.transaction_id
+        self._metadata_pending = True
+        expected = (self.artifact.get("compiler_evidence") or {}).get("compiler_binding") or {}
+        worker = PreviewMetadataThread(self.config, expected, self.transaction_id)
+        _PREVIEW_WORKERS.add(worker)
+        worker.completed.connect(self._preview_metadata_ready)
+        worker.finished.connect(lambda: (_PREVIEW_WORKERS.discard(worker), worker.deleteLater()))
+        worker.start()
+
+    @Slot(object, str, str)
+    def _preview_metadata_ready(self, registry, note, transaction_id):
+        if (not isValid(self.root) or not self.root.isVisible() or self.transaction_id != transaction_id
+                or not getattr(self, "_active_review", True)):
+            return  # A prior queue item's metadata cannot touch the next item.
+        self.component_review.registry = registry
+        self._metadata_pending = False
+        self.component_review.registry_note.setText(note)
+        selected = self.component_review.selected_change
+        if selected:
+            self.component_review.select_canvas_node(*self.component_review.identity(selected["after"] or selected["before"]))
 
     def _check_owner(self, session):
         if session.get("transaction_id") != self.transaction_id or session["state"] not in {"awaiting_approval", "restore_pending"}:
@@ -215,7 +310,7 @@ class ApprovalWindow(QObject):
         self.statement_list.setMinimumWidth(160)
         self.statement_list.currentRowChanged.connect(self.select_statement)
         side_layout.addWidget(self.statement_list, 1)
-        side_layout.addWidget(label("批准本条 → 自动看下一条\n全部批准 → 确认保存草稿\n每条语句只影响 1 行", "muted", wrap=True))
+        side_layout.addWidget(label("草稿主记录的修改合并审批\n关联记录有额外 SQL 时分别审批\n全部批准后确认保存", "muted", wrap=True))
         workspace.addWidget(sidebar)
         review = QWidget()
         review_layout = QVBoxLayout(review)
@@ -261,7 +356,7 @@ class ApprovalWindow(QObject):
         if repairs:
             self.details_tabs.addTab(text_view(reference_repair_summary(repairs)), "引用修复来源")
         evidence = self.artifact.get("compiler_evidence") or {}
-        if evidence.get("generation"):
+        if evidence.get("generation") or evidence.get("generation_selection"):
             self.details_tabs.addTab(text_view(generation_review_summary(evidence)), "生成范围与旧问题")
         self.notebook.addTab(self.details_tabs, "审批详情")
         review_layout.addWidget(self.notebook, 1)
@@ -375,6 +470,7 @@ class ApprovalWindow(QObject):
         states = tuple(approval_is_current(self.artifact, item) for item in statements)
         self._last_approval_state = states
         count = sum(states)
+        single_draft_update = len(statements) == 1 and statement["kind"] == "update_design"
         self.badge.setText("正在保存…" if self._executing else "全部已批准" if all(states) else "等待人工审批")
         self.approved_metric.setText(f"{count} / {len(statements)}")
         self.progress_bar.setRange(0, len(statements))
@@ -382,13 +478,19 @@ class ApprovalWindow(QObject):
         self.progress.setText(
             f"全部 {len(statements)} 条已批准 · 请确认保存草稿"
             if all(states) else
+            "本次草稿更新只需审批一次" if single_draft_update else
             f"当前第 {self.index + 1}/{len(statements)} 条 · 已批准 {count}/{len(statements)} · 每条仅影响 1 行"
         )
         self.approve_button.setText(
             "本条已批准" if states[self.index] else
+            "批准本次草稿更新" if single_draft_update else
             "批准本条，继续下一条" if len(statements) - count > 1 else "批准最后一条"
         )
-        self.approve_button.setToolTip("只批准当前一条 SQL；自动切换到下一条待审批项，全部批准后仍需确认保存。")
+        self.approve_button.setToolTip(
+            "本次草稿的画布、JS 和 C# 修改合为一条 SQL，只需审批一次。批准后请确认保存。"
+            if single_draft_update else
+            "按实际 SQL 及其参数和目标记录分别审批，自动切换到下一项；全部批准后确认保存。"
+        )
         with QSignalBlocker(self.statement_list):
             self.statement_list.clear()
             for index, item in enumerate(statements):
@@ -472,7 +574,11 @@ class ApprovalWindow(QObject):
             self._validate_current()
             if approval_is_current(self.artifact, self.current()):
                 return
-            if not messagebox.askyesno("确认审批", f"只批准当前第 {self.index + 1}/{len(self.artifact['statements'])} 条 SQL？\n\n{STATEMENT_LABELS.get(self.current()['kind'], self.current()['kind'])} · 仅影响 1 行\n\n批准后自动显示下一条待审批项，不会立即执行。\n全部批准后仍需确认保存。", parent=self.root):
+            if len(self.artifact["statements"]) == 1 and self.current()["kind"] == "update_design":
+                prompt = "批准本次草稿更新？\n\n本次画布、JS 和 C# 修改合并为一条 SQL，仅影响草稿主记录 1 行。\n\n批准后请确认保存。"
+            else:
+                prompt = f"批准当前第 {self.index + 1}/{len(self.artifact['statements'])} 条 SQL？\n\n{STATEMENT_LABELS.get(self.current()['kind'], self.current()['kind'])} · 仅影响 1 行\n\n批准后自动显示下一条待审批项。\n全部批准后确认保存。"
+            if not messagebox.askyesno("确认审批", prompt, parent=self.root):
                 return
             self._validate_current()
             approve_statement(self.config, self.artifact, self.current()["id"])
@@ -494,7 +600,7 @@ class ApprovalWindow(QObject):
                 raise StateError("请先逐条批准全部 SQL，过期语句需重新批准。")
             if self.artifact["database_safety"].get("shared_account") and not messagebox.askyesno("共享账户风险确认", "当前使用共享数据库账户。固定 SQL、设计锁和审批只能限制本插件内的操作，不能缩小该账户在其他客户端中的权限。确认继续吗？", parent=self.root):
                 return
-            if not messagebox.askyesno("执行并保存草稿", "所有 SQL 已分别批准。现在将重新锁定并校验草稿，执行短事务并保存。\n\n保存后仍需在平台手动发布。确认执行？", parent=self.root):
+            if not messagebox.askyesno("执行并保存草稿", "SQL 审批已完成。现在将重新锁定并校验草稿，在同一事务中保存全部修改。\n\n保存后仍需在平台手动发布。确认执行？", parent=self.root):
                 return
             self._validate_current()
             self._executing = True
@@ -545,10 +651,12 @@ class ApprovalWindow(QObject):
     def run(self):
         self.root.fit_to_screen()
         self.root.show()
+        QTimer.singleShot(0, lambda: report_window_startup("ready") if self.root.isVisible() else None)
         try:
             self.qt_app.exec()
         finally:
             self.close()
+            report_window_startup("closed")
 
     def session_marker(self) -> str:
         parts = []
@@ -566,23 +674,7 @@ class ApprovalWindow(QObject):
         never changes the signed artifact or controls approval readiness.
         """
         expected = (self.artifact.get("compiler_evidence") or {}).get("compiler_binding") or {}
-        if not expected:
-            return {}, "未绑定元件标题元数据；按实际参数 Key 展示完整配置。"
-        try:
-            bridge = CompilerBridge(self.config)
-            if sha256_text(bridge.path.read_text(encoding="utf-8")) != expected.get("bridge_sha256"):
-                raise ValueError("bridge changed")
-            registry = bridge._call({"command": "describe_registry"}, timeout_seconds=8)
-            if (
-                registry.get("command") != "describe_registry"
-                or bridge._stable_registry_hash(registry) != expected.get("registry_hash")
-                or registry.get("rule_source_sha256") != expected.get("rule_source_sha256")
-                or registry.get("frontend_version") != expected.get("frontend_version")
-            ):
-                raise ValueError("registry changed")
-            return {element["key"]: element for element in registry["elements"]}, "配置来自草稿备份与待保存画布；参数名称来自本次审批绑定的真实元件注册表。"
-        except Exception:
-            return {}, "未能核对元件标题元数据；按实际参数 Key 展示，配置值保持完整。"
+        return preview_registry_metadata(self.config, expected)
 
     def change_details(self, changes=None) -> str:
         if changes is None:
@@ -617,6 +709,7 @@ class ApprovalQueueWindow(ApprovalWindow):
         self._active_review = False
         self._waiting_for_lock = False
         self._queue_stopped = False
+        self._isolated_candidates = {}
         self._last_queue_result = ""
         self._queue_items = self.state.edit_queue(queue_id, conversation_id)
         lock = approval_queue_lock(queue_id)
@@ -627,6 +720,7 @@ class ApprovalQueueWindow(ApprovalWindow):
             self.root = ApprovalShell(self)
             self.timer = QTimer(self.root)
             self.timer.timeout.connect(self.refresh_approval_state)
+            self._initialize_heartbeat()
             self._advance_queue()
             self.root.fit_to_screen()
             if not self._queue_stopped:
@@ -649,6 +743,8 @@ class ApprovalQueueWindow(ApprovalWindow):
     def _item_status(self, item):
         if not self._item_owned(item):
             return "已转交"
+        if item.get("transaction_id") in self._isolated_candidates:
+            return "候选不可读，待修复重试"
         state = item.get("transaction_state") or item["state"]
         if item.get("plan_status") == "blocked" and state == "planned":
             return "验收不符合，待修正"
@@ -671,11 +767,17 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.queue_result = label(self._last_queue_result or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。", "muted", wrap=True)
         layout.addWidget(self.queue_result)
         self.queue_choices.activated.connect(self._select_queue_item)
+        self.retry_candidates_button = QPushButton("重试已隔离候选")
+        self.retry_candidates_button.clicked.connect(self._retry_isolated_candidates)
+        layout.addWidget(self.retry_candidates_button)
         self._update_queue_banner()
         return banner
 
     def _update_queue_banner(self):
         items = self._queue_items
+        pending_ids = {item.get("transaction_id") for item in items
+                       if self._item_owned(item) and item.get("transaction_state") == "awaiting_approval"}
+        self._isolated_candidates = {key: value for key, value in self._isolated_candidates.items() if key in pending_ids}
         saved = sum(self._item_owned(item) and item.get("transaction_state") == "saved" for item in items)
         position = next((index + 1 for index, item in enumerate(items)
                          if self._active_review and item.get("transaction_id") == self.transaction_id), None)
@@ -685,14 +787,26 @@ class ApprovalQueueWindow(ApprovalWindow):
             for item in items:
                 title = f"{item['position']}. {context_summary(item['action_context'])} · {self._item_status(item)}"
                 self.queue_choices.addItem(title, item.get("transaction_id"))
-                self.queue_choices.setItemData(self.queue_choices.count() - 1, title, Qt.ItemDataRole.ToolTipRole)
-                enabled = self._item_owned(item) and item.get("transaction_state") == "awaiting_approval"
+                reason = self._isolated_candidates.get(item.get("transaction_id"), "")
+                self.queue_choices.setItemData(self.queue_choices.count() - 1, title + ("\n" + reason if reason else ""), Qt.ItemDataRole.ToolTipRole)
+                enabled = (self._item_owned(item) and item.get("transaction_state") == "awaiting_approval"
+                           and item.get("transaction_id") not in self._isolated_candidates)
                 self.queue_choices.model().item(self.queue_choices.count() - 1).setEnabled(enabled)
             self.queue_choices.setCurrentIndex(position - 1 if position else -1)
         self.queue_choices.setEnabled(not self._executing and not self._queue_stopped)
+        self.retry_candidates_button.setVisible(bool(self._isolated_candidates))
+        self.retry_candidates_button.setEnabled(not self._executing and not self._queue_stopped)
         notice = publication_notice(queue_publication_targets(items, self.conversation_id))
-        self.queue_result.setText("\n\n".join(part for part in (self._last_queue_result, notice) if part)
+        isolated_note = (f"已隔离 {len(self._isolated_candidates)} 个未执行候选，其余动作可继续审批。请在当前对话重新规划这些动作，再点击重试。"
+                         if self._isolated_candidates else "")
+        self.queue_result.setText("\n\n".join(part for part in (self._last_queue_result, isolated_note, notice) if part)
                                  or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。")
+
+    def _retry_isolated_candidates(self):
+        if self._executing or self._queue_stopped:
+            return
+        self._isolated_candidates.clear()
+        self._advance_queue()
 
     def _build_ui(self, registry, registry_note):
         super()._build_ui(registry, registry_note)
@@ -733,7 +847,8 @@ class ApprovalQueueWindow(ApprovalWindow):
             self.timer.stop()
             return
         pending = [item for item in self._queue_items if self._item_owned(item)
-                   and item.get("transaction_state") == "awaiting_approval"]
+                   and item.get("transaction_state") == "awaiting_approval"
+                   and item.get("transaction_id") not in self._isolated_candidates]
         item = next((item for item in pending if transaction_id is None or item["transaction_id"] == transaction_id), None)
         ApprovalWindow._release_window_lock(self)
         if item is None:
@@ -761,9 +876,27 @@ class ApprovalQueueWindow(ApprovalWindow):
             self._active_review = True
             self._show_transaction()
         except Exception as exc:
-            self._queue_stopped = True
-            self._show_waiting(f"审批队列已停止：{exc}")
-            self.timer.stop()
+            # A corrupt candidate is not evidence of an uncertain database write.
+            # The writer must claim state under this same execution lock first.
+            try:
+                with execution_lock(self.path):
+                    current = self.state.get_transaction(self.transaction_id)
+                    if current["state"] != "awaiting_approval":
+                        raise StateError("该动作已尝试执行，不能作为未执行候选隔离。")
+                    try:
+                        on_disk = load_artifact(self.path)
+                    except (OSError, ValueError):
+                        on_disk = None
+                    if isinstance(on_disk, dict) and (on_disk.get("execution_started") or on_disk.get("executed")):
+                        raise StateError("审批文件记录已尝试执行，需要先核对结果。")
+                    self._isolated_candidates[self.transaction_id] = str(exc)[:1000]
+                ApprovalWindow._release_window_lock(self)
+                # At most one iteration per queue item; isolated IDs are excluded.
+                self._advance_queue()
+            except Exception as recovery_error:
+                self._queue_stopped = True
+                self._show_waiting(f"审批队列已停止，执行结果需要核对：{recovery_error}")
+                self.timer.stop()
 
     def _select_queue_item(self, index):
         if self._executing or self._queue_stopped:
@@ -794,6 +927,26 @@ class ApprovalQueueWindow(ApprovalWindow):
             self._block_review(str(exc))
 
     def _block_review(self, error):
+        # Reviewing never writes. If the state still proves no execution attempt,
+        # isolate the candidate instead of trapping unrelated queue actions.
+        if not self._executing and self._active_review:
+            try:
+                with execution_lock(self.path):
+                    current = self.state.get_transaction(self.transaction_id)
+                    if current["state"] != "awaiting_approval":
+                        raise StateError("执行结果需要核对。")
+                    try:
+                        on_disk = load_artifact(self.path)
+                    except (OSError, ValueError):
+                        on_disk = None
+                    if isinstance(on_disk, dict) and (on_disk.get("execution_started") or on_disk.get("executed")):
+                        raise StateError("执行结果需要核对。")
+                    self._isolated_candidates[self.transaction_id] = str(error)[:1000]
+                ApprovalWindow._release_window_lock(self)
+                self._advance_queue()
+                return
+            except Exception:
+                pass
         self._queue_stopped = True
         super()._block_review(error)
         self._update_queue_banner()
@@ -880,23 +1033,33 @@ class PlanReviewWindow(QMainWindow):
         frame = self.frameGeometry()
         frame.moveCenter(available.center())
         self.move(frame.topLeft())
+        self.heartbeat_timer = QTimer(self)
+        self.heartbeat_timer.timeout.connect(lambda: report_window_heartbeat(phase="plan_review"))
+        self.heartbeat_timer.start(1000)
 
     def navigate_review_target(self, group_key, node_key, field_path=""):
         ApprovalWindow.navigate_review_target(self, group_key, node_key, field_path)
 
     def run(self):
         self.show()
-        self.qt_app.exec()
+        QTimer.singleShot(0, lambda: report_window_startup("ready") if self.isVisible() else None)
+        try:
+            self.qt_app.exec()
+        finally:
+            report_window_startup("closed")
 
 
 def main() -> int:
     if len(sys.argv) == 4 and sys.argv[1] == "--queue":
         try:
             ApprovalQueueWindow(sys.argv[2], sys.argv[3]).run()
-        except ApprovalWindowBusyError:
+        except ApprovalWindowBusyError as exc:
+            report_window_startup("already_open", error=str(exc))
             return 2  # The existing queue window picks up newly prepared actions.
         except Exception as exc:
-            messagebox.showerror("连续审批窗口无法打开", str(exc))
+            report_window_startup("failed", error=str(exc))
+            if not managed_window_launch():
+                messagebox.showerror("连续审批窗口无法打开", str(exc))
             return 1
         return 0
     if len(sys.argv) == 3 and sys.argv[1] == "--plan-review":
@@ -904,7 +1067,9 @@ def main() -> int:
             envelope = json.loads(Path(sys.argv[2]).read_text(encoding="utf-8"))
             PlanReviewWindow(envelope).run()
         except Exception as exc:
-            messagebox.showerror("业务计划报告无法打开", str(exc))
+            report_window_startup("failed", error=str(exc))
+            if not managed_window_launch():
+                messagebox.showerror("业务计划报告无法打开", str(exc))
             return 1
         return 0
     if len(sys.argv) not in {2, 4}:
@@ -915,16 +1080,24 @@ def main() -> int:
             int(sys.argv[3]) if len(sys.argv) == 4 else None,
         ).run()
     except ApprovalWindowBusyError as exc:
-        messagebox.showinfo("审批窗口已打开", str(exc))
+        report_window_startup("already_open", error=str(exc))
+        if not managed_window_launch():
+            messagebox.showinfo("审批窗口已打开", str(exc))
         return 2
     except StateError as exc:
-        messagebox.showerror("审批会话不可用", str(exc))
+        report_window_startup("failed", error=str(exc))
+        if not managed_window_launch():
+            messagebox.showerror("审批会话不可用", str(exc))
         return 1
     except (TransactionPlanError, SingleRowCheckError) as exc:
-        messagebox.showerror("修改已被检查器阻止", str(exc))
+        report_window_startup("failed", error=str(exc))
+        if not managed_window_launch():
+            messagebox.showerror("修改已被检查器阻止", str(exc))
         return 1
     except Exception as exc:
-        messagebox.showerror("审批窗口未能打开", f"{exc}\n\n请在当前对话调用 abort_edit_session 打开处理窗口；可取消未执行审批，或保留数据并释放本地流程。")
+        report_window_startup("failed", error=str(exc))
+        if not managed_window_launch():
+            messagebox.showerror("审批窗口未能打开", f"{exc}\n\n请在当前对话调用 abort_edit_session 打开处理窗口；可取消未执行审批，或保留数据并释放本地流程。")
         return 1
     return 0
 

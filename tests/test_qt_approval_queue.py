@@ -228,11 +228,44 @@ class QtApprovalQueueTests(unittest.TestCase):
         artifact["desired_design"]["js_code"] = "tampered"
         save_artifact(path, artifact)
         self.save_current()
-        self.assertTrue(self.window._queue_stopped)
+        self.assertFalse(self.window._queue_stopped)
         self.assertFalse(self.window._active_review)
+        self.assertIn(self.second, self.window._isolated_candidates)
+        self.assertFalse(self.window.retry_candidates_button.isHidden())
         self.window.approve_current()
         self.window.execute()
         self.assertFalse(self.artifact(self.second)["approvals"])
+        self.execute_approved_transaction.assert_called_once_with(self.first)
+
+    def test_bad_unexecuted_candidate_is_isolated_and_healthy_later_action_continues(self):
+        third = self.add_action(3)
+        path = Path(self.state.get_transaction(self.second)["artifact_path"])
+        original = path.read_text(encoding="utf-8")
+        path.write_text("{broken json", encoding="utf-8")
+        self.save_current()
+        self.assertFalse(self.window._queue_stopped)
+        self.assertTrue(self.window._active_review)
+        self.assertEqual(self.window.transaction_id, third)
+        self.assertIn(self.second, self.window._isolated_candidates)
+        self.assertFalse(self.artifact(third)["approvals"])
+        with approval_window_lock(path):
+            pass  # Isolation does not retain the failed candidate's window lock.
+        path.write_text(original, encoding="utf-8")
+        self.window._retry_isolated_candidates()
+        self.assertEqual(self.window.transaction_id, self.second)
+        self.assertNotIn(self.second, self.window._isolated_candidates)
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.execute_approved_transaction.assert_called_once_with(self.first)
+
+    def test_execution_started_artifact_cannot_be_isolated_as_corrupt(self):
+        path = self.state.get_transaction(self.second)["artifact_path"]
+        artifact = self.artifact(self.second)
+        artifact["execution_started"] = True
+        artifact["desired_design"]["js_code"] = "corrupt"
+        save_artifact(path, artifact)
+        self.save_current()
+        self.assertTrue(self.window._queue_stopped)
+        self.assertNotIn(self.second, self.window._isolated_candidates)
         self.execute_approved_transaction.assert_called_once_with(self.first)
 
     def test_transferred_pending_action_is_visible_but_not_reviewed(self):

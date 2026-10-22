@@ -81,14 +81,17 @@ class EditQueueTests(unittest.TestCase):
         service = object.__new__(EditorService)
         service._conversation_id = self.owner
         service.state = self.store
-        with patch("gxp_editor.config.runtime_root", return_value=Path(self.folder.name)), patch("gxp_editor.service.subprocess.Popen") as launch:
+        with patch("gxp_editor.config.runtime_root", return_value=Path(self.folder.name)), patch("gxp_editor.ui_launch.launch_window",
+                return_value={"window_opened": True, "window_starting": False}) as launch, patch("gxp_editor.ui_launch.inspect_window_startup",
+                return_value={"window_opened": False, "window_starting": False, "startup_status": "unknown"}):
             with approval_queue_lock(self.queue):
                 result = service._try_launch_approval(tx)
                 self.assertTrue(result["already_open"])
+                self.assertFalse(result["approval_window_opened"])
                 launch.assert_not_called()
             result = service._try_launch_approval(tx)
             self.assertTrue(result["approval_window_opened"])
-            self.assertEqual(launch.call_args.args[0][-3:], ["--queue", self.queue, self.owner])
+            self.assertEqual(launch.call_args.kwargs["arguments"], ["--queue", self.queue, self.owner])
 
     def test_queue_lock_and_saved_state_survive_store_reopening(self):
         self.add()

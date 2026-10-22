@@ -111,7 +111,11 @@ class CompilerOptimizationTests(unittest.TestCase):
         with patch.object(bridge, "_call", side_effect=AssertionError("No subprocess expected")):
             with self.assertRaises(CompilerError) as caught:
                 bridge.compile_patch(fixture(), [operation(sql="private SQL")])
-        self.assertEqual(caught.exception.details, {"operation_index": 0, "group_key": "g", "node_key": "n", "path": "/inputParams/status", "reason_code": "invalid_operation"})
+        details = caught.exception.details
+        self.assertEqual({key: details[key] for key in ("operation_index", "group_key", "node_key", "path", "reason_code")},
+            {"operation_index": 0, "group_key": "g", "node_key": "n", "path": "/inputParams/status", "reason_code": "invalid_operation"})
+        self.assertEqual(details["phase"], "operation_preflight")
+        self.assertTrue(details["issues"])
 
 
 if __name__ == "__main__":

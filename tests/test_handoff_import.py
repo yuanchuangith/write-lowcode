@@ -1,0 +1,139 @@
+"""Readonly records are hints checked before any session occupancy is acquired."""
+from __future__ import annotations
+
+import copy
+import json
+import os
+import tempfile
+import unittest
+from unittest.mock import Mock, patch
+
+from tests.helpers import baseline, editor_config
+from gxp_editor.handoff_store import HandoffStore, HandoffError, environment_scope, snapshot_targets, compare_targets
+from gxp_editor.handoff_import import inspect_handoff
+from gxp_editor.hashing import sha256_text
+from gxp_editor.service import EditorService
+
+
+class HandoffImportTests(unittest.TestCase):
+    def setUp(self):
+        self.temp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.temp.cleanup)
+        self.enterContext(patch.dict(os.environ, {"LOCALAPPDATA": self.temp.name}))
+        self.data = {"actionData": [{"key": "main", "title": "Main", "actionType": "js", "data": [
+            {"key": "n", "elementKey": "Noop", "title": "Target", "depth": [],
+             "paramsValue": {"inputParams": {"value": "old"}, "outputParams": {}}}]}], "globalVariables": []}
+        self.draft = baseline(data=json.dumps(self.data), data_json=self.data)
+        self.config = editor_config()
+        self.targets = [{"group_key": "main", "node_key": "n"}]
+        self.record = {"environment_scope": environment_scope(self.config.database),
+            "action": {"ref_id": self.draft["ref_id"], "action_code": self.draft["code"], "action_name": "Test"},
+            "draft": {"design_id": self.draft["id"], "data_sha256": sha256_text(self.draft["data"])},
+            "diagnosis_source": {"design_id": self.draft["id"], "version": "draft", "data_sha256": sha256_text(self.draft["data"])},
+            "targets": snapshot_targets(self.data, self.targets), "diagnosis_targets": snapshot_targets(self.data, self.targets),
+            "source_target_differences": [], "change_spec": {"user_request": "Change value", "summary": "Set value to new",
+                "changes": [{**self.targets[0], "description": "Change value", "parameter_path": "/inputParams/value", "before": "old", "after": "new"}],
+                "preserve": ["Keep the callback signature"], "scenarios": ["Existing output is preserved"]}}
+
+    def export(self):
+        return HandoffStore().write(self.record)["handoff_ref"]
+
+    def service(self):
+        service = object.__new__(EditorService)
+        service._conversation_id = "new-dialogue"
+        service.state = Mock()
+        service.state.active_session.return_value = None
+        service.state.target_session.return_value = None
+        repository, compiler = Mock(), Mock()
+        repository.load_draft_by_identifier.return_value = self.draft
+        service._components = Mock(return_value=(self.config, Mock(), repository, compiler, Mock()))
+        return service, compiler
+
+    def test_matching_record_has_no_inherited_authority_and_no_generated_code(self):
+        result = inspect_handoff(self.export(), self.draft, self.config.database)
+        self.assertEqual(result["status"], "matched")
+        self.assertFalse(result["authorization_inherited"])
+        self.assertFalse(result["approval_inherited"])
+        self.assertEqual(result["change_spec"]["preserve"], ["Keep the callback signature"])
+        self.assertNotIn("js_code", result)
+
+    def test_matching_record_starts_this_dialogue_with_target_context(self):
+        service, compiler = self.service()
+        compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
+        compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
+        compiler.validate_design.return_value = {"validation": {"valid": True}}
+        service.state.create_session.return_value = {"id": "new-session", "ref_id": self.draft["ref_id"],
+            "design_id": self.draft["id"], "action_code": self.draft["code"], "action_name": "Test"}
+        with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
+                patch("gxp_editor.service.BackupStore") as store, \
+                patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
+                    "production_ready": False, "gates": {}}):
+            store.return_value.create.return_value = {"backup_id": "test", "files": {}}
+            result = service.begin_edit_session("ActionOne", handoff_ref=self.export())
+        self.assertEqual(result["conversation_id"], "new-dialogue")
+        self.assertEqual(result["session_id"], "new-session")
+        self.assertEqual(result["edit_context"]["nodes"][0]["params_value"], self.data["actionData"][0]["data"][0]["paramsValue"])
+        self.assertFalse(result["handoff"]["approval_inherited"])
+        self.assertEqual(service.state.create_session.call_args.kwargs["conversation_id"], "new-dialogue")
+
+    def test_stale_draft_reports_only_changed_target_locations(self):
+        reference = self.export()
+        changed = copy.deepcopy(self.draft)
+        changed["data_json"]["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["value"] = "other"
+        changed["data"] = json.dumps(changed["data_json"])
+        result = inspect_handoff(reference, changed, self.config.database)
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["target_differences"][0]["node_key"], "n")
+        self.assertIn("paramsValue", result["target_differences"][0]["changed_fields"])
+
+    def test_different_environment_or_action_is_rejected(self):
+        reference = self.export()
+        for change in ({"ref_id": "other"}, {"id": "other"}, {"code": "other"}):
+            with self.subTest(change=change), self.assertRaises(HandoffError):
+                inspect_handoff(reference, {**self.draft, **change}, self.config.database)
+        with self.assertRaises(HandoffError):
+            inspect_handoff(reference, self.draft, {"host": "different", "port": 3306, "database": "test"})
+
+    def test_unavailable_record_has_normal_fallback_and_no_new_occupancy(self):
+        service, compiler = self.service()
+        result = service.begin_edit_session("ActionOne", handoff_ref={"handoff_id": "a" * 32, "sha256": "b" * 64})
+        self.assertFalse(result["session_created"])
+        self.assertEqual(result["handoff_status"], "unavailable")
+        service.state.create_session.assert_not_called()
+        compiler.describe_registry.assert_not_called()
+
+    def test_source_draft_difference_is_not_silently_rebased(self):
+        diagnosed = copy.deepcopy(self.data)
+        diagnosed["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["value"] = "published"
+        self.record["diagnosis_source"].update(version="published", design_id="published-id", data_sha256=sha256_text(json.dumps(diagnosed)))
+        self.record["diagnosis_targets"] = snapshot_targets(diagnosed, self.targets)
+        self.record["source_target_differences"] = compare_targets(self.record["diagnosis_targets"], self.record["targets"])
+        service, compiler = self.service()
+        result = service.begin_edit_session("ActionOne", handoff_ref=self.export())
+        self.assertEqual(result["handoff_status"], "source_target_diverged")
+        service.state.create_session.assert_not_called()
+        compiler.compile_patch.assert_not_called()
+
+    def test_tampering_is_detected_without_creating_session(self):
+        reference = self.export()
+        reference["sha256"] = "0" * 64
+        service, compiler = self.service()
+        result = service.begin_edit_session("ActionOne", handoff_ref=reference)
+        self.assertEqual(result["error_code"], "HANDOFF_CHECKSUM")
+        service.state.create_session.assert_not_called()
+
+    def test_readiness_exception_does_not_leave_new_occupancy(self):
+        service, compiler = self.service()
+        compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
+        compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
+        with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
+                patch("gxp_editor.service.BackupStore") as store, \
+                patch.object(service, "editor_status", side_effect=RuntimeError("readiness unavailable")):
+            store.return_value.create.return_value = {"backup_id": "test", "files": {}}
+            with self.assertRaisesRegex(RuntimeError, "readiness unavailable"):
+                service.begin_edit_session("ActionOne")
+        service.state.create_session.assert_not_called()
+
+
+if __name__ == "__main__":
+    unittest.main()

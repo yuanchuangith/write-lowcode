@@ -66,6 +66,9 @@ class FakeCompiler:
             "elements": [{"key": "Start"}],
         }
 
+    def registry_and_binding(self):
+        return self.describe_registry(), self.compiler_binding()
+
 
 class UnavailableRuntimeValidator:
     def __init__(self, runtime):
@@ -81,6 +84,14 @@ class RecordingPlanState:
         self.plan = plan
         self.plan_created = False
         self.transaction_created = False
+        self.checkpoint = None
+
+    def review_spec_checkpoint(self, *args, **kwargs):
+        return self.checkpoint
+
+    def save_review_spec_checkpoint(self, session_id, spec, **kwargs):
+        self.checkpoint = {"spec": spec, "sha256": sha256_json(spec)}
+        return self.checkpoint["sha256"]
 
     def get_session(self, session_id):
         return dict(self.session)
@@ -105,11 +116,11 @@ class PlanRepository(FakeRepository):
         return dict(self.draft)
 
     def load_relations(self, design_id):
-        return []
+        return list(self.draft.get("relations") or [])
 
 
 class BlockingPlanCompiler(FakeCompiler):
-    def compile_patch(self, design, operations, *, baseline_artifacts=None):
+    def compile_patch(self, design, operations, *, baseline_artifacts=None, generation_mode="full"):
         return {"design": design}
 
     def verify_compiled_result(self, result, **kwargs):
@@ -146,14 +157,19 @@ class ServiceStatusTests(unittest.TestCase):
         service = object.__new__(EditorService)
         service.state = Mock()
         service.state.get_transaction.return_value = {"state": "awaiting_approval", "artifact_path": "unused.json", "session_id": "session-1"}
-        service.state.get_session.return_value = {"conversation_id": "", "owner_revision": 0}
-        with patch("gxp_editor.service.load_artifact", return_value=transaction()), patch.object(service, "_launch_approval") as launch:
+        artifact = transaction()
+        service.state.get_session.return_value = {"id": "session-1", "design_id": artifact["design_id"],
+            "state": "awaiting_approval", "transaction_id": "transaction-1", "conversation_id": "", "owner_revision": 0}
+        with patch("gxp_editor.service.load_artifact", return_value=artifact), patch.object(service, "_launch_approval",
+                return_value={"window_opened": True, "window_starting": False}) as launch:
             self.assertTrue(service.reopen_approval("transaction-1")["approval_window_opened"])
             launch.assert_called_once_with("transaction-1", owner_revision=0)
             service.state.create_transaction.assert_not_called()
             service.state.get_transaction.return_value["state"] = "executing"
-            with self.assertRaises(EditorServiceError):
-                service.reopen_approval("transaction-1")
+            result = service.reopen_approval("transaction-1")
+            self.assertFalse(result["approval_window_opened"])
+            self.assertEqual(result["reason_code"], "approval_not_pending")
+            self.assertEqual(result["handling_options"]["inspect_tool"], "inspect_session_cancellation")
     def test_begin_with_existing_session_offers_manual_abort_before_any_work(self):
         service = object.__new__(EditorService)
         from unittest.mock import Mock
@@ -173,12 +189,12 @@ class ServiceStatusTests(unittest.TestCase):
         from unittest.mock import Mock
         service.state = Mock()
         service.state.get_session.return_value = {"state": "awaiting_approval"}
-        with patch("gxp_editor.service.subprocess.Popen") as launch:
+        with patch("gxp_editor.ui_launch.launch_window", return_value={"window_opened": True, "window_starting": False}) as launch:
             result = service.abort_edit_session("old-session")
         self.assertTrue(result["confirmation_window_opened"])
         self.assertFalse(result["aborted"])
         launch.assert_called_once()
-        self.assertIn("abort_session_app.py", launch.call_args.args[0][1])
+        self.assertEqual(launch.call_args.kwargs["script"].name, "abort_session_app.py")
         service.state.update_session.assert_not_called()
 
     def test_draft_capability_does_not_claim_production_readiness(self):
@@ -239,8 +255,7 @@ class ServiceStatusTests(unittest.TestCase):
             account_mode=config.database.account_mode,
             expected_grants_sha256=config.database.expected_grants_sha256,
         )
-        compiler.describe_registry.assert_called_once_with()
-        compiler.compiler_binding.assert_called_once_with()
+        compiler.registry_and_binding.assert_called_once_with()
         key.assert_called_once_with(config)
         self.assertTrue(status["write_ready"])
         self.assertTrue(status["runtime_validation"]["probe_skipped"])
@@ -315,7 +330,8 @@ class ServiceStatusTests(unittest.TestCase):
             service,"_runtime_validation_evidence",return_value={"available":True,"success":False,"failure_kind":"compilation_failed"}), patch(
             "gxp_editor.service.runtime_root",return_value=Path(temporary)):
             with self.assertRaisesRegex(EditorServiceError,"C# validation did not pass"):
-                service.plan_canvas_patch("session-1",[{"operation":"replace_params"}], review_spec={
+                service.plan_canvas_patch("session-1",[{"operation":"create_action_group", "group_alias":"candidate",
+                    "group_title":"Candidate", "action_type":"js"}], review_spec={
                     "schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
             self.assertFalse((Path(temporary)/"plans").exists())
         self.assertFalse(state.plan_created)
@@ -346,7 +362,8 @@ class ServiceStatusTests(unittest.TestCase):
             service, "_components", return_value=components
         ), patch("gxp_editor.service.runtime_root", return_value=Path(temporary)):
             with self.assertRaisesRegex(CompilerError, "no JavaScript"):
-                service.plan_canvas_patch("session-1", [{"operation": "replace_params"}], review_spec={
+                service.plan_canvas_patch("session-1", [{"operation": "create_action_group", "group_alias": "candidate",
+                    "group_title": "Candidate", "action_type": "js"}], review_spec={
                     "schema_version": 1, "revision": "manual", "scope_policy": "manual_review", "requirements": []})
             self.assertFalse((Path(temporary) / "plans").exists())
 

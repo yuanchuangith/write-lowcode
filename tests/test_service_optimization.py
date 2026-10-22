@@ -19,9 +19,11 @@ class ServiceOptimizationTests(unittest.TestCase):
                    "state": "locked", "conversation_id": ""}
         service = object.__new__(EditorService)
         service.state = Mock()
+        service.state.review_spec_checkpoint.return_value = None
         service.state.get_session.return_value = session
         repository, compiler, runtime = Mock(), Mock(), Mock()
         repository.load_draft_by_id.return_value = draft
+        repository.load_relations.return_value = []
         spec = {"schema_version": 1, "revision": "r1", "scope_policy": "manual_review", "requirements": []}
         with patch.object(service, "_components", return_value=(editor_config(), object(), repository, compiler, runtime)):
             response = service.plan_canvas_patch("s", [operation()], spec)

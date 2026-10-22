@@ -452,6 +452,9 @@ def plan_binding_hash(artifact: dict[str, Any]) -> str:
         binding["action_context"] = artifact["action_context"]
     if "generation" in artifact:
         binding["generation"] = artifact["generation"]
+    for field in ("generation_mode", "generation_selection"):
+        if field in artifact:
+            binding[field] = artifact[field]
     return sha256_json(binding)
 
 

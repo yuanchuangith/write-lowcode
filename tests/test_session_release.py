@@ -106,9 +106,12 @@ class SessionReleaseTests(unittest.TestCase):
     def test_corrupt_baseline_does_not_block_handling_window_or_release(self):
         with self.store._connection() as db:
             db.execute("UPDATE sessions SET baseline_json='bad-json' WHERE id=?", (self.session["id"],))
-        with patch("gxp_editor.service.subprocess.Popen") as launch:
-            self.assertTrue(self.service.abort_edit_session(self.session["id"])["confirmation_window_opened"])
+        with patch("gxp_editor.ui_launch.launch_window", return_value={"window_opened": True, "window_starting": False}) as launch:
+            result = self.service.abort_edit_session(self.session["id"])
+            self.assertTrue(result["confirmation_window_opened"])
+            self.assertFalse(result["confirmation_window_starting"])
             launch.assert_called_once()
+            self.assertEqual(launch.call_args.kwargs["arguments"], [self.session["id"], self.owner, "0"])
         self.assertTrue(self.archive()["session_released"])
 
     def test_missing_transaction_record_can_be_archived(self):
