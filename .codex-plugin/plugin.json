@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.39+codex.local-20261022-100616-evidence-reuse",
+  "version": "0.1.41+codex.local-20261023-095722-connection-settings",
   "description": "Guarded GXP ActionDesign draft editing with business expectation review, before/after generated-JS scenarios, bound compiler evidence, immutable backups, human approval and restore support.",
   "author": {
     "name": "Local developer"

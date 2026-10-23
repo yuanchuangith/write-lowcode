@@ -17,9 +17,10 @@ from .telemetry import stage, add_external
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
 from .db import EditorDatabase
 from .hashing import relation_snapshot_hash, sha256_json, sha256_text
+from .handoff_store import environment_scope
 from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
-from .state import ACTIVE_STATES, StateError, StateStore, saved_verification
+from .state import ACTIVE_STATES, StateError, StateStore, saved_verification, assert_session_database_scope
 from .review_response import evidence_summary, review_page, review_response
 from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
@@ -64,10 +65,14 @@ class EditorService:
     def conversation_id(self) -> str:
         return getattr(self, "_conversation_id", "")
 
-    def _owned_session(self, session_id: str, *, include_baseline: bool = True) -> dict[str, Any]:
+    def _owned_session(self, session_id: str, *, include_baseline: bool = True,
+                       check_database: bool = True) -> dict[str, Any]:
         session = self.state.get_session(session_id) if include_baseline else self.state.get_session(session_id, include_baseline=False)
         if session.get("conversation_id", "") != self.conversation_id:
             raise EditorServiceError("此流程已归其他对话，当前对话不能操作。请使用会话标记接手。")
+        if check_database:
+            config = self._components()[0].database if session.get("database_scope") else None
+            assert_session_database_scope(session, config)
         return session
 
     @staticmethod
@@ -99,6 +104,7 @@ class EditorService:
         if not self.conversation_id:
             raise EditorServiceError("接手前请创建当前对话的 conversation_id。")
         session = self.state.get_session(session_id, include_baseline=False)
+        assert_session_database_scope(session)
         with ExitStack() as locks:
             if session.get("transaction_id"):
                 transactions = self.state.session_transactions(session_id)
@@ -446,10 +452,13 @@ class EditorService:
                            "Retry begin_edit_session only after it is finished or safely aborted.",
             }
         config, _, repository, compiler, runtime_validator = self._components()
+        if active:
+            assert_session_database_scope(active, config.database)
         with stage("database.load_draft"):
             draft = repository.load_draft_by_identifier(identifier)
         handoff = None
         edit_context = None
+        evidence_candidates = None
         if handoff_ref is not None:
             from .handoff_import import inspect_handoff, unavailable_handoff
             from .handoff_store import HandoffError
@@ -457,15 +466,19 @@ class EditorService:
                 handoff = inspect_handoff(handoff_ref, draft, config.database)
             except (HandoffError, OSError, ValueError, TypeError, KeyError) as exc:
                 return unavailable_handoff(exc)
-            if handoff["status"] != "matched":
+            if handoff["status"] not in {"matched", "diagnosis_only"}:
                 return {"blocked": True, "session_created": False, "plan_created": False,
                         "write_executed": False, "handoff_status": handoff["status"], "handoff": handoff,
                         "next_step": handoff["next_step"]}
+        elif not repair:
+            from .handoff_import import discover_handoffs
+            evidence_candidates = discover_handoffs(draft, config.database)
         occupied = self.state.target_session(str(draft["id"]), str(draft["ref_id"]))
         if occupied:
             if occupied.get("conversation_id") == self.conversation_id:
                 return self._reuse_edit_session(occupied["id"], draft, compiler, repair=repair,
-                                                queue_id=queue_id, handoff=handoff)
+                                                queue_id=queue_id, handoff=handoff,
+                                                evidence_candidates=evidence_candidates)
             return {"blocked": True, "active_session_id": occupied["id"],
                     "message": "这份草稿已有独立编辑流程。请关闭原审批窗口后，用会话标记显式接手；其他草稿可并行编辑。"}
         registry = compiler.describe_registry()
@@ -475,7 +488,7 @@ class EditorService:
         if unknown:
             raise EditorServiceError("Compiler coverage is incomplete for elementKey: " + ", ".join(unknown))
         compiler_design = self._compiler_design(draft)
-        if handoff is not None:
+        if handoff is not None and handoff["status"] == "matched":
             from .edit_context import build_edit_context
             # Build bounded target evidence before acquiring local occupancy.
             try:
@@ -518,6 +531,7 @@ class EditorService:
             session_mode="reference_repair" if repair else "edit",
             conversation_id=self.conversation_id,
             queue_id=queue_id,
+            database_scope=environment_scope(config.database),
         )
         return {
             "session_id": session["id"],
@@ -543,10 +557,12 @@ class EditorService:
             "production_ready": status["production_ready"],
             "failed_gates": {name: gate for name, gate in status["gates"].items() if not gate.get("ready")},
             "session_mode": session.get("session_mode", "edit"),
-            **({"handoff": handoff, "edit_context": {**edit_context,
+            **({"handoff": handoff} if handoff is not None else {}),
+            **({"edit_context": {**edit_context,
                 "session_id": session["id"], "backup_id": backup["backup_id"],
                 "baseline_content_hash": draft["content_hash"], "compiler_binding": binding,
-                "write_executed": False}} if handoff is not None else {}),
+                "write_executed": False}} if edit_context is not None else {}),
+            **({"evidence_candidates": evidence_candidates} if evidence_candidates is not None else {}),
             "supported_operations": registry.get("supported_operations") or [],
             "source_repositories": status.get("source_repositories") or {},
             "readiness_snapshot": {key: status[key] for key in
@@ -555,7 +571,8 @@ class EditorService:
                 "structure_validated": True, "candidate_validation_required": True} if report is not None else {}),
         }
 
-    def _reuse_edit_session(self, session_id, draft, compiler, *, repair, queue_id, handoff):
+    def _reuse_edit_session(self, session_id, draft, compiler, *, repair, queue_id, handoff,
+                            evidence_candidates=None):
         """A retry resumes the owned flow; it never grants or transfers approval."""
         session = self._owned_session(session_id)
         failure = {"blocked": True, "session_reused": False, "session_created": False,
@@ -573,7 +590,7 @@ class EditorService:
                 relation_snapshot_hash(session["baseline"].get("relations") or [])):
             return {**failure, "reason_code": "session_baseline_changed",
                     "message": "草稿或关系已变化，现有流程需要核对结果；未创建新会话或继承审批。"}
-        if handoff is not None:
+        if handoff is not None and handoff["status"] == "matched":
             registry, binding = compiler.registry_and_binding()
         else:
             binding = compiler.compiler_binding()
@@ -592,7 +609,11 @@ class EditorService:
                   "compiler_binding": binding, "compiler_hash": session["compiler_hash"],
                   "plan_id": session.get("plan_id"), "transaction_id": session.get("transaction_id"),
                   "next_tool": next_tool, "write_executed": False, "approval_granted": False}
+        if evidence_candidates is not None:
+            result["evidence_candidates"] = evidence_candidates
         if handoff is not None:
+            result["handoff"] = handoff
+        if handoff is not None and handoff["status"] == "matched":
             from .edit_context import build_edit_context
             result.update(handoff=handoff, edit_context=build_edit_context(self._compiler_design(session["baseline"]), registry, handoff["targets"]))
         latest = self._owned_session(session_id, include_baseline=False)
@@ -1229,7 +1250,7 @@ class EditorService:
     def get_write_status(self, transaction_id: str) -> dict[str, Any]:
         from .ui_launch import inspect_window_startup
         transaction = self.state.get_transaction(transaction_id)
-        session = self._owned_session(transaction["session_id"], include_baseline=False)
+        session = self._owned_session(transaction["session_id"], include_baseline=False, check_database=False)
         artifact_error = None
         try:
             artifact = load_artifact(transaction["artifact_path"])
@@ -1541,7 +1562,7 @@ class EditorService:
 
     def abort_edit_session(self, session_id: str) -> dict[str, Any]:
         from .ui_launch import launch_window
-        session = self._owned_session(session_id, include_baseline=False)
+        session = self._owned_session(session_id, include_baseline=False, check_database=False)
         if session["state"] not in {"locked", "planned", "awaiting_approval", "restore_pending", "saved", "saved_state_pending", "verified"}:
             raise EditorServiceError("会话已经结束，无需释放占用。")
         plugin_root = Path(__file__).resolve().parents[2]

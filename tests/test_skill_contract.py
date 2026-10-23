@@ -37,6 +37,17 @@ class SkillContractTests(unittest.TestCase):
         self.assertIn("allow_implicit_invocation: false", policy)
         self.assertIn("$gxp-lowcode-edit", policy)
 
+    def test_settings_entry_does_not_activate_business_editing_or_accept_secrets(self) -> None:
+        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
+        settings = (SKILL_ROOT / "references" / "database-settings.md").read_text(encoding="utf-8")
+        self.assertIn("Local database settings", skill)
+        self.assertIn("without a conversation or edit session", skill)
+        self.assertIn("never grants business-editing", skill)
+        self.assertIn("expected_revision", settings)
+        self.assertIn("Never pass a password", settings)
+        self.assertIn("Active editing workflows", settings)
+        self.assertIn("never auto-cancel", settings)
+
     def test_evidence_and_response_contracts_match_progressive_disclosure(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
         targeting = (SKILL_ROOT / "references" / "targeting-and-source.md").read_text(encoding="utf-8")

@@ -9,7 +9,8 @@ import unittest
 from unittest.mock import Mock, patch
 
 from tests.helpers import baseline, editor_config
-from gxp_editor.handoff_store import HandoffStore, HandoffError, environment_scope, snapshot_targets, compare_targets
+from gxp_editor.handoff_store import (HandoffStore, HandoffError, environment_scope,
+                                      snapshot_targets, compare_targets, design_content_sha256)
 from gxp_editor.handoff_import import inspect_handoff
 from gxp_editor.hashing import sha256_text
 from gxp_editor.service import EditorService
@@ -28,7 +29,8 @@ class HandoffImportTests(unittest.TestCase):
         self.targets = [{"group_key": "main", "node_key": "n"}]
         self.record = {"environment_scope": environment_scope(self.config.database),
             "action": {"ref_id": self.draft["ref_id"], "action_code": self.draft["code"], "action_name": "Test"},
-            "draft": {"design_id": self.draft["id"], "data_sha256": sha256_text(self.draft["data"])},
+            "draft": {"design_id": self.draft["id"], "data_sha256": sha256_text(self.draft["data"]),
+                      "semantic_sha256": design_content_sha256(self.draft["data"])},
             "diagnosis_source": {"design_id": self.draft["id"], "version": "draft", "data_sha256": sha256_text(self.draft["data"])},
             "targets": snapshot_targets(self.data, self.targets), "diagnosis_targets": snapshot_targets(self.data, self.targets),
             "source_target_differences": [], "change_spec": {"user_request": "Change value", "summary": "Set value to new",
@@ -58,6 +60,19 @@ class HandoffImportTests(unittest.TestCase):
         service._components = Mock(return_value=(self.config, Mock(), repository, compiler, Mock()))
         return service, compiler
 
+    def start(self, service, compiler, **kwargs):
+        compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
+        compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
+        compiler.validate_design.return_value = {"validation": {"valid": True}}
+        service.state.create_session.return_value = {"id": "independent-session", "ref_id": self.draft["ref_id"],
+            "design_id": self.draft["id"], "action_code": self.draft["code"], "action_name": "Test"}
+        with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
+                patch("gxp_editor.service.BackupStore") as store, \
+                patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
+                    "production_ready": False, "gates": {}}):
+            store.return_value.create.return_value = {"backup_id": "test", "files": {}}
+            return service.begin_edit_session("ActionOne", **kwargs)
+
     def test_matching_record_has_no_inherited_authority_and_no_generated_code(self):
         result = inspect_handoff(self.export(), self.draft, self.config.database)
         self.assertEqual(result["status"], "matched")
@@ -80,6 +95,26 @@ class HandoffImportTests(unittest.TestCase):
         self.assertNotIn("changes", result["change_spec"])
         self.assertFalse(result["authorization_inherited"])
 
+    def test_diagnosis_without_draft_snapshot_starts_normally_without_reused_target_context(self):
+        self.record.update(record_kind="diagnosis_only", draft=None, targets=[],
+                           diagnosis_targets=[], source_target_differences=[])
+        self.record["change_spec"] = {"user_request": "Investigate this action",
+            "summary": "The symptom is known but the current target is not yet located",
+            "diagnosis": {"issues": [{"issue_id": "early", "status": "candidate",
+                "symptom": "Unexpected value", "evidence": [{"source": "reported symptom",
+                    "finding": "An unexpected value was observed"}], "verification": "pending"}],
+                "unresolved": ["Locate the affected node and establish the cause"]}}
+        reference = self.export()
+        service, compiler = self.service()
+        result = self.start(service, compiler, handoff_ref=reference)
+        self.assertEqual(result["session_id"], "independent-session")
+        self.assertEqual(result["handoff"]["status"], "diagnosis_only")
+        self.assertFalse(result["handoff"]["snapshot_reused"])
+        self.assertTrue(result["handoff"]["requires_current_target_inspection"])
+        self.assertNotIn("edit_context", result)
+        self.assertEqual(result["handoff"]["change_spec"], self.record["change_spec"])
+        self.assertFalse(result["handoff"]["approval_inherited"])
+
     def test_editor_can_start_normally_without_saved_evidence(self):
         service, compiler = self.service()
         compiler.describe_registry.return_value = {"elements": [{"key": "Noop"}], "bridge_sha256": "a" * 64}
@@ -96,8 +131,69 @@ class HandoffImportTests(unittest.TestCase):
             result = service.begin_edit_session("ActionOne")
         self.assertEqual(result["session_id"], "independent-session")
         self.assertNotIn("handoff", result)
+        self.assertEqual(result["evidence_candidates"]["count"], 0)
         inspect_saved.assert_not_called()
         compiler.compile_patch.assert_not_called()
+
+    def test_normal_start_discovers_only_same_environment_and_exact_action_without_selection(self):
+        reference = self.export()
+        other_environment = copy.deepcopy(self.record)
+        other_environment["environment_scope"] = "f" * 64
+        HandoffStore().write(other_environment)
+        other_action = copy.deepcopy(self.record)
+        other_action["action"]["ref_id"] = "different-ref"
+        other_action["action"]["action_code"] = self.draft["ref_id"]
+        HandoffStore().write(other_action)
+        service, compiler = self.service()
+        with patch("gxp_editor.handoff_import.inspect_handoff") as importer:
+            result = self.start(service, compiler)
+        hints = result["evidence_candidates"]
+        self.assertEqual(hints["status"], "available")
+        self.assertEqual(hints["count"], 1)
+        self.assertEqual(hints["candidates"][0]["handoff_id"], reference["handoff_id"])
+        self.assertTrue(hints["selection_required"])
+        self.assertNotIn("handoff", result)
+        self.assertNotIn("edit_context", result)
+        self.assertFalse(hints["authorization_inherited"])
+        importer.assert_not_called()
+
+    def test_discovery_failure_never_blocks_normal_start(self):
+        service, compiler = self.service()
+        with patch.object(HandoffStore, "list_page", side_effect=OSError("private-path-and-data")):
+            result = self.start(service, compiler)
+        self.assertEqual(result["session_id"], "independent-session")
+        self.assertEqual(result["evidence_candidates"]["status"], "unavailable")
+        self.assertNotIn("private-path-and-data", json.dumps(result))
+        service.state.create_session.assert_called_once()
+
+    def test_reused_session_also_returns_optional_evidence_candidates(self):
+        reference = self.export()
+        service, compiler = self.service()
+        compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
+        session = {"id": "existing", "conversation_id": "new-dialogue", "state": "locked",
+            "ref_id": self.draft["ref_id"], "design_id": self.draft["id"], "action_code": self.draft["code"],
+            "action_name": "Test", "backup_id": "old-backup", "compiler_hash": "b" * 64,
+            "baseline": {**self.draft, "relations": []}}
+        service.state.active_session.return_value = session
+        service.state.target_session.return_value = session
+        service._owned_session = Mock(return_value=session)
+        service._components.return_value[2].load_relations.return_value = []
+        result = service.begin_edit_session("ActionOne")
+        self.assertTrue(result["session_reused"])
+        self.assertFalse(result["approval_granted"])
+        self.assertEqual(result["evidence_candidates"]["candidates"][0]["handoff_id"], reference["handoff_id"])
+        service.state.create_session.assert_not_called()
+
+    def test_discovery_is_bounded_and_returns_optional_next_page(self):
+        for _ in range(6):
+            self.export()
+        service, compiler = self.service()
+        result = self.start(service, compiler)
+        hints = result["evidence_candidates"]
+        self.assertEqual(hints["count"], 5)
+        self.assertTrue(hints["has_more"])
+        self.assertEqual(hints["next_read"]["arguments"]["cursor"], hints["next_cursor"])
+        self.assertEqual(hints["next_read"]["arguments"]["environment_scope"], environment_scope(self.config.database))
 
     def test_matching_record_starts_this_dialogue_with_target_context(self):
         self.record["change_spec"]["diagnosis"] = copy.deepcopy(self.diagnosis)
@@ -131,11 +227,58 @@ class HandoffImportTests(unittest.TestCase):
         changed["data"] = json.dumps(changed["data_json"])
         result = inspect_handoff(reference, changed, self.config.database)
         self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["stale_reason"], "target_content_changed")
         self.assertEqual(result["target_differences"][0]["node_key"], "n")
         self.assertIn("paramsValue", result["target_differences"][0]["changed_fields"])
         self.assertEqual(result["change_spec"]["diagnosis"], self.diagnosis)
         self.assertEqual(result["change_spec"]["preserve"], self.record["change_spec"]["preserve"])
         self.assertFalse(result["authorization_inherited"])
+
+    def test_formatting_only_draft_change_reuses_semantically_identical_snapshot(self):
+        reference = self.export()
+        formatted = {**self.draft, "data": json.dumps(self.data, indent=2)}
+        result = inspect_handoff(reference, formatted, self.config.database)
+        self.assertEqual(result["status"], "matched")
+        self.assertTrue(result["freshness"]["formatting_only"])
+        self.assertFalse(result["freshness"]["semantic_content_changed"])
+        self.assertTrue(result["freshness"]["target_snapshot_current"])
+
+    def test_other_group_change_is_still_stale_with_precise_refresh_scope(self):
+        reference = self.export()
+        changed = copy.deepcopy(self.draft)
+        changed["data_json"]["actionData"].append({"key": "other", "data": []})
+        changed["data"] = json.dumps(changed["data_json"])
+        result = inspect_handoff(reference, changed, self.config.database)
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["stale_reason"], "other_draft_content_changed")
+        self.assertEqual(result["target_differences"], [])
+        self.assertEqual(result["refresh_scope"]["targets"], [])
+        self.assertTrue(result["freshness"]["semantic_content_changed"])
+
+    def test_group_context_change_is_not_mistaken_for_target_parameter_change(self):
+        reference = self.export()
+        changed = copy.deepcopy(self.draft)
+        changed["data_json"]["actionData"][0]["inputParams"] = {"new_dependency": "value"}
+        changed["data"] = json.dumps(changed["data_json"])
+        result = inspect_handoff(reference, changed, self.config.database)
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["stale_reason"], "target_context_changed")
+        self.assertEqual(result["target_differences"][0]["changed_fields"], ["control_flow"])
+
+    def test_legacy_record_without_semantic_hash_remains_conservatively_stale(self):
+        self.record["draft"].pop("semantic_sha256")
+        reference = self.export()
+        result = inspect_handoff(reference, {**self.draft, "data": json.dumps(self.data, indent=2)}, self.config.database)
+        self.assertEqual(result["status"], "stale")
+        self.assertEqual(result["stale_reason"], "legacy_content_changed")
+        self.assertIsNone(result["freshness"]["semantic_content_changed"])
+
+    def test_raw_draft_json_is_authoritative_over_cached_parsed_data(self):
+        reference = self.export()
+        raw_changed = copy.deepcopy(self.data)
+        raw_changed["actionData"][0]["data"][0]["paramsValue"]["inputParams"]["value"] = "changed"
+        result = inspect_handoff(reference, {**self.draft, "data": json.dumps(raw_changed)}, self.config.database)
+        self.assertEqual(result["stale_reason"], "target_content_changed")
 
     def test_different_environment_or_action_is_rejected(self):
         reference = self.export()

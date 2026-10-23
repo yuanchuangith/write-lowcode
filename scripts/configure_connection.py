@@ -30,6 +30,13 @@ def ask(label: str, default: str = "") -> str:
 
 
 def main() -> int:
+    from gxp_editor.connection_settings import settings_path
+
+    # Once adopted, the shared profile is authoritative. Do not overwrite its
+    # credential references or save endpoint changes into an ignored legacy file.
+    if settings_path().exists():
+        from gxp_editor.connection_settings_ui import main as settings_main
+        return settings_main()
     try:
         current = load_config()
     except ConfigurationError:

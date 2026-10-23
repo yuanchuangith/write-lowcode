@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import sqlite3
 import uuid
 from contextlib import contextmanager
@@ -8,12 +9,33 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
-from .config import runtime_root
+from .config import load_config, runtime_root
 from .hashing import sha256_json
 
 
 class StateError(RuntimeError):
     pass
+
+
+def assert_session_database_scope(session: dict[str, Any], database_config=None) -> None:
+    """Keep an existing editing flow on the database where it was opened."""
+    from .handoff_store import environment_scope
+
+    scope = session.get("database_scope") or ""
+    if not scope:
+        from .connection_settings import active_settings
+        if active_settings() is not None:
+            raise StateError(
+                "This legacy edit session has no database binding. Return to its original "
+                "connection settings to handle it, or release its local occupancy and start a new session."
+            )
+        return
+    current = database_config if database_config is not None else load_config().database
+    if scope != environment_scope(current):
+        raise StateError(
+            "The database connection changed after this edit session was opened. "
+            "Restore the original connection to continue this session, or start a new session."
+        )
 
 
 ACTIVE_STATES = (
@@ -49,7 +71,9 @@ def saved_verification(session: dict[str, Any], transaction: dict[str, Any]) -> 
 
 class StateStore:
     def __init__(self, path: Path | None = None):
-        self.path = path or runtime_root() / "state" / "editor.sqlite3"
+        override = os.environ.get("GXP_LOWCODE_EDITOR_STATE")
+        self.path = path or (Path(override).expanduser().resolve() if override
+                             else runtime_root() / "state" / "editor.sqlite3")
         self.path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize()
 
@@ -115,6 +139,8 @@ CREATE TABLE IF NOT EXISTS transactions (
                 db.execute("ALTER TABLE sessions ADD COLUMN owner_revision INTEGER NOT NULL DEFAULT 0")
             if "queue_id" not in columns:
                 db.execute("ALTER TABLE sessions ADD COLUMN queue_id TEXT NOT NULL DEFAULT ''")
+            if "database_scope" not in columns:
+                db.execute("ALTER TABLE sessions ADD COLUMN database_scope TEXT NOT NULL DEFAULT ''")
             db.execute("CREATE TABLE IF NOT EXISTS conversations (id TEXT PRIMARY KEY, label TEXT NOT NULL, created_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS session_closures (id TEXT PRIMARY KEY, session_id TEXT NOT NULL, snapshot_json TEXT NOT NULL, created_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS edit_queues (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL)")
@@ -194,9 +220,12 @@ WHERE i.queue_id=? ORDER BY i.position
         with self._connection() as db:
             return self._row(db.execute(f"SELECT id,conversation_id,state FROM sessions WHERE state IN ({placeholders}) AND (design_id=? OR ref_id=?) LIMIT 1", (*ACTIVE_STATES, design_id, ref_id)).fetchone())
 
-    def create_session(self, draft: dict[str, Any], backup_id: str, compiler_hash: str, *, session_mode: str = "edit", conversation_id: str = "", queue_id: str = "") -> dict[str, Any]:
+    def create_session(self, draft: dict[str, Any], backup_id: str, compiler_hash: str, *, session_mode: str = "edit", conversation_id: str = "", queue_id: str = "", database_scope: str = "") -> dict[str, Any]:
         if session_mode not in {"edit", "reference_repair"}:
             raise StateError("Unsupported session mode")
+        if database_scope and (not isinstance(database_scope, str) or len(database_scope) != 64
+                               or any(character not in "0123456789abcdef" for character in database_scope)):
+            raise StateError("Database scope must be a SHA-256 fingerprint")
         now = datetime.now().isoformat(timespec="seconds")
         session_id = uuid.uuid4().hex
         with self._connection() as db:
@@ -213,8 +242,8 @@ WHERE i.queue_id=? ORDER BY i.position
                 """
 INSERT INTO sessions
 (id,ref_id,design_id,action_code,action_name,state,baseline_json,backup_id,
- compiler_hash,plan_id,transaction_id,created_at,updated_at,session_mode,conversation_id,queue_id)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+ compiler_hash,plan_id,transaction_id,created_at,updated_at,session_mode,conversation_id,queue_id,database_scope)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 """,
                 (
                     session_id,
@@ -233,6 +262,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     session_mode,
                     conversation_id,
                     queue_id,
+                    database_scope,
                 ),
             )
             if queue_id:

@@ -9,7 +9,7 @@ from .config import load_config
 from .db import EditorDatabase
 from .hashing import relation_snapshot_hash
 from .repository import EditorRepository, _flag
-from .state import StateStore
+from .state import StateStore, assert_session_database_scope
 from .transaction import validate_transaction_artifact
 from .execution_lock import execution_lock
 from .logic_review import LogicReviewError, require_write_business_review
@@ -30,6 +30,7 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
     state = StateStore()
     transaction = state.get_transaction(transaction_id)
     edit_session = state.get_session(transaction["session_id"], include_baseline=False)
+    assert_session_database_scope(edit_session, config.database)
     artifact = load_artifact(transaction["artifact_path"])
     if transaction["state"] != "awaiting_approval":
         raise WriteExecutionError(f"Transaction state {transaction['state']!r} cannot be executed")

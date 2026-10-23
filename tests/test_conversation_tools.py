@@ -15,6 +15,28 @@ SPEC.loader.exec_module(SERVER)
 
 
 class ConversationToolContractTests(unittest.TestCase):
+    def test_settings_entry_is_available_without_editor_service_or_conversation(self):
+        import sys
+        from types import ModuleType
+
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        self.assertEqual(26, len(tools))
+        properties = tools["database_settings"].inputSchema["properties"]
+        self.assertEqual({"operation", "changes", "expected_revision"}, set(properties))
+        self.assertEqual("status", properties["operation"]["default"])
+        self.assertEqual({"status", "open", "update"}, set(properties["operation"]["enum"]))
+        backend = ModuleType("gxp_editor.connection_settings")
+        with patch.object(backend, "manage_settings", create=True, return_value={"configured": False}) as manage, \
+             patch.dict(sys.modules, {"gxp_editor.connection_settings": backend}), \
+             patch.object(SERVER, "service", side_effect=AssertionError("No editor service required")):
+            _, status = asyncio.run(SERVER.mcp.call_tool("database_settings", {}))
+            self.assertFalse(status["configured"])
+            manage.assert_called_once_with("status", None, "")
+            asyncio.run(SERVER.mcp.call_tool("database_settings", {"operation": "update", "changes": {"database": "dev_test"}, "expected_revision": "revision"}))
+            manage.assert_called_with("update", {"database": "dev_test"}, "revision")
+            asyncio.run(SERVER.mcp.call_tool("database_settings", {"operation": "open"}))
+            manage.assert_called_with("open", None, "")
+
     def test_chat_cancellation_exposes_preview_and_requires_bound_user_reply(self):
         from unittest.mock import Mock
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
@@ -96,7 +118,7 @@ class ConversationToolContractTests(unittest.TestCase):
         self.assertIn("create_conversation", tools)
         self.assertIn("attach_edit_session", tools)
         for name, tool in tools.items():
-            if name == "create_conversation":
+            if name in {"create_conversation", "database_settings"}:
                 continue
             with self.subTest(tool=name):
                 schema = tool.inputSchema

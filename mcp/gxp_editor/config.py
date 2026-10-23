@@ -171,6 +171,9 @@ def load_config(path: Path | None = None) -> EditorConfig:
         raise ConfigurationError(f"Cannot read {config_path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ConfigurationError("Editor configuration must be a JSON object")
+    if path is None:
+        from .connection_settings import overlay_database
+        value = {**value, "database": overlay_database(value.get("database") or {}, "write")}
     return EditorConfig.from_dict(value)
 
 

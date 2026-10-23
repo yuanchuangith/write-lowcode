@@ -9,7 +9,7 @@ from .db import EditorDatabase
 from .execution_lock import execution_lock
 from .hashing import relation_snapshot_hash
 from .repository import EditorRepository
-from .state import StateStore, StateError
+from .state import StateStore, StateError, assert_session_database_scope
 from .transaction import validate_transaction_artifact
 
 
@@ -50,6 +50,8 @@ def recover_session(session_id: str, *, state=None, close_changed: bool = False,
     state = state or StateStore()
     session = state.get_session(session_id)
     state._assert_owner(session, conversation_id, owner_revision)
+    config = load_config()
+    assert_session_database_scope(session, config.database)
     transaction = state.get_transaction(session["transaction_id"])
     with execution_lock(transaction["artifact_path"]):
         transaction = state.get_transaction(transaction["id"])
@@ -61,7 +63,7 @@ def recover_session(session_id: str, *, state=None, close_changed: bool = False,
             raise StateError("审批内容与会话身份不匹配。")
         if transaction["state"] == "executing" and artifact.get("execution_lock_version") != 1:
             raise StateError("旧版执行记录未使用执行锁。请关闭旧审批程序，再在处理窗口选择保留数据并释放；不会将未核对结果标记为成功。")
-        repository = EditorRepository(EditorDatabase(load_config().database))
+        repository = EditorRepository(EditorDatabase(config.database))
         # Lock only for reading: wait for any prior server transaction to settle,
         # and inspect design/relations in the same transaction. No business SQL
         # is executed and the context releases the row lock immediately.

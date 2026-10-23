@@ -67,6 +67,18 @@ def canonical_sha256(value: Any) -> str:
     return hashlib.sha256(canonical_bytes(value)).hexdigest()
 
 
+def design_content_sha256(data: Any) -> str:
+    """Hash design JSON semantics without retaining or exporting its contents."""
+    if isinstance(data, str):
+        data = json.loads(data)
+    if not isinstance(data, dict):
+        raise HandoffError("HANDOFF_DESIGN", "Design data must be a JSON object")
+    # Full designs are not interchange records: do not apply record size or
+    # private-field filters to content that is only hashed, never retained here.
+    encoded = json.dumps(data, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False).encode("utf-8")
+    return hashlib.sha256(encoded).hexdigest()
+
+
 def environment_scope(config: Any) -> str:
     def field(name: str) -> Any:
         return config.get(name) if isinstance(config, dict) else getattr(config, name, None)
@@ -248,18 +260,35 @@ class HandoffStore:
         if not isinstance(record, dict) or record.get("schema_version") != SCHEMA_VERSION:
             raise HandoffError("HANDOFF_VERSION", "Unsupported handoff schema; use ordinary targeted draft inspection")
         allowed = {"schema_version", "handoff_id", "created_at", "environment_scope", "action", "draft", "diagnosis_source", "targets", "diagnosis_targets", "source_target_differences", "change_spec"}
-        if set(record) != allowed or not _ID.fullmatch(str(record.get("handoff_id", ""))) or not _HASH.fullmatch(str(record.get("environment_scope", ""))):
+        if not allowed <= set(record) or set(record) - allowed - {"record_kind"} or not _ID.fullmatch(str(record.get("handoff_id", ""))) or not _HASH.fullmatch(str(record.get("environment_scope", ""))):
             raise HandoffError("HANDOFF_FORMAT", "Invalid handoff record identity or fields")
+        kind = record.get("record_kind", "edit_snapshot")
+        if not isinstance(kind, str) or kind not in {"edit_snapshot", "diagnosis_only"}:
+            raise HandoffError("HANDOFF_FORMAT", "Invalid evidence record kind")
         if not isinstance(record["action"], dict) or not record["action"].get("ref_id") or set(record["action"]) - {"ref_id", "action_code", "action_name", "action_type", "page_id"}:
             raise HandoffError("HANDOFF_FORMAT", "Invalid handoff action identity")
         for key in ("draft", "diagnosis_source"):
             item = record[key]
-            if not isinstance(item, dict) or not item.get("design_id") or not _HASH.fullmatch(str(item.get("data_sha256", ""))) or set(item) - {"design_id", "data_sha256", "version"}:
+            if key == "draft" and kind == "diagnosis_only":
+                if item is not None:
+                    raise HandoffError("HANDOFF_FORMAT", "Diagnosis-only records cannot carry an editable draft snapshot")
+                continue
+            fields = {"design_id", "data_sha256", "version"} | ({"semantic_sha256"} if key == "draft" else set())
+            if not isinstance(item, dict) or not item.get("design_id") or not _HASH.fullmatch(str(item.get("data_sha256", ""))) or set(item) - fields:
                 raise HandoffError("HANDOFF_FORMAT", "Invalid design evidence")
+            if "semantic_sha256" in item and not _HASH.fullmatch(str(item["semantic_sha256"])):
+                raise HandoffError("HANDOFF_FORMAT", "Invalid semantic design fingerprint")
         if record["diagnosis_source"].get("version") not in {"draft", "published"}:
             raise HandoffError("HANDOFF_FORMAT", "Invalid diagnosis version")
+        validate_change_spec(record["change_spec"])
+        if kind == "diagnosis_only":
+            if any(record[key] != [] for key in ("targets", "diagnosis_targets", "source_target_differences")):
+                raise HandoffError("HANDOFF_FORMAT", "Diagnosis-only records cannot carry editable targets")
+            if "diagnosis" not in record["change_spec"] or record["change_spec"].get("changes"):
+                raise HandoffError("HANDOFF_CHANGE_SPEC", "Diagnosis-only records require findings and cannot propose node changes")
         targets = record["targets"]
-        normalize_targets([{"group_key": item.get("group_key"), "node_key": item.get("node_key")} for item in targets] if isinstance(targets, list) and all(isinstance(item, dict) for item in targets) else None)
+        if kind == "edit_snapshot":
+            normalize_targets([{"group_key": item.get("group_key"), "node_key": item.get("node_key")} for item in targets] if isinstance(targets, list) and all(isinstance(item, dict) for item in targets) else None)
         diagnosis = record["diagnosis_targets"]
         if not isinstance(diagnosis, list) or len(diagnosis) != len(targets):
             raise HandoffError("HANDOFF_FORMAT", "Diagnosis targets must correspond to draft targets")
@@ -280,12 +309,41 @@ class HandoffStore:
             raise HandoffError("HANDOFF_FORMAT", "Source-to-draft differences are inconsistent")
         if not isinstance(record["created_at"], str) or len(record["created_at"]) > 80:
             raise HandoffError("HANDOFF_FORMAT", "Invalid record creation time")
-        validate_change_spec(record["change_spec"])
         _finite(record)
 
     @staticmethod
     def summary(record: dict[str, Any], checksum: str) -> dict[str, Any]:
-        return {"handoff_id": record["handoff_id"], "sha256": checksum, "created_at": record["created_at"], "action": record["action"], "draft": record["draft"], "target_count": len(record["targets"]), "summary": record["change_spec"]["summary"]}
+        truncated = False
+        def display(value: Any, limit: int) -> str:
+            nonlocal truncated
+            value = str(value)
+            if len(value) > limit:
+                truncated = True
+                return value[:limit] + "…"
+            return value
+        diagnosis = record["change_spec"].get("diagnosis", {})
+        issues = diagnosis.get("issues", [])
+        result = {
+            "handoff_id": record["handoff_id"], "sha256": checksum, "created_at": record["created_at"],
+            "record_kind": record.get("record_kind", "edit_snapshot"), "environment_scope": record["environment_scope"],
+            "action": {key: display(value, 200 if key in {"ref_id", "action_code"} else 256) for key, value in record["action"].items()},
+            "draft": {key: display(value, 200) for key, value in record["draft"].items()} if record["draft"] else None,
+            "diagnosis_source": {key: display(value, 200) for key, value in record["diagnosis_source"].items()},
+            "target_count": len(record["targets"]), "summary": display(record["change_spec"]["summary"], 512),
+            "diagnosis_status": {
+                "issue_count": len(issues),
+                "confirmed_count": sum(issue["status"] == "confirmed" for issue in issues),
+                "candidate_count": sum(issue["status"] == "candidate" for issue in issues),
+                "verification_counts": {status: sum(issue["verification"] == status for issue in issues)
+                                        for status in ("static_confirmed", "runtime_verified", "pending")},
+                "unresolved_count": len(diagnosis.get("unresolved", [])),
+            },
+            "issue_summaries": [{"issue_id": issue["issue_id"], "status": issue["status"],
+                                 "verification": issue["verification"], "symptom": display(issue["symptom"], 240)}
+                                for issue in issues[:3]],
+        }
+        result["summary_truncated"] = truncated or len(issues) > 3
+        return result
 
     def write(self, record: dict[str, Any]) -> dict[str, Any]:
         record = copy.deepcopy(record)
@@ -334,25 +392,62 @@ class HandoffStore:
         except (UnicodeDecodeError, json.JSONDecodeError, RecursionError, TypeError, KeyError) as exc:
             raise HandoffError("HANDOFF_FORMAT", "Handoff record is corrupt; inspect the current draft directly") from exc
 
-    def list(self, identifier: str, environment: str = "") -> list[dict[str, Any]]:
+    def list_page(self, identifier: str, environment: str = "", *, cursor: str = "", limit: int = 10,
+                  max_bytes: int = 48 * 1024) -> dict[str, Any]:
+        """Read a bounded page in stable ID order, without choosing a record.
+
+        The cursor binds the last scanned ID to the exact lookup scope. A page
+        can be empty and still have a continuation when other actions fill the
+        scan window. New records before that ID are discovered by a new lookup.
+        """
         if not isinstance(identifier, str) or not identifier.strip() or len(identifier) > 200:
             raise HandoffError("HANDOFF_ID", "An exact action code or RefId is required to list local handoffs")
+        if not isinstance(environment, str) or environment and not _HASH.fullmatch(environment):
+            raise HandoffError("HANDOFF_ENVIRONMENT", "Use an exact environment scope fingerprint")
+        if type(limit) is not int or not 1 <= limit <= 50:
+            raise HandoffError("HANDOFF_LIMIT", "Candidate page limit must be 1-50")
+        if type(max_bytes) is not int or not 1024 <= max_bytes <= 48 * 1024:
+            raise HandoffError("HANDOFF_LIMIT", "Candidate byte budget must be 1-48 KiB")
+        scope = canonical_sha256({"identifier": identifier, "environment": environment})
+        after = ""
+        if cursor:
+            if not isinstance(cursor, str) or len(cursor) != 97 or cursor[32:33] != "." or not _ID.fullmatch(cursor[:32]) or cursor[33:] != scope:
+                raise HandoffError("HANDOFF_CURSOR", "Cursor must belong to this action and environment lookup")
+            after = cursor[:32]
+        elif not isinstance(cursor, str):
+            raise HandoffError("HANDOFF_CURSOR", "Cursor must be an opaque string")
         summaries = []
-        if not self.root.exists():
-            return summaries
-        # Bound local scanning; callers must narrow explicitly rather than auto-pick.
-        paths = sorted(self.root.glob("*.json"), key=lambda path: path.name)
-        if len(paths) > 1000:
-            raise HandoffError("HANDOFF_LIMIT", "Too many local records to list; provide the exact handoff ID")
-        for path in paths:
-            if not _ID.fullmatch(path.stem):
-                continue
+        paths = sorted((path for path in self.root.glob("*.json") if _ID.fullmatch(path.stem) and path.stem > after), key=lambda path: path.name)
+        last_scanned = after
+        used_bytes = 2
+        for path in paths[:200]:
             try:
                 record = self.read(path.stem)
             except (HandoffError, OSError):
+                last_scanned = path.stem
                 continue
             if identifier in {record["action"].get("ref_id"), record["action"].get("action_code")} and (not environment or record["environment_scope"] == environment):
-                summaries.append(self.summary(record, canonical_sha256(record)))
-        if len(summaries) > 50:
-            raise HandoffError("HANDOFF_LIMIT", "More than 50 matching handoffs; provide an exact ID")
-        return sorted(summaries, key=lambda item: item["created_at"], reverse=True)
+                summary = self.summary(record, canonical_sha256(record))
+                size = len(canonical_bytes(summary)) + 1
+                if used_bytes + size > max_bytes:
+                    if not summaries:
+                        raise HandoffError("HANDOFF_RESPONSE_LIMIT", "One candidate exceeds the requested byte budget; increase the page byte budget")
+                    break
+                summaries.append(summary)
+                used_bytes += size
+            last_scanned = path.stem
+            if len(summaries) >= limit:
+                break
+        has_more = bool(paths and paths[-1].stem > last_scanned)
+        return {"candidates": summaries, "count": len(summaries), "has_more": has_more,
+                "next_cursor": last_scanned + "." + scope if has_more else ""}
+
+    def list(self, identifier: str, environment: str = "") -> list[dict[str, Any]]:
+        """Compatibility helper for local callers; tools should use list_page."""
+        summaries, cursor = [], ""
+        while True:
+            page = self.list_page(identifier, environment, cursor=cursor, limit=50)
+            summaries.extend(page["candidates"])
+            if not page["has_more"]:
+                return sorted(summaries, key=lambda item: item["created_at"], reverse=True)
+            cursor = page["next_cursor"]

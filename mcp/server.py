@@ -18,7 +18,8 @@ mcp = FastMCP(
     "gxp-lowcode-editor",
     instructions=(
         "Guarded editing of existing unpublished GXP ActionDesign drafts. "
-        "Create one registered conversation_id per dialogue and supply it on every call. "
+        "For business editing, create one registered conversation_id per dialogue and supply it on every call. "
+        "database_settings is a separate local settings entry, available without editor activation or database configuration; never pass passwords. "
         "Different dialogues may edit different drafts concurrently. Each draft has one active flow; "
         "use create_edit_queue and queue_id to review multiple drafts in one dialogue/window. "
         "Without a queue each dialogue has one active flow. An omitted conversation_id accesses only legacy flows. "
@@ -33,6 +34,28 @@ mcp = FastMCP(
 
 def service(conversation_id: str = "") -> EditorService:
     return EditorService(conversation_id)
+
+
+@mcp.tool()
+@traced_tool
+def database_settings(
+    operation: Literal["status", "open", "update"] = "status",
+    changes: dict[str, Any] | None = None,
+    expected_revision: str = "",
+) -> dict[str, Any]:
+    """Manage local shared Look/Write settings before editor activation or database configuration.
+
+    status reads non-secret local settings without connecting. open launches the
+    local settings window for manual edits and hidden password entry. update
+    accepts only host, port, database, look_user and write_user explicitly supplied
+    by the user; pass the revision from status. It tests the candidate before
+    saving and blocks a switch while editor workflows remain active. Never pass
+    passwords or connection strings. No conversation, edit session, business-data
+    write or approval is created by this local configuration entry.
+    """
+    from gxp_editor.connection_settings import manage_settings
+
+    return manage_settings(operation, changes, expected_revision)
 
 
 @mcp.tool()
@@ -73,7 +96,7 @@ def get_edit_queue(queue_id: str, conversation_id: str) -> dict[str, Any]:
 @mcp.tool()
 @traced_tool
 def begin_edit_session(identifier: str, conversation_id: str = "", queue_id: str = "", handoff_ref: dict[str, str] | None = None) -> dict[str, Any]:
-    """Back up one draft. Optional local handoff_ref={handoff_id,sha256} reuses diagnosed targets after current-draft verification; failures create no session. A new dialogue still needs its own authorized scope and approval. queue_id allows multiple drafts."""
+    """Back up one draft; normal entry without a reference returns optional bounded evidence_candidates for this action/environment, and lookup failure does not block editing. Optional handoff_ref={handoff_id,sha256} verifies an edit snapshot before target reuse; diagnosis_only supplies historical findings and still requires current-target inspection. Stale or invalid reference checks create no new session. No authorization or approval is inherited. queue_id allows multiple drafts."""
     return service(conversation_id).begin_edit_session(identifier, queue_id=queue_id, handoff_ref=handoff_ref)
 
 

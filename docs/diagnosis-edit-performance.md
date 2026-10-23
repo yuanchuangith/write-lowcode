@@ -8,9 +8,9 @@
 
 | 接口 | 新增能力 |
 | --- | --- |
-| 只读 `export_edit_handoff(identifier, targets, change_spec, diagnosis_source)` | 可选留证：集中核对当前草稿和诊断使用的当前副本；本机保存最多 10 个精确节点的参数、定位、控制上下文、原始要求及已有诊断，拟改内容、保留项及场景按已知情况记录，返回 `handoff_ref`。 |
-| 只读 `read_edit_handoff(handoff_id="", identifier="", sha256="", target_index=null)` | 按编号读取或按精确动作列出候选；必须明确选择，支持同机新对话和有界续读。 |
-| 编辑 `begin_edit_session(..., handoff_ref=null)` | 可选导入交接；占用前核对环境、动作、草稿及目标。匹配后直接返回目标 `edit_context`；失效或发布／草稿差异返回定点补查信息。 |
+| 只读 `export_edit_handoff(..., record_kind="edit_snapshot")` | 默认保留最多 10 个精确节点的参数、当前草稿及诊断来源；`diagnosis_only` 配合空 targets 保存尚未定位节点或没有草稿时的诊断，仍核对来源，但不保存编辑快照。两种模式均返回可选 `handoff_ref`。 |
+| 只读 `read_edit_handoff(..., environment_scope="", cursor="", limit=10)` | 按编号读取，或按精确动作和环境分页列候选，显示来源及诊断状态；明确选定记录，需要更多候选时跟随 `next_read`。 |
+| 编辑 `begin_edit_session(..., handoff_ref=null)` | 普通启动提示同环境、同动作的少量可选候选，发现失败不阻断编辑；快照导入核对后返回目标 `edit_context`，纯诊断导入仍须正常检查当前目标。仅排版变化可复用，实际目标、上下文或其他内容变化分别返回补查范围。 |
 | 编辑 `inspect_edit_context(..., operation_cursor=0, include_context=null)` | 第一页返回完整上下文；后续模板页默认只返回本页精确原值守卫。`include_context=true` 可取完整上下文，`false` 可主动精简。 |
 | 编辑 `plan_canvas_patch(...)` | 内部先预检全部操作；返回结构化批次问题，依赖原生结果的检查明确列为待检查。 |
 | 两端 MCP 响应 | 外层返回 `trace_id`、总耗时和分阶段 `timings`，失败保留已完成耗时。 |
