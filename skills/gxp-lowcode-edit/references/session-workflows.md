@@ -215,6 +215,30 @@ does not imply that the original canvas is valid.
 - When entry is blocked, the session handling window is also available for saved,
   verified, pending restore, and uncertain sessions; do not repeatedly retry entry.
 
+## Approval status and polling
+
+Use `get_write_status` for an existing transaction and follow its `next_action`
+and `poll_after_ms`. A tool receipt describes the current phase; it does not
+authorize another approval window, SQL approval or execution. Query only this
+dialogue's transaction. Keep waits bounded so a progress update can be sent
+within 30 seconds when work is still active.
+
+| Observed phase | Next step |
+| --- | --- |
+| `window_starting` | Startup is pending. Wait for the suggested interval, then read status for the same transaction. Do not call `prepare_write` or reopen a second window. A timeout does not prove the process stopped. |
+| Window ready, awaiting human approval/save confirmation | Tell the user the formal window is waiting for their action. Yield while waiting instead of continuous polling. Silence is neither approval nor a reason to reopen the window. |
+| `executing` | Wait for the bounded suggested interval and query status. Keep executor protection intact; do not prepare, cancel, recover or launch another write while it is live. |
+| Saved but not verified/released | Follow the returned verification/recovery action. A successful SQL result alone does not complete the workflow. |
+| `verified=true` and `session_released=true` | Stop transaction polling, report the verified save/publication targets and handle the stored graph-review state. |
+| Startup failure, interrupted execution or uncertain result | Follow the matching recovery branch above. Retry startup once only when its artifact is valid; repeated failures use the returned alternatives. |
+
+If an older response lacks these hints, distinguish its transaction state and
+startup receipt using the same rules. A human review state needs no rapid poll;
+automated startup/execution can use a bounded status check after a short wait.
+Repeated unchanged status is not progress and does not justify repeated windows
+or graph questions. An intentionally dismissed window reopens only after the
+user requests continuation.
+
 ## Dialogue handoff
 
 - `session_marker` is the returned `session_id`, which the user may give to another

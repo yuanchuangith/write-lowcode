@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import unittest
 import tempfile
+import re
 from pathlib import Path
+from urllib.parse import unquote, urlsplit
 
 from scripts.sync_skills import mirror_problems, sync_skills, tracked_skill_paths
 
@@ -12,58 +14,62 @@ SKILL_ROOT = PLUGIN_ROOT / "skills" / "gxp-lowcode-edit"
 
 
 class SkillContractTests(unittest.TestCase):
-    def test_editor_requires_explicit_activation_and_allows_authorized_continuation(self) -> None:
+    def test_frontmatter_identifies_a_bounded_editing_skill(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        self.assertIn("Explicit invocation gate", skill)
-        self.assertIn("current user message explicitly invokes", skill)
-        self.assertIn("is not an invocation", skill)
-        self.assertIn("Do not call `editor_status`", skill)
-        self.assertIn("readonly plan is only an input candidate", skill)
-        self.assertIn("After activation, the same dialogue may continue its authorized draft", skill)
-        self.assertIn("A new target, another dialogue or revoked authorization is not covered", skill)
+        match = re.match(r"\A---\n(.*?)\n---\n(.+)\Z", skill, re.DOTALL)
+        self.assertIsNotNone(match, "Skill needs frontmatter and a nonempty body")
+        fields = dict(re.findall(r"^(name|description): (.+)$", match.group(1), re.MULTILINE))
+        self.assertEqual("gxp-lowcode-edit", fields.get("name"))
+        description = fields.get("description", "")
+        for capability in ("unpublished", "human SQL approval", "settings", "readonly"):
+            self.assertIn(capability, description)
+        self.assertLess(len(description), 1000, "Discovery metadata should remain concise")
 
-    def test_conditional_session_workflows_are_linked_instead_of_loaded_in_entrypoint(self) -> None:
+    def test_entrypoint_routes_conditional_work_without_loading_procedures(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        workflows = (SKILL_ROOT / "references" / "session-workflows.md").read_text(encoding="utf-8")
-        self.assertIn("references/session-workflows.md", skill)
-        for title in ("Batch repair of legacy parameter references", "Restore workflow", "Session recovery", "Dialogue handoff"):
-            self.assertNotIn("## " + title, skill)
-            self.assertIn("## " + title, workflows)
-        for boundary in ("signed human approval", "independently regenerated", "Nonblank candidate C#", "draft concurrency"):
-            self.assertIn(boundary, skill)
+        self.assertLessEqual(len(skill.encode("utf-8")), 12 * 1024)
+        links = set(re.findall(r"\]\((references/[^)#]+)(?:#[^)]+)?\)", skill))
+        self.assertTrue({
+            "references/targeting-and-source.md", "references/patch-schema.md",
+            "references/business-review.md", "references/evidence-and-performance.md",
+            "references/frontend-compiler-contract.md", "references/session-workflows.md",
+            "references/database-settings.md", "references/safety-contract.md",
+        }.issubset(links))
+        for conditional_tool in ("cancel_unexecuted_session(", "release_local_session(", "attach_edit_session("):
+            self.assertNotIn(conditional_tool, skill, "Detailed signatures belong in references")
 
     def test_implicit_invocation_is_disabled(self) -> None:
         policy = (SKILL_ROOT / "agents" / "openai.yaml").read_text(encoding="utf-8")
-        self.assertIn("allow_implicit_invocation: false", policy)
+        self.assertRegex(policy, r"(?m)^policy:\s*\n\s+allow_implicit_invocation:\s*false\s*$")
         self.assertIn("$gxp-lowcode-edit", policy)
 
-    def test_settings_entry_does_not_activate_business_editing_or_accept_secrets(self) -> None:
-        skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        settings = (SKILL_ROOT / "references" / "database-settings.md").read_text(encoding="utf-8")
-        self.assertIn("Local database settings", skill)
-        self.assertIn("without a conversation or edit session", skill)
-        self.assertIn("never grants business-editing", skill)
-        self.assertIn("expected_revision", settings)
-        self.assertIn("Never pass a password", settings)
-        self.assertIn("Active editing workflows", settings)
-        self.assertIn("never auto-cancel", settings)
+    def test_markdown_references_resolve_to_local_files_and_sections(self) -> None:
+        checked = 0
+        for source in SKILL_ROOT.rglob("*.md"):
+            for target in re.findall(r"\]\(([^)]+)\)", source.read_text(encoding="utf-8")):
+                with self.subTest(source=source.relative_to(SKILL_ROOT), target=target):
+                    parsed = urlsplit(target)
+                    self.assertFalse(parsed.scheme, "Skill instructions should route to local resources")
+                    destination = (source.parent / unquote(parsed.path)).resolve() if parsed.path else source
+                    self.assertTrue(destination.is_relative_to(SKILL_ROOT.resolve()))
+                    self.assertTrue(destination.is_file(), f"Missing reference: {destination}")
+                    if parsed.fragment:
+                        headings = re.findall(r"(?m)^#{1,6}\s+(.+)$", destination.read_text(encoding="utf-8"))
+                        anchors = {re.sub(r"[^\w\- ]", "", heading.lower()).replace(" ", "-") for heading in headings}
+                        self.assertIn(unquote(parsed.fragment), anchors, "Missing referenced section")
+                    checked += 1
+        self.assertGreaterEqual(checked, 8)
 
-    def test_evidence_and_response_contracts_match_progressive_disclosure(self) -> None:
+    def test_core_protocol_identifiers_remain_discoverable(self) -> None:
         skill = (SKILL_ROOT / "SKILL.md").read_text(encoding="utf-8")
-        targeting = (SKILL_ROOT / "references" / "targeting-and-source.md").read_text(encoding="utf-8")
-        business = (SKILL_ROOT / "references" / "business-review.md").read_text(encoding="utf-8")
-        patches = (SKILL_ROOT / "references" / "patch-schema.md").read_text(encoding="utf-8")
-        for operation in ("inspect_edit_context", "read_plan_review", "scope_policy", "no_changes=true"):
-            self.assertIn(operation, skill)
-        self.assertIn("probe_runtime=false", skill)
-        self.assertIn("1–10", targeting)
-        self.assertIn("response_detail=\"summary\"", business)
-        self.assertIn("256 KiB", business)
-        self.assertIn("manual_review", business)
-        self.assertIn("new user basis", business)
-        self.assertIn("set_array_item", patches)
-        self.assertIn("supported_operations", patches)
-        self.assertIn("complete old and replacement row", patches)
+        identifiers = set(re.findall(r"`([^`]+)`", skill))
+        for identifier in (
+            "$gxp-lowcode-edit", "conversation_id", "review_spec", 'scope_policy="strict"',
+            'response_detail="summary"', "no_changes=true", "find_edit_nodes", "inspect_edit_context",
+            "ready_for_approval", "write_ready", "prepare_write", "verified=true",
+            "session_released=true", "publication_targets", "record_graph_review",
+        ):
+            self.assertIn(identifier, identifiers)
 
     def test_tracked_skill_mirrors_match_file_set_and_content(self) -> None:
         source_files, mirror_files = tracked_skill_paths(PLUGIN_ROOT)

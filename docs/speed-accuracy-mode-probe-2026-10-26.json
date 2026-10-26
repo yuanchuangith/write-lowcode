@@ -1,0 +1,684 @@
+{
+  "measured_at_utc": "2026-10-26T08:32:21.753002+00:00",
+  "write_head": "198cb31feb2e9e3db29b0f90fe66ebd0ee9dabce",
+  "source_state": "working tree includes earlier uncommitted workflow improvements",
+  "scope": "synthetic compiler bridge only; no service/database/model/network/UI/business execution",
+  "fixture": {
+    "js_groups": 6,
+    "nodes_per_group": 1,
+    "changed_groups": 1,
+    "changed_nodes": 1
+  },
+  "method": {
+    "warmups_per_mode": 1,
+    "measured_per_mode": 3,
+    "order": [
+      [
+        "full",
+        "incremental",
+        "auto"
+      ],
+      [
+        "incremental",
+        "auto",
+        "full"
+      ],
+      [
+        "auto",
+        "full",
+        "incremental"
+      ]
+    ],
+    "independent_fresh_node_verification_each_trial": true,
+    "baseline_artifacts_provided_to_all_modes": true,
+    "csharp_nonblank": false,
+    "percentiles": "median and range only; too few samples for p95"
+  },
+  "all_modes_artifact_hashes_equal_in_this_fixture": true,
+  "summary": [
+    {
+      "requested_mode": "full",
+      "n": 3,
+      "median_ms": 4257.687,
+      "min_ms": 4001.325,
+      "max_ms": 4383.704
+    },
+    {
+      "requested_mode": "incremental",
+      "n": 3,
+      "median_ms": 4129.485,
+      "min_ms": 3944.126,
+      "max_ms": 4237.223
+    },
+    {
+      "requested_mode": "auto",
+      "n": 3,
+      "median_ms": 4275.409,
+      "min_ms": 4205.619,
+      "max_ms": 4473.624
+    }
+  ],
+  "samples": [
+    {
+      "round": 1,
+      "blocked": false,
+      "requested_mode": "full",
+      "selected_mode": "full",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "010cb2f5d335464fa60bdad65b883064",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.323,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 311.797
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1029.794
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 306.946
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 332.511
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.915,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 295.235
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 180.868
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 308.233
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1143.82
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 327.492
+        }
+      ],
+      "total_elapsed_ms": 4257.687,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 1,
+      "blocked": false,
+      "requested_mode": "incremental",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "c3e03d1eba9f4160be74e3033b309bd0",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.289,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 327.441
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1050.441
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 298.978
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 324.648
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.404,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 300.033
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 166.754
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 286.747
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1026.0
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 325.135
+        }
+      ],
+      "total_elapsed_ms": 4129.485,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 1,
+      "blocked": false,
+      "requested_mode": "auto",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "7844cb8ee20e414d981db8d5370e514a",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.375,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 320.556
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1040.649
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 336.194
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 370.567
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.46,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 321.452
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 172.711
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 286.044
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1000.7
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 335.116
+        }
+      ],
+      "total_elapsed_ms": 4205.619,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 2,
+      "blocked": false,
+      "requested_mode": "incremental",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "cdfcb60fed894f6da99a5a55971964fc",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.301,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 350.303
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1059.474
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 286.48
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 315.789
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.094,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 279.935
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 180.844
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 292.211
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1107.675
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 343.022
+        }
+      ],
+      "total_elapsed_ms": 4237.223,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 2,
+      "blocked": false,
+      "requested_mode": "auto",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "26cb4ad0e3cd458abf7937564f22298a",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.302,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 329.954
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1049.889
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 524.153
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.437
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.096,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.483
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 204.106
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 322.029
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1017.946
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 363.555
+        }
+      ],
+      "total_elapsed_ms": 4473.624,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 2,
+      "blocked": false,
+      "requested_mode": "full",
+      "selected_mode": "full",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "828d8794580a4014ae2b15980c300b0d",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.346,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 333.007
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1010.287
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 283.844
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 334.045
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.914,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 284.821
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 166.571
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 274.0
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 981.098
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 312.854
+        }
+      ],
+      "total_elapsed_ms": 4001.325,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 3,
+      "blocked": false,
+      "requested_mode": "auto",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "b1e745b7d765412787fdc1c067fcc90e",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.28,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 301.618
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1219.567
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 290.069
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 323.74
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.514,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 297.48
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 164.333
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 274.418
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1029.784
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 351.426
+        }
+      ],
+      "total_elapsed_ms": 4275.409,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 3,
+      "blocked": false,
+      "requested_mode": "full",
+      "selected_mode": "full",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "f10d0c263987435dbe83252686072d7d",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.529,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 351.635
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1152.473
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 297.426
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 376.642
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.015,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.296
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 179.083
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 291.346
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1094.786
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 327.517
+        }
+      ],
+      "total_elapsed_ms": 4383.704,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    },
+    {
+      "round": 3,
+      "blocked": false,
+      "requested_mode": "incremental",
+      "selected_mode": "incremental",
+      "selection_reason": null,
+      "artifact_sha256": {
+        "js_code": "d397c7e063a3569696dd93478687d2c672a9473e7ab2bd057f01864b57ef50f8",
+        "csharp_code": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+        "relation_data": "44136fa355b3678a1146ad16f7e8649e94fb4fc21fe77e8310c060f61caaff8a"
+      },
+      "binding_sha256": "f04b8bba2e23d5110f82db72ab11a308ffcd75487e20af3bb439ef77c7953504",
+      "consistency_verified": true,
+      "unaffected_canvas_groups_equal": true,
+      "trace_id": "4a642b0131a54f4598ca02abe966b9f5",
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.331,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 297.316
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 990.664
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 289.337
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 314.425
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.981,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 284.469
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 162.512
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 281.209
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 986.462
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 317.25
+        }
+      ],
+      "total_elapsed_ms": 3944.126,
+      "node_calls": {
+        "compile_patch": 1,
+        "verify_candidate": 1
+      }
+    }
+  ]
+}

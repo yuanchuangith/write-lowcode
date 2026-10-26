@@ -89,7 +89,7 @@ def create_edit_queue(conversation_id: str) -> dict[str, Any]:
 @mcp.tool()
 @traced_tool
 def get_edit_queue(queue_id: str, conversation_id: str) -> dict[str, Any]:
-    """List queued states and cumulative publication_targets: completed actions the user must manually republish."""
+    """List queued states, cumulative publication_targets and persisted graph-review outcomes. Combine pending completed transactions into one graph review."""
     return service(conversation_id).get_edit_queue(queue_id)
 
 
@@ -129,6 +129,17 @@ def plan_reference_repairs(
             session_id, choices, review_spec=review_spec, response_detail=response_detail)
     except CompilerError as exc:
         return _compiler_failure(exc)
+
+
+@mcp.tool()
+@traced_tool
+def find_edit_nodes(
+    session_id: str, conversation_id: str = "", kind: Literal["nodes", "groups"] = "nodes", query: str = "",
+    group_key: str = "", element_key: str = "", offset: int = 0, limit: int = 30,
+) -> dict[str, Any]:
+    """Discover exact group/node keys and canvas locations from the owned session backup. Search labels only; no parameters/code. Paginated, read-only and version checked on every call."""
+    return service(conversation_id).find_edit_nodes(session_id, kind=kind, query=query, group_key=group_key,
+                                                   element_key=element_key, offset=offset, limit=limit)
 
 
 @mcp.tool()
@@ -209,8 +220,31 @@ def prepare_write(plan_id: str, conversation_id: str = "", response_detail: str 
 @mcp.tool()
 @traced_tool
 def get_write_status(transaction_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Read save status; after verified completion, list publication_targets and look_graph_review. Compare existing Look relations using this diagnosis; ask to add/update only for confirmed differences, with a concrete proposal first. No differences means no update question. Never writes."""
+    """Read save status and next_action/poll_after_ms: starting, waiting for the human, executing or completed. Never respawn a pending window. Completed results include publication_targets and persisted look_graph_review; compare first and ask only about confirmed differences. Never writes."""
     return service(conversation_id).get_write_status(transaction_id)
+
+
+@mcp.tool()
+@traced_tool
+def record_graph_review(
+    transaction_id: str,
+    outcome: Literal["no_difference", "proposed", "declined", "pending_publication", "recorded"],
+    conversation_id: str = "", expected_revision: int = 0, proposal_sha256: str = "",
+    graph_revision: int | None = None, reconsider_declined: bool = False,
+) -> dict[str, Any]:
+    """Record an observed graph review outcome for a completed save, using its review revision.
+
+    Store only the concrete proposal's SHA-256, never its body. proposed precedes
+    asking once; declined records an explicit refusal of that proposal, never
+    silence. pending_publication waits for current published evidence. recorded
+    requires an actual successful Look receipt's graph_revision. No outcome grants
+    consent or writes the graph. Set reconsider_declined only when the user
+    explicitly asks to reconsider that exact declined proposal; ordinary status
+    polling or silence never reopens it or supplies graph consent.
+    """
+    return service(conversation_id).record_graph_review(transaction_id, outcome,
+        expected_revision=expected_revision, proposal_sha256=proposal_sha256, graph_revision=graph_revision,
+        reconsider_declined=reconsider_declined)
 
 
 @mcp.tool()

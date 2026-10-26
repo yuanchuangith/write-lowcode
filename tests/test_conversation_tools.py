@@ -20,7 +20,7 @@ class ConversationToolContractTests(unittest.TestCase):
         from types import ModuleType
 
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
-        self.assertEqual(26, len(tools))
+        self.assertEqual(28, len(tools))
         properties = tools["database_settings"].inputSchema["properties"]
         self.assertEqual({"operation", "changes", "expected_revision"}, set(properties))
         self.assertEqual("status", properties["operation"]["default"])

@@ -4,16 +4,16 @@
 
 源码仓库说明“元件怎样编辑和生成代码”；当前 ActionDesign 说明“哪个动作的哪个元件需要改”。不能只根据元件名称、字段名称或仓库搜索结果决定修改位置。
 
-1. 从用户问题或已确认诊断锁定业务规则、动作 code/RefId、页面以及字段。优先复用本对话已有的当前草稿定位证据，包含草稿设计 ID、内容指纹、分组/节点 Key 和完整目标参数。没有这些证据时，通过只读 MCP 的 `get_design_versions` 确认当前发布和草稿；运行问题以发布副本取证，修改目标只能是当前草稿，发布副本不能代替草稿定位证据。
-2. 缺少目标参数时，使用 `inspect_action` 读取相关分组和节点，缩小到一个节点或最多 10 个节点后读取完整 `paramsValue`。记录动作名称/code、RefId、设计 ID、分组名称/Key、画布行/索引、节点名称/Key、`elementKey`、上下相邻可见元件和实际参数。已有匹配证据时不重复查询；不得凭中文同名元件默认选第一个。
+1. 从用户问题或已确认诊断锁定业务规则、动作 code/RefId、页面以及字段。优先复用本对话已有的当前草稿定位证据，包含草稿设计 ID、内容指纹、分组/节点 Key 和完整目标参数。Write 可独立开始编辑会话，以其不可变备份定位当前草稿；需要发布/草稿差异或运行问题证据时，再用可用的只读 MCP `get_design_versions`、`inspect_action`。运行问题以发布副本取证，修改目标只能是当前草稿，发布副本不能代替草稿定位证据。
+2. 不知道精确 Key 时，在会话内调用 `find_edit_nodes(session_id, query='', group_key='', element_key='', kind='nodes', offset=0, limit=30, conversation_id)`。它从已绑定备份返回有界 `items`，含分组/节点 Key、名称、行号及深度等定位摘要，不返回参数；按业务标签、Key 或 `element_key` 缩小范围，按 `next_offset` 翻页。用 `kind='groups'` 可列分组，包括空分组。摘要不是完整参数或业务结论，同名候选不能默认取第一个。记录动作名称/code、RefId、设计 ID、分组名称/Key、画布行/索引、节点名称/Key 和 `elementKey`；把相关候选缩小到最多 10 个精确节点后再核对完整参数。
 3. 沿字段的读取、条件和赋值找到故障点；涉及嵌套或分支归属且现有证据尚未确认时，使用只读 MCP 的 `inspect_control_flow` 核对父条件和闭合块。未经本次会话备份核对的旧诊断仅作线索，不能代替当前副本证据。
 4. 开始编辑会话后，使用 `inspect_edit_context(session_id, targets=[{group_key,node_key}], conversation_id)` 一次核对 1–10 个精确节点。工具检查会话归属、当前草稿指纹和编译器绑定，返回基线指纹及备份身份、`params_value`、画布行、父级、可见变量和真实 `native_contract`。将复用证据与这些结果核对；缺项或变化时只重取相关证据。注册表未解析动态生成和参数编辑函数体，需要源码证据的部分仍另行取证。复用结果不代替审批前实时检查。
 5. 保留现有节点时，用当前 `node_key` 作为 `target_node_key`；插入时用已核对的相邻节点作为 `anchor_node_key`。`action_group_key` 来自当前草稿，新增元件的 `element_key` 来自真实注册表，不能臆造 Key 或参数结构。
 6. 给用户展示可见位置、修改前后规则以及实际操作方式。若采用原元件中的自定义表达式，明确表达式所在配置字段；不能描述为“新增 IF 元件”。编译成功证明结构和生成规则可接受，不能证明业务定位正确。
 
-只读 MCP 不可用且现有证据及会话备份都无法提供当前目标参数时，保留已确认结论、说明缺少的证据，不根据源码猜测业务节点。互不依赖的页面、元件契约和源码读取可并行；同一草稿的已确认操作汇总为一次计划。此取证流程不会自动从 debug 技能进入编辑；仍遵守编辑技能的用户授权和审批流程。
+`find_edit_nodes` 与 `inspect_edit_context` 都检查会话归属、当前草稿指纹和编译器绑定；搜索结果的 `context_binding` 不替代完整参数，也不能代替审批前检查。精确定位后复用已有匹配上下文。只读 MCP 不可用时，仍可通过这两个 Write 工具完成草稿定位；若会话备份和现有证据也不能提供必要内容，保留已确认结论、说明缺少的证据，不根据源码猜测业务节点。互不依赖的页面、元件契约和源码读取可并行；同一草稿的已确认操作汇总为一次计划。此取证流程不会自动从 debug 技能进入编辑；仍遵守编辑技能的用户授权和审批流程。
 
-`begin_edit_session` 已返回 `supported_operations`、`source_repositories` 和 `readiness_snapshot`，无需为相同证据再调用 `editor_status`。状态工具默认 `probe_runtime=false`；只有排查 SDK 或引用可用性时才显式使用 `true`，候选 C# 的强制编译检查不受此选项影响。`inspect_edit_context` 只读取已确认目标，不用于搜索未知节点；先用只读定位缩小范围。
+`begin_edit_session` 已返回 `supported_operations`、`source_repositories` 和 `readiness_snapshot`，无需为相同证据再调用 `editor_status`。状态工具默认 `probe_runtime=false`；只有排查 SDK 或引用可用性时才显式使用 `true`，候选 C# 的强制编译检查不受此选项影响。`inspect_edit_context` 只读取已确认目标，不用于搜索未知节点；先用 `find_edit_nodes` 或已有只读定位证据缩小范围。
 
 只读工具已导出交接时，向 `begin_edit_session` 传 `handoff_ref`；匹配返回的 `edit_context` 可直接复用，不重复检查相同目标。环境、草稿及目标不匹配或发布／草稿参数有差异时只补查返回位置；失效交接不会建立新占用。跨对话明确选择记录并确认本次范围，不继承旧会话或审批，仍须显式启用编辑技能。详见 [evidence-and-performance.md](evidence-and-performance.md)。
 

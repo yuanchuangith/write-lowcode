@@ -146,6 +146,8 @@ CREATE TABLE IF NOT EXISTS transactions (
             db.execute("CREATE TABLE IF NOT EXISTS edit_queues (id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL, created_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS edit_queue_items (queue_id TEXT NOT NULL, session_id TEXT PRIMARY KEY, owner_revision INTEGER NOT NULL, position INTEGER NOT NULL, context_json TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS review_spec_checkpoints (session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, sha256 TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS graph_reviews (transaction_id TEXT PRIMARY KEY, outcome TEXT NOT NULL, revision INTEGER NOT NULL, proposal_sha256 TEXT NOT NULL, graph_revision INTEGER, updated_at TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS graph_review_declines (transaction_id TEXT NOT NULL, proposal_sha256 TEXT NOT NULL, PRIMARY KEY(transaction_id, proposal_sha256))")
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -185,7 +187,7 @@ CREATE TABLE IF NOT EXISTS transactions (
             self._assert_queue_owner(db, queue_id, conversation_id)
             rows = db.execute("""
 SELECT s.id,s.ref_id,s.design_id,s.action_code,s.action_name,s.state,s.plan_id,s.transaction_id,
-       s.conversation_id,s.owner_revision,s.queue_id,i.owner_revision AS queued_owner_revision,i.position,i.context_json,
+       s.conversation_id,s.owner_revision,s.queue_id,s.database_scope,i.owner_revision AS queued_owner_revision,i.position,i.context_json,
        t.state AS transaction_state, t.artifact_path, p.status AS plan_status
 FROM edit_queue_items i JOIN sessions s ON s.id=i.session_id
 LEFT JOIN transactions t ON t.id=s.transaction_id
@@ -207,6 +209,65 @@ WHERE i.queue_id=? ORDER BY i.position
             raise StateError("此流程属于其他对话，当前对话不能操作；请用会话标记显式接手。")
         if owner_revision is not None and session["owner_revision"] != owner_revision:
             raise StateError("会话归属已经变更，请重新读取会话。")
+
+    def graph_review(self, transaction_id: str) -> dict[str, Any]:
+        with self._connection() as db:
+            row = db.execute("SELECT * FROM graph_reviews WHERE transaction_id=?", (transaction_id,)).fetchone()
+        return dict(row) if row else {"transaction_id": transaction_id, "outcome": "unreviewed",
+                                     "revision": 0, "proposal_sha256": "", "graph_revision": None}
+
+    def record_graph_review(self, transaction_id: str, outcome: str, *, conversation_id: str,
+                            expected_revision: int, proposal_sha256: str = "",
+                            graph_revision: int | None = None, reconsider_declined: bool = False) -> dict[str, Any]:
+        """Record metadata about an observed review; never records consent or writes Look."""
+        if outcome not in {"no_difference", "proposed", "declined", "pending_publication", "recorded"}:
+            raise StateError("Unsupported graph review outcome")
+        if type(expected_revision) is not int or expected_revision < 0:
+            raise StateError("Graph review expected_revision must be a nonnegative integer")
+        if not isinstance(proposal_sha256, str) or (proposal_sha256 and
+                (len(proposal_sha256) != 64 or any(c not in "0123456789abcdef" for c in proposal_sha256))):
+            raise StateError("Graph proposal must use a SHA-256 fingerprint, never a proposal body")
+        if graph_revision is not None and (type(graph_revision) is not int or graph_revision < 0):
+            raise StateError("graph_revision must be a nonnegative integer")
+        if type(reconsider_declined) is not bool or reconsider_declined and outcome != "proposed":
+            raise StateError("Only an explicit user request may reopen a declined proposal as proposed")
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            transaction = db.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (transaction["session_id"],)).fetchone() if transaction else None
+            self._assert_owner(session, conversation_id)
+            if (session["state"] != "finished" or transaction["state"] != "saved"
+                    or session["transaction_id"] != transaction_id):
+                raise StateError("Graph review requires this session's current verified, released save")
+            row = db.execute("SELECT * FROM graph_reviews WHERE transaction_id=?", (transaction_id,)).fetchone()
+            previous = dict(row) if row else {"revision": 0, "proposal_sha256": "", "outcome": "unreviewed"}
+            if previous["revision"] != expected_revision:
+                raise StateError("Graph review changed; read its current revision before updating")
+            proposal = proposal_sha256 or (previous["proposal_sha256"] if outcome != "no_difference" else "")
+            if outcome in {"proposed", "declined", "recorded"} and not proposal:
+                raise StateError("This outcome requires the concrete proposal's SHA-256 fingerprint")
+            if outcome == "declined" and (previous["outcome"] not in {"proposed", "declined", "pending_publication"}
+                                         or proposal != previous["proposal_sha256"]):
+                raise StateError("Only the previously presented proposal can be marked declined")
+            if outcome in {"proposed", "recorded"} and db.execute(
+                    "SELECT 1 FROM graph_review_declines WHERE transaction_id=? AND proposal_sha256=?",
+                    (transaction_id, proposal)).fetchone():
+                if not reconsider_declined:
+                    raise StateError("The user declined this unchanged proposal; do not ask again or record it as written")
+                db.execute("DELETE FROM graph_review_declines WHERE transaction_id=? AND proposal_sha256=?", (transaction_id, proposal))
+            if outcome == "recorded" and graph_revision is None:
+                raise StateError("A recorded result requires the graph revision returned by Look")
+            if row and (row["outcome"], row["proposal_sha256"], row["graph_revision"]) == (outcome, proposal, graph_revision):
+                return dict(row)
+            now = datetime.now().isoformat(timespec="seconds")
+            result = {"transaction_id": transaction_id, "outcome": outcome,
+                      "revision": expected_revision + 1, "proposal_sha256": proposal,
+                      "graph_revision": graph_revision, "updated_at": now}
+            db.execute("INSERT INTO graph_reviews VALUES (?,?,?,?,?,?) ON CONFLICT(transaction_id) DO UPDATE SET outcome=excluded.outcome, revision=excluded.revision, proposal_sha256=excluded.proposal_sha256, graph_revision=excluded.graph_revision, updated_at=excluded.updated_at",
+                       (transaction_id, outcome, result["revision"], proposal, graph_revision, now))
+            if outcome == "declined":
+                db.execute("INSERT OR IGNORE INTO graph_review_declines VALUES (?,?)", (transaction_id, proposal))
+            return result
 
     def active_session(self, conversation_id: str | None = None) -> dict[str, Any] | None:
         placeholders = ",".join("?" for _ in ACTIVE_STATES)

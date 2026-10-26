@@ -23,6 +23,7 @@ from .runtime_validation import RuntimeCsharpValidator
 from .state import ACTIVE_STATES, StateError, StateStore, saved_verification, assert_session_database_scope
 from .review_response import evidence_summary, review_page, review_response
 from .post_write import look_graph_review
+from .workflow_guidance import write_status_guidance
 from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
 from .recovery import archive_edit_session, recover_session
@@ -91,12 +92,23 @@ class EditorService:
 
     def get_edit_queue(self, queue_id: str) -> dict[str, Any]:
         items = self.state.edit_queue(queue_id, self.conversation_id)
+        graph_reviews = []
+        for item in items:
+            if (item["conversation_id"] == self.conversation_id
+                    and item["owner_revision"] == item["queued_owner_revision"] and item.get("transaction_id")):
+                review = self._graph_review(item, {"id": item["transaction_id"],
+                    "session_id": item["id"], "state": item.get("transaction_state")})
+                if review:
+                    graph_reviews.append(review)
         return {"queue_id": queue_id, "items": [
             {**self._session_summary(item), "position": item["position"], "plan_id": item.get("plan_id"),
              "plan_status": item.get("plan_status"), "transaction_state": item.get("transaction_state"),
              "owned": item["conversation_id"] == self.conversation_id and item["owner_revision"] == item["queued_owner_revision"],
              "action_context": item["action_context"]} for item in items],
-                "publication_targets": queue_publication_targets(items, self.conversation_id), "write_executed": False}
+                "publication_targets": queue_publication_targets(items, self.conversation_id),
+                "look_graph_reviews": graph_reviews,
+                "pending_graph_review_count": sum(item["review_required"] for item in graph_reviews),
+                "write_executed": False}
 
     def attach_edit_session(self, session_id: str) -> dict[str, Any]:
         from contextlib import ExitStack
@@ -631,6 +643,35 @@ class EditorService:
             raise EditorServiceError("component_type is required")
         _, _, _, compiler, _ = self._components()
         return compiler.describe_component_contract(component_type)
+
+    @component_request
+    def find_edit_nodes(self, session_id: str, *, kind: str = "nodes", query: str = "", group_key: str = "",
+                        element_key: str = "", offset: int = 0, limit: int = 30) -> dict[str, Any]:
+        from .node_discovery import find_baseline_nodes
+        session = self._owned_session(session_id)
+        if session["state"] not in {"locked", "planned", "awaiting_approval"}:
+            raise EditorServiceError("Node discovery requires an active edit session")
+        _, _, repository, compiler, _ = self._components()
+        current = repository.load_draft_by_id(session["design_id"])
+        if current["content_hash"] != session["baseline"]["content_hash"]:
+            raise EditorServiceError("Draft changed after the edit session began; node discovery is stale")
+        current_relations = repository.load_relations(session["design_id"])
+        if relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
+            raise EditorServiceError("Draft relations changed after the edit session began; node discovery is stale")
+        registry, binding = compiler.registry_and_binding()
+        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
+            raise EditorServiceError("Frontend compiler binding changed; node discovery is stale")
+        result = find_baseline_nodes(self._compiler_design(session["baseline"]), registry, kind=kind,
+                                    query=query, group_key=group_key, element_key=element_key, offset=offset, limit=limit)
+        latest = self._owned_session(session_id, include_baseline=False)
+        if latest.get("owner_revision", 0) != session.get("owner_revision", 0):
+            raise EditorServiceError("Session ownership changed while discovering nodes")
+        return {**result, "session_id": session_id, "backup_id": session["backup_id"],
+                "design_id": session["design_id"], "baseline_content_hash": session["baseline"]["content_hash"],
+                "compiler_binding": binding, "write_executed": False,
+                "context_binding": {"session_id": session_id, "owner_revision": session.get("owner_revision", 0),
+                    "baseline_content_hash": session["baseline"]["content_hash"],
+                    "relation_sha256": relation_snapshot_hash(current_relations), "compiler_hash": session["compiler_hash"]}}
 
     @component_request
     def inspect_edit_context(self, session_id: str, targets: list[dict[str, str]], *, operation_cursor: int = 0,
@@ -1248,6 +1289,24 @@ class EditorService:
             **review_response(artifact["business_review"], plan_id, response_detail),
         }
 
+    def _graph_review(self, session: dict[str, Any], transaction: dict[str, Any]) -> dict[str, Any] | None:
+        if look_graph_review(session, transaction) is None:
+            return None
+        return look_graph_review(session, transaction, self.state.graph_review(transaction["id"]))
+
+    def record_graph_review(self, transaction_id: str, outcome: str, *, expected_revision: int = 0,
+                            proposal_sha256: str = "", graph_revision: int | None = None,
+                            reconsider_declined: bool = False) -> dict[str, Any]:
+        transaction = self.state.get_transaction(transaction_id)
+        session = self._owned_session(transaction["session_id"], include_baseline=False, check_database=False)
+        self.state.record_graph_review(transaction_id, outcome, conversation_id=self.conversation_id,
+            expected_revision=expected_revision, proposal_sha256=proposal_sha256, graph_revision=graph_revision,
+            reconsider_declined=reconsider_declined)
+        # Re-read ownership and the pointer after the atomic metadata update.
+        session = self._owned_session(session["id"], include_baseline=False, check_database=False)
+        return {"transaction_id": transaction_id, "look_graph_review": self._graph_review(session, transaction),
+                "consent_granted": False, "graph_write_executed": False, "write_executed": False}
+
     def get_write_status(self, transaction_id: str) -> dict[str, Any]:
         from .ui_launch import inspect_window_startup
         transaction = self.state.get_transaction(transaction_id)
@@ -1271,6 +1330,7 @@ class EditorService:
         publication_targets = [publication_target(context if isinstance(context, dict) else None, session)] if (
             session.get("transaction_id") == transaction_id and transaction["state"] == "saved"
             and session["state"] == "finished") else []
+        window_startup = inspect_window_startup(self._approval_launch_key(session, transaction_id))
         return {
             "transaction_id": transaction_id,
             "kind": transaction["kind"],
@@ -1282,7 +1342,8 @@ class EditorService:
             "artifact_validation_error": validation_error,
             "handling_available": True,
             "handling_options": self._handling_options(session),
-            "window_startup": inspect_window_startup(self._approval_launch_key(session, transaction_id)),
+            "window_startup": window_startup,
+            **write_status_guidance(transaction, session, window_startup, artifact_valid=validation_error is None),
             "statement_count": len(artifact["statements"]) if isinstance(artifact.get("statements"), list) else 0,
             "approved_count": len(artifact["approvals"]) if isinstance(artifact.get("approvals"), dict) else 0,
             "executed": bool(artifact.get("executed")) or transaction["state"] == "saved",
@@ -1298,7 +1359,7 @@ class EditorService:
             "old_content_hash": artifact.get("old_content_hash"),
             "new_content_hash": artifact.get("new_content_hash"),
             "publication_targets": publication_targets,
-            "look_graph_review": look_graph_review(session, transaction),
+            "look_graph_review": self._graph_review(session, transaction),
         }
 
     def reopen_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
@@ -1445,14 +1506,14 @@ class EditorService:
                     "saved_verification": receipt, "current_draft_rechecked": False,
                     "session_released": True, "transaction_kind": transaction["kind"],
                     "runtime_finalized": False, "manual_publication_required": True,
-                    "look_graph_review": look_graph_review(session, transaction),
+                    "look_graph_review": self._graph_review(session, transaction),
                     "publication_targets": [action_context(session["baseline"])]}
         if session["state"] == "finished" and transaction["state"] == "saved":
             return {"verified": True, "session_released": True, "design_id": session["design_id"],
                     "ref_id": session["ref_id"], "verification_scope": "previously_finished_session",
                     "current_draft_rechecked": False, "runtime_finalized": False,
                     "manual_publication_required": True,
-                    "look_graph_review": look_graph_review(session, transaction),
+                    "look_graph_review": self._graph_review(session, transaction),
                     "publication_targets": [action_context(session["baseline"])]}
         _, _, repository, _, _ = self._components()
         if transaction["state"] != "saved":
@@ -1492,7 +1553,7 @@ class EditorService:
         transaction = self.state.get_transaction(session["transaction_id"]) if session.get("transaction_id") else {}
         return {
             "finished": True,
-            "look_graph_review": look_graph_review(completed, transaction),
+            "look_graph_review": self._graph_review(completed, transaction),
             "publication_targets": [action_context(session["baseline"])],
             "action_code": session["action_code"],
             "action_name": session["action_name"],

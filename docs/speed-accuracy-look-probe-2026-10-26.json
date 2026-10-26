@@ -1,0 +1,68 @@
+{
+  "measurement": "current working tree synthetic fixtures; not before/after; no concurrent Write compiler during this recorded run",
+  "date": "2026-10-26",
+  "look_head": "f82c3bf21323520ede36ce2a773d7c19d6af18d2",
+  "source_state": "0.5.1 with earlier uncommitted workflow improvements",
+  "method": {
+    "warmup_calls_per_fixture": 2,
+    "rounds": 5,
+    "calls_per_round": 10,
+    "includes_python_json_indented_serialization": true,
+    "repository": "fake fixture",
+    "p95": "not estimated from five round means"
+  },
+  "result": {
+    "fixtures": [
+      {
+        "fixture": "compact_20_nodes",
+        "milliseconds_per_call_median": 6.201,
+        "round_milliseconds_per_call": [
+          6.239,
+          6.142,
+          6.201,
+          6.237,
+          6.131
+        ],
+        "response_bytes": 28943,
+        "field_match_count": null,
+        "design_reads": 50,
+        "calls": 50,
+        "response_truncated": false
+      },
+      {
+        "fixture": "field_reference",
+        "milliseconds_per_call_median": 0.667,
+        "round_milliseconds_per_call": [
+          0.656,
+          0.686,
+          0.667,
+          0.689,
+          0.655
+        ],
+        "response_bytes": 4483,
+        "field_match_count": 1,
+        "design_reads": 50,
+        "calls": 50,
+        "response_truncated": false
+      },
+      {
+        "fixture": "large_single_node",
+        "milliseconds_per_call_median": 6.787,
+        "round_milliseconds_per_call": [
+          6.684,
+          6.726,
+          6.787,
+          7.252,
+          6.822
+        ],
+        "response_bytes": 7339,
+        "field_match_count": null,
+        "design_reads": 50,
+        "calls": 50,
+        "response_truncated": true
+      }
+    ],
+    "business_database_access": false,
+    "source_scan_access": false
+  }
+}
