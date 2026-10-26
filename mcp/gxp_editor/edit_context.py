@@ -9,6 +9,7 @@ from typing import Any
 from .canvas_assertions import CanvasAssertionError, validate_json_value
 from .reference_repair import _catalog
 from .operation_preflight import SCHEMA_VERSION, UNSAFE, atomic_parameters, operation_shape, same_json
+from .value_transport import value_summary
 
 
 class EditContextError(ValueError):
@@ -22,6 +23,7 @@ class EditContextError(ValueError):
 
 MAX_CONTEXT_BYTES = 1024 * 1024
 OPERATION_PAGE_SIZE = 64
+SUMMARY_OPERATION_PAGE_SIZE = 8
 
 
 def _text(value, name):
@@ -134,7 +136,8 @@ def _compact_guard_values(node, templates):
 
 
 def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets: list[dict[str, str]], *,
-                       operation_cursor: int = 0, include_context: bool | None = None) -> dict[str, Any]:
+                       operation_cursor: int = 0, include_context: bool | None = None,
+                       response_detail: str = "full", parameter_paths: list[str] | None = None) -> dict[str, Any]:
     """No IO, generation or inference: expose exact parameters and picker scope.
 
     Caller owns session authorization, baseline/compiler binding and freshness.
@@ -144,6 +147,12 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
         raise EditContextError("operation_cursor must be a nonnegative integer from the preceding context page")
     if include_context is not None and type(include_context) is not bool:
         raise EditContextError("include_context must be a boolean when provided")
+    if response_detail not in {"summary", "full"}:
+        raise EditContextError("response_detail must be summary or full")
+    if parameter_paths is not None and (type(parameter_paths) is not list or not 1 <= len(parameter_paths) <= 32
+            or any(type(path) is not str or not path.startswith("/") or len(path) > 2048 for path in parameter_paths)
+            or len(set(parameter_paths)) != len(parameter_paths)):
+        raise EditContextError("parameter_paths must contain 1 to 32 unique JSON parameter pointers")
     if type(targets) is not list or not 1 <= len(targets) <= 10:
         raise EditContextError("targets must contain 1 to 10 exact group_key/node_key objects")
     selected, seen = [], set()
@@ -202,7 +211,9 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
             previous_keys.add(node_key)
             locations[group_key, node_key] = (group, index, node)
     nodes = []
+    summary = response_detail == "summary" and include_context is None
     compact = not include_context if include_context is not None else operation_cursor > 0
+    page_size = SUMMARY_OPERATION_PAGE_SIZE if summary else OPERATION_PAGE_SIZE
     template_index, displayed_templates = 0, 0
     for pair in selected:
         if pair not in locations:
@@ -210,16 +221,23 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
                                    group_key=pair[0], node_key=pair[1], reason_code="target_not_found")
         group, index, node = locations[pair]
         parents = []
-        if not compact:
+        if not compact and not summary:
             for parent_key in node.get("depth", []):
                 _, parent_index, parent = locations[group["key"], parent_key]
                 parents.append({**_summary(parent, parent_index), **_params(parent), "depth": deepcopy(parent.get("depth", []))})
-        templates = []
+        templates, found_paths = [], set()
         for template in _operation_templates(group, node):
-            if operation_cursor <= template_index < operation_cursor + OPERATION_PAGE_SIZE:
+            path = template["template"]["path"]
+            if parameter_paths is not None and path not in parameter_paths:
+                continue
+            found_paths.add(path)
+            if operation_cursor <= template_index < operation_cursor + page_size:
                 templates.append(template)
                 displayed_templates += 1
             template_index += 1
+        if parameter_paths is not None and set(parameter_paths) - found_paths:
+            raise EditContextError("parameter_paths must select existing editable parameter paths for every target",
+                                   group_key=group["key"], node_key=node["key"])
         native = elements[node["elementKey"]]
         insertion_available = native.get("level_marker") is True and native.get("end_marker") is not True
         edit_options = {"schema_version": SCHEMA_VERSION, "parameter_operations": templates,
@@ -229,12 +247,33 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
         if insertion_available:
             edit_options["insert_in_block"].update(template={"operation": "insert_in_block", "action_group_key": group["key"], "target_node_key": node["key"]},
                 complete=False, required_inputs=["element_key"], native_validation_required=True)
-        evidence = ({"parameter_guards": _compact_guard_values(node, templates),
+        if summary:
+            from .edit_guards import parameter_value
+            parameters = []
+            for template in templates:
+                operation = template["template"]
+                value = parameter_value(design, group["key"], node["key"], operation["path"], operation.get("item_key"))
+                parameters.append({"path": operation["path"],
+                    **({"item_key": deepcopy(operation["item_key"])} if "item_key" in operation else {}),
+                    **value_summary(value), "read_value": {"tool": "read_edit_value", "arguments": {
+                        "group_key": group["key"], "node_key": node["key"], "path": operation["path"],
+                        **({"item_key": deepcopy(operation["item_key"])} if "item_key" in operation else {})}}})
+            evidence = {"parameters": parameters, "params_value_present": "paramsValue" in node,
+                "parents": [_summary(locations[group["key"], key][2], locations[group["key"], key][1])
+                            for key in node.get("depth", [])],
+                "native_contract_summary": {"key": native["key"], "name": native.get("name"),
+                    "input_params_count": len(native.get("input_params", [])),
+                    "output_params_count": len(native.get("output_params", []))},
+                "evidence_omitted": ["params_value", "parent_parameters", "visible_variables", "native_contract"],
+                "full_context": {"tool": "inspect_edit_context", "arguments": {
+                    "targets": [{"group_key": group["key"], "node_key": node["key"]}], "response_detail": "full"}}}
+        else:
+            evidence = ({"parameter_guards": _compact_guard_values(node, templates),
                      "evidence_omitted": ["params_value", "parents", "visible_variables", "native_contract"],
                      "full_evidence_operation_cursor": 0} if compact else {
                          **_params(node), "parents": parents,
                          "visible_variables": deepcopy(_catalog(design, group, index, elements)),
-                         "native_contract": deepcopy(native)})
+                          "native_contract": deepcopy(native)})
         nodes.append({"group_key": group["key"], "group_title": group.get("title"), "language": group["actionType"],
                       **_summary(node, index), **evidence, "depth": deepcopy(node.get("depth", [])),
                       "previous": _summary(group["data"][index - 1], index - 1) if index else None,
@@ -245,14 +284,14 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
         raise EditContextError("operation_cursor is outside this context; restart at operation_cursor=0 with the same targets")
     next_cursor = operation_cursor + displayed_templates if operation_cursor + displayed_templates < template_index else None
     result = {"nodes": nodes, "read_only": True, "source_evidence_required": True,
-              "context_detail": "compact_guards" if compact else "full_context",
-              "omitted_fields": ["params_value", "parents", "visible_variables", "native_contract", "operation_contracts"] if compact else [],
-              **({} if compact else {"operation_contracts": {name: operation_shape(name) for name in ("set_parameter", "set_array_item", "insert_in_block")}}),
-              "operation_page": {"cursor": operation_cursor, "page_size": OPERATION_PAGE_SIZE,
-                                 "evidence_mode": "compact_guards" if compact else "full_context",
+              "context_detail": "summary" if summary else "compact_guards" if compact else "full_context",
+              "omitted_fields": ["params_value", "parents", "visible_variables", "native_contract", "operation_contracts"] if compact or summary else [],
+              **({} if compact or summary else {"operation_contracts": {name: operation_shape(name) for name in ("set_parameter", "set_array_item", "insert_in_block")}}),
+              "operation_page": {"cursor": operation_cursor, "page_size": page_size,
+                                  "evidence_mode": "summary" if summary else "compact_guards" if compact else "full_context",
                                  "returned": displayed_templates, "total": template_index, "complete": next_cursor is None,
                                  "next_operation_cursor": next_cursor,
-                                 "continuation": "Repeat inspect_edit_context with identical targets and operation_cursor; later pages contain exact page guards instead of full context. Require the same context_binding; restart at operation_cursor=0 if it changes. Pass include_context=true when complete context is needed on a later page."},
+                                  "continuation": "Repeat with identical targets, parameter_paths and detail at next_operation_cursor. Require unchanged context_binding; restart if it changes. Summary uses signed guards; read_edit_value fetches needed values. Explicit include_context retains the legacy full/compact projection."},
               "next_operation_cursor": next_cursor}
     if len(json.dumps(result, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")) > MAX_CONTEXT_BYTES:
         error = EditContextError("Edit context exceeds 1 MiB; reduce targets or inspect a smaller parameter contract",

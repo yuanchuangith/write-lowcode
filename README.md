@@ -7,6 +7,6 @@
 - [生成模式](docs/incremental-generation.md)：全量／增量／自动选择边界。
 - [数据库统一设置](skills/gxp-lowcode-edit/references/database-settings.md)：在任一插件目录运行 `python scripts/database_settings.py`（macOS/Linux 可用 `python3`）打开 Look/Write 共用窗口；地址、端口、库名统一管理，各自账户和编译器等专属设置保留。密码隐藏输入到操作系统凭据库。也可明确告诉模型要改的非敏感字段，由 `database_settings` 测试后保存；此本机入口无需启用编辑技能或创建会话。旧编辑流程未结束时阻止切换，测试失败保留原配置。
 
-本地 MCP 共 28 个工具；`find_edit_nodes` 可从会话备份中分页查找分组和节点，`record_graph_review` 记录已核对、拒绝、待发布等复核进度，均不写业务数据。`database_settings` 只处理用户明确要求的本机设置，不授予业务编辑或审批权限。安装和普通排查不会自动改库，模型不接收密码或连接串。
+本地 MCP 共 29 个工具；`find_edit_nodes` 从会话备份中分页查找分组和节点，`inspect_edit_context` 默认返回参数摘要及绑定原值的 `guard_ref`，`read_edit_value` 按需分页读取精确值。`read_plan_review` 默认返回证据摘要，可继续读取指定字段；完整证据仍保留在计划和审批工件。`record_graph_review` 记录已核对、拒绝、待发布等复核进度，均不写业务数据。`database_settings` 只处理用户明确要求的本机设置，不授予业务编辑或审批权限。安装和普通排查不会自动改库，模型不接收密码或连接串。
 
 源码维护不会自动安装或更新已运行插件、重启 Codex、保存或发布业务草稿。

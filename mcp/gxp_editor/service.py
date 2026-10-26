@@ -441,14 +441,35 @@ class EditorService:
     def _compiler_binding_matches(expected: dict[str, Any], actual: dict[str, Any]) -> bool:
         return isinstance(expected, dict) and expected == actual
 
-    def begin_edit_session(self, identifier: str, *, queue_id: str = "", handoff_ref: dict | None = None) -> dict[str, Any]:
-        return self._begin_session(identifier, repair=False, queue_id=queue_id, handoff_ref=handoff_ref)
+    def begin_edit_session(self, identifier: str, *, queue_id: str = "", handoff_ref: dict | None = None,
+                           response_detail: str = "full") -> dict[str, Any]:
+        return self._begin_response(self._begin_session(identifier, repair=False, queue_id=queue_id,
+            handoff_ref=handoff_ref, response_detail=response_detail), response_detail)
 
-    def begin_reference_repair_session(self, identifier: str, *, queue_id: str = "") -> dict[str, Any]:
-        return self._begin_session(identifier, repair=True, queue_id=queue_id)
+    def begin_reference_repair_session(self, identifier: str, *, queue_id: str = "", response_detail: str = "full") -> dict[str, Any]:
+        return self._begin_response(self._begin_session(identifier, repair=True, queue_id=queue_id,
+            response_detail=response_detail), response_detail)
+
+    @staticmethod
+    def _begin_response(result: dict[str, Any], detail: str) -> dict[str, Any]:
+        if detail == "full" or result.get("blocked"):
+            return result
+        result = dict(result)
+        for field in ("validation", "handoff"):
+            if isinstance(result.get(field), dict):
+                result[field] = evidence_summary(result[field])
+        diagnostics = result.get("canvas_diagnostics", [])
+        if diagnostics:
+            result["canvas_diagnostic_count"] = len(diagnostics)
+            result["canvas_diagnostics"] = [evidence_summary(row) for row in diagnostics[:3]]
+        result["response_detail"] = "summary"
+        return result
 
     @component_request
-    def _begin_session(self, identifier: str, *, repair: bool, queue_id: str = "", handoff_ref: dict | None = None) -> dict[str, Any]:
+    def _begin_session(self, identifier: str, *, repair: bool, queue_id: str = "", handoff_ref: dict | None = None,
+                       response_detail: str = "full") -> dict[str, Any]:
+        if response_detail not in {"summary", "full"}:
+            raise EditorServiceError("response_detail must be summary or full")
         if queue_id:
             self.state.edit_queue(queue_id, self.conversation_id)
         active = self.state.active_session(self.conversation_id)
@@ -491,7 +512,7 @@ class EditorService:
             if occupied.get("conversation_id") == self.conversation_id:
                 return self._reuse_edit_session(occupied["id"], draft, compiler, repair=repair,
                                                 queue_id=queue_id, handoff=handoff,
-                                                evidence_candidates=evidence_candidates)
+                                                evidence_candidates=evidence_candidates, response_detail=response_detail)
             return {"blocked": True, "active_session_id": occupied["id"],
                     "message": "这份草稿已有独立编辑流程。请关闭原审批窗口后，用会话标记显式接手；其他草稿可并行编辑。"}
         registry = compiler.describe_registry()
@@ -505,7 +526,7 @@ class EditorService:
             from .edit_context import build_edit_context
             # Build bounded target evidence before acquiring local occupancy.
             try:
-                edit_context = build_edit_context(compiler_design, registry, handoff["targets"])
+                edit_context = build_edit_context(compiler_design, registry, handoff["targets"], response_detail=response_detail)
             except (ValueError, TypeError, KeyError) as exc:
                 from .handoff_import import unavailable_handoff
                 return unavailable_handoff(exc)
@@ -546,6 +567,8 @@ class EditorService:
             queue_id=queue_id,
             database_scope=environment_scope(config.database),
         )
+        if edit_context is not None and response_detail == "summary":
+            edit_context = self._sign_context_guards(edit_context, session, config)
         return {
             "session_id": session["id"],
             "queue_id": queue_id or None,
@@ -585,7 +608,7 @@ class EditorService:
         }
 
     def _reuse_edit_session(self, session_id, draft, compiler, *, repair, queue_id, handoff,
-                            evidence_candidates=None):
+                            evidence_candidates=None, response_detail="full"):
         """A retry resumes the owned flow; it never grants or transfers approval."""
         session = self._owned_session(session_id)
         failure = {"blocked": True, "session_reused": False, "session_created": False,
@@ -628,7 +651,11 @@ class EditorService:
             result["handoff"] = handoff
         if handoff is not None and handoff["status"] == "matched":
             from .edit_context import build_edit_context
-            result.update(handoff=handoff, edit_context=build_edit_context(self._compiler_design(session["baseline"]), registry, handoff["targets"]))
+            context = build_edit_context(self._compiler_design(session["baseline"]), registry, handoff["targets"],
+                                         response_detail=response_detail)
+            if response_detail == "summary":
+                context = self._sign_context_guards(context, session, self._components()[0])
+            result.update(handoff=handoff, edit_context=context)
         latest = self._owned_session(session_id, include_baseline=False)
         if (latest.get("owner_revision", 0) != session.get("owner_revision", 0)
                 or latest["state"] != session["state"] or latest.get("plan_id") != session.get("plan_id")
@@ -673,14 +700,36 @@ class EditorService:
                     "baseline_content_hash": session["baseline"]["content_hash"],
                     "relation_sha256": relation_snapshot_hash(current_relations), "compiler_hash": session["compiler_hash"]}}
 
+    def _sign_context_guards(self, context: dict[str, Any], session: dict[str, Any], config) -> dict[str, Any]:
+        from .edit_guards import create_guard_ref, parameter_value
+        design = self._compiler_design(session["baseline"])
+        secret = approval_secret(config)
+        for node in context["nodes"]:
+            for row in node["edit_options"]["parameter_operations"]:
+                operation = row["template"]
+                value = parameter_value(design, node["group_key"], node["node_key"], operation["path"], operation.get("item_key"))
+                operation["guard_ref"] = create_guard_ref(session, self.conversation_id, operation, value, secret)
+                row.pop("expected_old_value_ref", None)
+                row["required_inputs"] = ["value"]
+            for descriptor in node.get("parameters", []):
+                descriptor["read_value"]["arguments"]["session_id"] = session["id"]
+            if "full_context" in node:
+                node["full_context"]["arguments"]["session_id"] = session["id"]
+        context["context_binding"] = {"session_id": session["id"], "owner_revision": session.get("owner_revision", 0),
+            "baseline_content_hash": session["baseline"]["content_hash"],
+            "relation_sha256": relation_snapshot_hash(session["baseline"].get("relations") or []),
+            "compiler_hash": session["compiler_hash"]}
+        return context
+
     @component_request
     def inspect_edit_context(self, session_id: str, targets: list[dict[str, str]], *, operation_cursor: int = 0,
-                             include_context: bool | None = None) -> dict[str, Any]:
+                             include_context: bool | None = None, response_detail: str = "full",
+                             parameter_paths: list[str] | None = None) -> dict[str, Any]:
         from .edit_context import build_edit_context
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned", "awaiting_approval"}:
             raise EditorServiceError("Target inspection requires an active edit session")
-        _, _, repository, compiler, _ = self._components()
+        config, _, repository, compiler, _ = self._components()
         current = repository.load_draft_by_id(session["design_id"])
         if current["content_hash"] != session["baseline"]["content_hash"]:
             raise EditorServiceError("Draft changed after the edit session began; target evidence is stale")
@@ -691,7 +740,10 @@ class EditorService:
         if binding["compiler_binding_sha256"] != session["compiler_hash"]:
             raise EditorServiceError("Frontend compiler binding changed; target contracts are stale")
         result = build_edit_context(self._compiler_design(session["baseline"]), registry, targets,
-                                    operation_cursor=operation_cursor, include_context=include_context)
+                                    operation_cursor=operation_cursor, include_context=include_context,
+                                    response_detail=response_detail, parameter_paths=parameter_paths)
+        if result["context_detail"] == "summary":
+            result = self._sign_context_guards(result, session, config)
         # Ownership may change while native source checks are running.
         latest = self._owned_session(session_id, include_baseline=False)
         if latest.get("owner_revision", 0) != session.get("owner_revision", 0):
@@ -710,13 +762,49 @@ class EditorService:
             raise error
         return response
 
-    def read_plan_review(self, plan_id: str, *, section="summary", offset=0, limit=10, item_id=""):
+    @component_request
+    def read_edit_value(self, session_id: str, group_key: str, node_key: str, path: str, *,
+                        item_key: dict[str, Any] | None = None, offset: int = 0,
+                        max_output_bytes: int = 16384) -> dict[str, Any]:
+        from .edit_guards import create_guard_ref, parameter_value
+        from .value_transport import value_page
+        if type(max_output_bytes) is not int or not 4096 <= max_output_bytes <= 65536:
+            raise EditorServiceError("max_output_bytes must be between 4096 and 65536")
+        # The inspection performs the complete native canvas validation and all
+        # ownership, live draft, relation and compiler checks on every page.
+        context = self.inspect_edit_context(session_id, [{"group_key": group_key, "node_key": node_key}],
+            response_detail="summary", parameter_paths=[path])
+        session = self._owned_session(session_id)
+        if session.get("owner_revision", 0) != context["context_binding"]["owner_revision"]:
+            raise EditorServiceError("Session ownership changed while reading a value")
+        node = context["nodes"][0]
+        value = parameter_value(self._compiler_design(session["baseline"]), group_key, node_key, path, item_key)
+        operation = {"operation": "set_array_item" if item_key is not None else "set_parameter",
+            "action_group_key": group_key, "target_node_key": node_key, "expected_element_key": node["element_key"],
+            "path": path, **({"item_key": item_key} if item_key is not None else {})}
+        metadata = {"session_id": session_id, "group_key": group_key, "node_key": node_key, "path": path,
+            "item_key": item_key, "context_binding": context["context_binding"],
+            "guard_ref": create_guard_ref(session, self.conversation_id, operation, value, approval_secret(self._components()[0])),
+            "read_only": True, "write_executed": False}
+        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 256
+        if max_output_bytes - overhead < 1024:
+            raise EditorServiceError("Byte budget is too small for this target's exact binding; request a larger max_output_bytes")
+        page = value_page(value, offset=offset, max_output_bytes=max_output_bytes - overhead)
+        latest = self._owned_session(session_id, include_baseline=False)
+        if (latest.get("owner_revision", 0) != session.get("owner_revision", 0)
+                or latest["state"] not in {"locked", "planned", "awaiting_approval"}):
+            raise EditorServiceError("Session ownership or active state changed while reading a value")
+        return {**metadata, **page, "max_output_bytes": max_output_bytes}
+
+    def read_plan_review(self, plan_id: str, *, section="summary", offset=0, limit=10, item_id="", detail="full",
+                         field_path="", value_offset=0, max_output_bytes=16384):
         plan = self.state.get_plan(plan_id)
         session = self._owned_session(plan["session_id"])
         artifact = load_artifact(plan["artifact_path"])
         self._validate_plan_review(plan, session, artifact)
         report = artifact["business_review"]
-        page = review_page(report, section, offset, limit, item_id)
+        page = review_page(report, section, offset, limit, item_id, detail=detail, field_path=field_path,
+                           value_offset=value_offset, max_output_bytes=max_output_bytes)
         latest = self._owned_session(session["id"], include_baseline=False)
         if latest.get("owner_revision", 0) != session.get("owner_revision", 0):
             raise EditorServiceError("Session ownership changed while reading the plan report")
@@ -864,12 +952,21 @@ class EditorService:
         if relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
             raise EditorServiceError("Draft relation data changed after the edit session began")
         spec, checkpoint_sha = self._resolve_review_spec(session, review_spec)
+        guarded = type(operations) is list and any(type(op) is dict and "guard_ref" in op for op in operations)
+        if guarded:
+            from .edit_guards import expand_guard_operations
+            registry, binding = compiler.registry_and_binding()
+            if binding["compiler_binding_sha256"] != session["compiler_hash"]:
+                raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
+            operations = expand_guard_operations(session, self.conversation_id, self._compiler_design(session["baseline"]),
+                                                  operations, approval_secret(config))
         if repaired is None:
             CompilerBridge.preflight_operations(self._compiler_design(session["baseline"]), operations)
         if repaired is None and type(operations) is list and operations and CompilerBridge.guarded_no_changes(
                 self._compiler_design(session["baseline"]), operations):
             return self._no_changes_response(session)
-        registry, binding = compiler.registry_and_binding()
+        if not guarded:
+            registry, binding = compiler.registry_and_binding()
         if binding["compiler_binding_sha256"] != session["compiler_hash"]:
             raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
         generation_baseline = {
@@ -970,8 +1067,10 @@ class EditorService:
             "code_generation_complete": True,
             **({"interface_metadata": plan_artifact["interface_metadata"]} if plan_artifact.get("interface_metadata") else {}),
             "generated_code_consistency_verified": plan_artifact["generated_code_consistency_verified"],
-            **({"generation_selection": plan_artifact["generation_selection"]} if plan_artifact.get("generation_selection") else {}),
-            **({"generation": plan_artifact["generation"]} if plan_artifact.get("generation") else {}),
+            **({"generation_selection": plan_artifact["generation_selection"] if response_detail == "full" else
+                self._generation_summary(plan_artifact["generation_selection"])} if plan_artifact.get("generation_selection") else {}),
+            **({"generation": plan_artifact["generation"] if response_detail == "full" else
+                self._generation_summary(plan_artifact["generation"])} if plan_artifact.get("generation") else {}),
             "baseline_diagnostics": plan_artifact["event_binding_validation"].get("baseline_diagnostics", [])[:5],
             "baseline_diagnostic_count": len(plan_artifact["event_binding_validation"].get("baseline_diagnostics", [])),
             "unreachable_diagnostics": plan_artifact["event_binding_validation"].get("unreachable_diagnostics", [])[:5],
@@ -991,6 +1090,14 @@ class EditorService:
             "ready_for_approval": business_review["status"] != "failed",
             "blocked_reasons": ["业务验收未通过，请按 review_issues 查看失败的配置、范围或场景证据。"] if business_review["status"] == "failed" else [],
         }
+
+    @staticmethod
+    def _generation_summary(value):
+        if type(value) is dict:
+            return {key: EditorService._generation_summary(item) for key, item in value.items()}
+        if type(value) is list:
+            return {"count": len(value), "preview": value[:5], "complete": len(value) <= 5}
+        return value
 
     def _no_changes_response(self, session):
         existing = self.state.get_plan(session["plan_id"]) if session.get("plan_id") else None

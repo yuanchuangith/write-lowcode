@@ -20,7 +20,7 @@ class ConversationToolContractTests(unittest.TestCase):
         from types import ModuleType
 
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
-        self.assertEqual(28, len(tools))
+        self.assertEqual(29, len(tools))
         properties = tools["database_settings"].inputSchema["properties"]
         self.assertEqual({"operation", "changes", "expected_revision"}, set(properties))
         self.assertEqual("status", properties["operation"]["default"])
@@ -73,8 +73,11 @@ class ConversationToolContractTests(unittest.TestCase):
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
         self.assertIn("inspect_edit_context", tools)
         self.assertIn("read_plan_review", tools)
-        for name in ("plan_canvas_patch", "plan_reference_repairs", "prepare_write", "open_plan_review"):
+        for name in ("plan_canvas_patch", "plan_reference_repairs", "prepare_write", "open_plan_review",
+                     "begin_edit_session", "begin_reference_repair_session", "inspect_edit_context"):
             self.assertEqual(tools[name].inputSchema["properties"]["response_detail"]["default"], "summary")
+        self.assertEqual(tools["read_plan_review"].inputSchema["properties"]["detail"]["default"], "summary")
+        self.assertIn("read_edit_value", tools)
         self.assertIs(tools["editor_status"].inputSchema["properties"]["probe_runtime"]["default"], False)
 
     def test_compiler_error_location_survives_mcp_transport(self):
@@ -90,6 +93,33 @@ class ConversationToolContractTests(unittest.TestCase):
         self.assertEqual(result["error_details"]["operation_index"], 2)
         self.assertEqual(result["error_details"]["reason_code"], "old_value_mismatch")
         self.assertNotIn("private", str(result))
+
+    def test_focused_value_and_report_paging_forward_exact_arguments(self):
+        from unittest.mock import Mock
+        fake = Mock()
+        fake.inspect_edit_context.return_value = fake.read_edit_value.return_value = fake.read_plan_review.return_value = {"read_only": True}
+        targets = [{"group_key": "main", "node_key": "target"}]
+        with patch.object(SERVER, "service", return_value=fake) as scoped:
+            asyncio.run(SERVER.mcp.call_tool("inspect_edit_context", {"session_id": "s", "targets": targets,
+                "conversation_id": "owner", "parameter_paths": ["/inputParams/value"]}))
+            fake.inspect_edit_context.assert_called_once_with("s", targets, operation_cursor=0,
+                include_context=None, response_detail="summary", parameter_paths=["/inputParams/value"])
+            asyncio.run(SERVER.mcp.call_tool("inspect_edit_context", {"session_id": "s", "targets": targets,
+                "conversation_id": "owner", "response_detail": "full", "include_context": False}))
+            fake.inspect_edit_context.assert_called_with("s", targets, operation_cursor=0,
+                include_context=False, response_detail="full", parameter_paths=None)
+            selector = {"field": "key", "value": "native-row"}
+            asyncio.run(SERVER.mcp.call_tool("read_edit_value", {"session_id": "s", "group_key": "main",
+                "node_key": "target", "path": "/inputParams/rows", "conversation_id": "owner",
+                "item_key": selector, "offset": 2, "max_output_bytes": 4096}))
+            fake.read_edit_value.assert_called_once_with("s", "main", "target", "/inputParams/rows",
+                item_key=selector, offset=2, max_output_bytes=4096)
+            asyncio.run(SERVER.mcp.call_tool("read_plan_review", {"plan_id": "p", "section": "changes",
+                "item_id": "change-1", "conversation_id": "owner", "field_path": "/before/text",
+                "value_offset": 2, "max_output_bytes": 4096}))
+            fake.read_plan_review.assert_called_once_with("p", section="changes", offset=0, limit=10,
+                item_id="change-1", detail="summary", field_path="/before/text", value_offset=2, max_output_bytes=4096)
+            self.assertTrue(all(call.args == ("owner",) for call in scoped.call_args_list))
 
     def test_generation_modes_are_exposed_and_forwarded_with_full_default(self):
         from unittest.mock import Mock

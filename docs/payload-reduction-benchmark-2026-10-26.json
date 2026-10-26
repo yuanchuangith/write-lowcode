@@ -1,0 +1,634 @@
+{
+  "scope": "six synthetic complete MCP conversations; simulated repository/compiler/runtime/UI; real service/state/backup/preflight/review/approval artifacts",
+  "unmeasured": [
+    "real compiler latency",
+    "database",
+    "network",
+    "model tokenization/latency",
+    "business execution",
+    "human approval"
+  ],
+  "byte_method": "UTF-8 compact JSON of the actual FastMCP structured response (including trace/timings), and of both actual text blocks plus structuredContent. SDK wire framing is not measured.",
+  "budget_scope": "read_edit_value max_output_bytes bounds its service payload, including guard/binding. Trace/timings and MCP SDK wrapping are additional.",
+  "comparison": "explicit full compatibility flow versus default-summary flow; identical seven calls and selected exact read; no latency speedup claim",
+  "scenarios": [
+    {
+      "scenario": "long_chinese",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4079,
+            "text_and_structured_utf8_bytes": 9745
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1854,
+            "text_and_structured_utf8_bytes": 4396
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 220822,
+            "text_and_structured_utf8_bytes": 444423
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 439506,
+            "text_and_structured_utf8_bytes": 883080
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 809,
+            "text_and_structured_utf8_bytes": 2080
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 6090,
+            "text_and_structured_utf8_bytes": 14753
+          }
+        ],
+        "structured_utf8_bytes": 675149,
+        "text_and_structured_utf8_bytes": 1362815,
+        "candidate_sha256": "1dac97e4f5080a52b23835237270544a96d7fbd5ecfc27d1bcc61ff0c1499666",
+        "bound_plan_sha256": "0c9482a75b46e9176ff97503fd5b351f3000e9193db59f38625359602831d9b7",
+        "approval_candidate_sha256": "822dfc2d071bde87b92f3421dfc02a13c5d97eb3dfc43d75ec8afeafb1ebd128",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "c67c577c87dac5509beee7dcf14a668300a275a8d640e8a20907d8617cdec18a",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4105,
+            "text_and_structured_utf8_bytes": 9806
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 4808,
+            "text_and_structured_utf8_bytes": 11445
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3859,
+            "text_and_structured_utf8_bytes": 9061
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2113,
+            "text_and_structured_utf8_bytes": 5560
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2516,
+            "text_and_structured_utf8_bytes": 5873
+          }
+        ],
+        "structured_utf8_bytes": 21245,
+        "text_and_structured_utf8_bytes": 50481,
+        "candidate_sha256": "1dac97e4f5080a52b23835237270544a96d7fbd5ecfc27d1bcc61ff0c1499666",
+        "bound_plan_sha256": "0c9482a75b46e9176ff97503fd5b351f3000e9193db59f38625359602831d9b7",
+        "approval_candidate_sha256": "822dfc2d071bde87b92f3421dfc02a13c5d97eb3dfc43d75ec8afeafb1ebd128",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "c67c577c87dac5509beee7dcf14a668300a275a8d640e8a20907d8617cdec18a",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 96.296
+    },
+    {
+      "scenario": "nested_filters",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4078,
+            "text_and_structured_utf8_bytes": 9743
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1854,
+            "text_and_structured_utf8_bytes": 4396
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 102177,
+            "text_and_structured_utf8_bytes": 222688
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1988,
+            "text_and_structured_utf8_bytes": 4336
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 201409,
+            "text_and_structured_utf8_bytes": 452288
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 809,
+            "text_and_structured_utf8_bytes": 2080
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 6090,
+            "text_and_structured_utf8_bytes": 14753
+          }
+        ],
+        "structured_utf8_bytes": 318405,
+        "text_and_structured_utf8_bytes": 710284,
+        "candidate_sha256": "b5590667d0f7c8f65c9d856135b5c213ffe15c89188398cfadcd99da5745ce47",
+        "bound_plan_sha256": "95caa18b8319f06b7612aa7884c3fa392157867f409ddacfe07bedc784caa325",
+        "approval_candidate_sha256": "d309408b60742e26eb337f66dfadadb71621d5ef0d020715fab645d66497f4e7",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "328ee4205d8ddc8a99cc227a422b05f93e83b973d19fd797c6cb08fbcce28df8",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4106,
+            "text_and_structured_utf8_bytes": 9808
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 4808,
+            "text_and_structured_utf8_bytes": 11445
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1987,
+            "text_and_structured_utf8_bytes": 4334
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3858,
+            "text_and_structured_utf8_bytes": 9059
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2112,
+            "text_and_structured_utf8_bytes": 5558
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2517,
+            "text_and_structured_utf8_bytes": 5875
+          }
+        ],
+        "structured_utf8_bytes": 21243,
+        "text_and_structured_utf8_bytes": 50477,
+        "candidate_sha256": "b5590667d0f7c8f65c9d856135b5c213ffe15c89188398cfadcd99da5745ce47",
+        "bound_plan_sha256": "95caa18b8319f06b7612aa7884c3fa392157867f409ddacfe07bedc784caa325",
+        "approval_candidate_sha256": "d309408b60742e26eb337f66dfadadb71621d5ef0d020715fab645d66497f4e7",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "328ee4205d8ddc8a99cc227a422b05f93e83b973d19fd797c6cb08fbcce28df8",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 92.893
+    },
+    {
+      "scenario": "native_array_rows",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4079,
+            "text_and_structured_utf8_bytes": 9745
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 165650,
+            "text_and_structured_utf8_bytes": 390410
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 2546,
+            "text_and_structured_utf8_bytes": 5515
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 791330,
+            "text_and_structured_utf8_bytes": 1738362
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 634,
+            "text_and_structured_utf8_bytes": 1469
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 528617,
+            "text_and_structured_utf8_bytes": 1140847
+          }
+        ],
+        "structured_utf8_bytes": 1494711,
+        "text_and_structured_utf8_bytes": 3290746,
+        "candidate_sha256": "8c92ce7bb4a75f4407b71b9c57e01c8c474b905ac3d5cb4b9d9d354d3c39fc41",
+        "bound_plan_sha256": "f176fb3ca1f53d8ad7af119bbfe2d9bff8c687d54a941e8eba7e76cf4d0b32e1",
+        "approval_candidate_sha256": "e1fefd89c1f77b9448b1dc79a73f756f9cc55f54f3998ace3b055e296d4575ae",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "03a3bacb7042f773ef1a57bcbd1ffa6a1f0cfe9fc115d2ec19fc210f74e5b7cd",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4107,
+            "text_and_structured_utf8_bytes": 9810
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 17112,
+            "text_and_structured_utf8_bytes": 41576
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 2546,
+            "text_and_structured_utf8_bytes": 5515
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3860,
+            "text_and_structured_utf8_bytes": 9063
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2114,
+            "text_and_structured_utf8_bytes": 5562
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2517,
+            "text_and_structured_utf8_bytes": 5875
+          }
+        ],
+        "structured_utf8_bytes": 34111,
+        "text_and_structured_utf8_bytes": 81799,
+        "candidate_sha256": "8c92ce7bb4a75f4407b71b9c57e01c8c474b905ac3d5cb4b9d9d354d3c39fc41",
+        "bound_plan_sha256": "f176fb3ca1f53d8ad7af119bbfe2d9bff8c687d54a941e8eba7e76cf4d0b32e1",
+        "approval_candidate_sha256": "e1fefd89c1f77b9448b1dc79a73f756f9cc55f54f3998ace3b055e296d4575ae",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "03a3bacb7042f773ef1a57bcbd1ffa6a1f0cfe9fc115d2ec19fc210f74e5b7cd",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 97.514
+    },
+    {
+      "scenario": "large_parent",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4083,
+            "text_and_structured_utf8_bytes": 9761
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1863,
+            "text_and_structured_utf8_bytes": 4434
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 140076,
+            "text_and_structured_utf8_bytes": 283258
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1988,
+            "text_and_structured_utf8_bytes": 4336
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 277807,
+            "text_and_structured_utf8_bytes": 560324
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 808,
+            "text_and_structured_utf8_bytes": 2078
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 6090,
+            "text_and_structured_utf8_bytes": 14753
+          }
+        ],
+        "structured_utf8_bytes": 432715,
+        "text_and_structured_utf8_bytes": 878944,
+        "candidate_sha256": "b78d56bd251e6ff11dcf3316ca3fc31ae00d225096f6d5f33b15375596cd6ea8",
+        "bound_plan_sha256": "e91797457c449cb5079f40ba5cfd709e2d1fc1a6e3ce6e1acf26c22e1234c1a2",
+        "approval_candidate_sha256": "500f33634d3d336ff773a491defd75af04be3f06cbd0afa3229b43acf15e63cd",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "80a21597467948f62a11acc79ac29bd4dc91c3e806b55326b98837f41a600601",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4112,
+            "text_and_structured_utf8_bytes": 9828
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1863,
+            "text_and_structured_utf8_bytes": 4434
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 4944,
+            "text_and_structured_utf8_bytes": 11897
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3858,
+            "text_and_structured_utf8_bytes": 9059
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2111,
+            "text_and_structured_utf8_bytes": 5556
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2516,
+            "text_and_structured_utf8_bytes": 5873
+          }
+        ],
+        "structured_utf8_bytes": 21393,
+        "text_and_structured_utf8_bytes": 50985,
+        "candidate_sha256": "b78d56bd251e6ff11dcf3316ca3fc31ae00d225096f6d5f33b15375596cd6ea8",
+        "bound_plan_sha256": "e91797457c449cb5079f40ba5cfd709e2d1fc1a6e3ce6e1acf26c22e1234c1a2",
+        "approval_candidate_sha256": "500f33634d3d336ff773a491defd75af04be3f06cbd0afa3229b43acf15e63cd",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "80a21597467948f62a11acc79ac29bd4dc91c3e806b55326b98837f41a600601",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 94.199
+    },
+    {
+      "scenario": "large_native_contract",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4077,
+            "text_and_structured_utf8_bytes": 9741
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1854,
+            "text_and_structured_utf8_bytes": 4396
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 184823,
+            "text_and_structured_utf8_bytes": 372425
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 7501,
+            "text_and_structured_utf8_bytes": 19070
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 808,
+            "text_and_structured_utf8_bytes": 2078
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 6089,
+            "text_and_structured_utf8_bytes": 14751
+          }
+        ],
+        "structured_utf8_bytes": 207141,
+        "text_and_structured_utf8_bytes": 426799,
+        "candidate_sha256": "b95c7d9a24757d0ba95d6a9304569609c85feff19331f00f6b28d54317045007",
+        "bound_plan_sha256": "2ade649dd49e902e58892f5a859f949f80b582ff95cd1a164212a5d8ccb685a6",
+        "approval_candidate_sha256": "ab138dba329a9ec4651b2a4916420d07661af8c286d87f828d9f60cdf4c06854",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "d57e67e9650fa7c78994c096e9eea897a435ac1b53c458d9a364ae138645d8fa",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4105,
+            "text_and_structured_utf8_bytes": 9806
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 4808,
+            "text_and_structured_utf8_bytes": 11445
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3858,
+            "text_and_structured_utf8_bytes": 9059
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2111,
+            "text_and_structured_utf8_bytes": 5556
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2516,
+            "text_and_structured_utf8_bytes": 5873
+          }
+        ],
+        "structured_utf8_bytes": 21242,
+        "text_and_structured_utf8_bytes": 50475,
+        "candidate_sha256": "b95c7d9a24757d0ba95d6a9304569609c85feff19331f00f6b28d54317045007",
+        "bound_plan_sha256": "2ade649dd49e902e58892f5a859f949f80b582ff95cd1a164212a5d8ccb685a6",
+        "approval_candidate_sha256": "ab138dba329a9ec4651b2a4916420d07661af8c286d87f828d9f60cdf4c06854",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "d57e67e9650fa7c78994c096e9eea897a435ac1b53c458d9a364ae138645d8fa",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 88.174
+    },
+    {
+      "scenario": "large_review_values",
+      "full": {
+        "detail": "full",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4079,
+            "text_and_structured_utf8_bytes": 9745
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1853,
+            "text_and_structured_utf8_bytes": 4394
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 196823,
+            "text_and_structured_utf8_bytes": 396425
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 391506,
+            "text_and_structured_utf8_bytes": 787080
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 808,
+            "text_and_structured_utf8_bytes": 2078
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 6090,
+            "text_and_structured_utf8_bytes": 14753
+          }
+        ],
+        "structured_utf8_bytes": 603148,
+        "text_and_structured_utf8_bytes": 1218813,
+        "candidate_sha256": "99fcedcaa1dd2f77a567e9cac5ba4c5359a467bf3ced11b6041768001531e530",
+        "bound_plan_sha256": "1692947de294f1cf5ff321c21bac0fbafa5e46a9bc21c94b5302112af1ca4ca8",
+        "approval_candidate_sha256": "2ddf72e5e1a032f8c23d95569ee66f8bb1b0cc8aaf8c9afcd691e50243ff66cc",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "91d427e2d80925eeae0b72a380b167f19a7a585c08ba25d11a9ea9c3bcc4e9bb",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "summary": {
+        "detail": "summary",
+        "calls": 7,
+        "phases": [
+          {
+            "tool": "begin_edit_session",
+            "structured_utf8_bytes": 4107,
+            "text_and_structured_utf8_bytes": 9810
+          },
+          {
+            "tool": "find_edit_nodes",
+            "structured_utf8_bytes": 1855,
+            "text_and_structured_utf8_bytes": 4398
+          },
+          {
+            "tool": "inspect_edit_context",
+            "structured_utf8_bytes": 4808,
+            "text_and_structured_utf8_bytes": 11445
+          },
+          {
+            "tool": "read_edit_value",
+            "structured_utf8_bytes": 1989,
+            "text_and_structured_utf8_bytes": 4338
+          },
+          {
+            "tool": "plan_canvas_patch",
+            "structured_utf8_bytes": 3858,
+            "text_and_structured_utf8_bytes": 9059
+          },
+          {
+            "tool": "read_plan_review",
+            "structured_utf8_bytes": 2113,
+            "text_and_structured_utf8_bytes": 5560
+          },
+          {
+            "tool": "prepare_write",
+            "structured_utf8_bytes": 2517,
+            "text_and_structured_utf8_bytes": 5875
+          }
+        ],
+        "structured_utf8_bytes": 21247,
+        "text_and_structured_utf8_bytes": 50485,
+        "candidate_sha256": "99fcedcaa1dd2f77a567e9cac5ba4c5359a467bf3ced11b6041768001531e530",
+        "bound_plan_sha256": "1692947de294f1cf5ff321c21bac0fbafa5e46a9bc21c94b5302112af1ca4ca8",
+        "approval_candidate_sha256": "2ddf72e5e1a032f8c23d95569ee66f8bb1b0cc8aaf8c9afcd691e50243ff66cc",
+        "approval_has_no_consent": true,
+        "full_review_sha256": "91d427e2d80925eeae0b72a380b167f19a7a585c08ba25d11a9ea9c3bcc4e9bb",
+        "only_expanded_operations_reach_compiler": true
+      },
+      "bound_evidence_equal": true,
+      "text_and_structured_reduction_percent": 95.858
+    }
+  ]
+}

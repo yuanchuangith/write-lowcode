@@ -95,16 +95,19 @@ def get_edit_queue(queue_id: str, conversation_id: str) -> dict[str, Any]:
 
 @mcp.tool()
 @traced_tool
-def begin_edit_session(identifier: str, conversation_id: str = "", queue_id: str = "", handoff_ref: dict[str, str] | None = None) -> dict[str, Any]:
+def begin_edit_session(identifier: str, conversation_id: str = "", queue_id: str = "", handoff_ref: dict[str, str] | None = None,
+                       response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
     """Back up one draft; normal entry without a reference returns optional bounded evidence_candidates for this action/environment, and lookup failure does not block editing. Optional handoff_ref={handoff_id,sha256} verifies an edit snapshot before target reuse; diagnosis_only supplies historical findings and still requires current-target inspection. Stale or invalid reference checks create no new session. No authorization or approval is inherited. queue_id allows multiple drafts."""
-    return service(conversation_id).begin_edit_session(identifier, queue_id=queue_id, handoff_ref=handoff_ref)
+    return service(conversation_id).begin_edit_session(identifier, queue_id=queue_id, handoff_ref=handoff_ref,
+                                                       response_detail=response_detail)
 
 
 @mcp.tool()
 @traced_tool
-def begin_reference_repair_session(identifier: str, conversation_id: str = "", queue_id: str = "") -> dict[str, Any]:
+def begin_reference_repair_session(identifier: str, conversation_id: str = "", queue_id: str = "",
+                                  response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
     """Back up one draft, diagnose invalid parameter bindings, and validate its non-reference structure."""
-    return service(conversation_id).begin_reference_repair_session(identifier, queue_id=queue_id)
+    return service(conversation_id).begin_reference_repair_session(identifier, queue_id=queue_id, response_detail=response_detail)
 
 
 @mcp.tool()
@@ -147,10 +150,23 @@ def find_edit_nodes(
 def inspect_edit_context(
     session_id: str, targets: list[dict[str, str]], conversation_id: str = "", operation_cursor: int = 0,
     include_context: bool | None = None,
+    response_detail: Literal["summary", "full"] = "summary", parameter_paths: list[str] | None = None,
 ) -> dict[str, Any]:
-    """Read backup-bound parameters, canvas lines, parents, visible variables and native contracts for 1–10 exact group_key/node_key targets. No writes."""
+    """Read backup-bound target summaries and signed old-value guards by default. Use parameter_paths to focus fields, read_edit_value for exact values, or response_detail=full for complete params/parents/native contracts. Explicit include_context preserves legacy full/compact semantics. No writes."""
     return service(conversation_id).inspect_edit_context(session_id, targets, operation_cursor=operation_cursor,
-                                                          include_context=include_context)
+                                                          include_context=include_context, response_detail=response_detail,
+                                                          parameter_paths=parameter_paths)
+
+
+@mcp.tool()
+@traced_tool
+def read_edit_value(
+    session_id: str, group_key: str, node_key: str, path: str, conversation_id: str = "",
+    item_key: dict[str, Any] | None = None, offset: int = 0, max_output_bytes: int = 16384,
+) -> dict[str, Any]:
+    """Read one exact session-bound parameter/row. Large values use canonical JSON text pages with character offsets and a UTF-8 byte budget; keep binding/hash unchanged and follow next_offset. Fragments are not complete old values; use the signed guard_ref for parameter updates. Every page rechecks ownership/draft/relations/compiler. No writes."""
+    return service(conversation_id).read_edit_value(session_id, group_key, node_key, path, item_key=item_key,
+                                                    offset=offset, max_output_bytes=max_output_bytes)
 
 
 @mcp.tool()
@@ -197,10 +213,13 @@ def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
 def read_plan_review(
     plan_id: str, section: str = "summary", offset: int = 0, limit: int = 10,
     item_id: str = "", conversation_id: str = "",
+    detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: int = 0,
+    max_output_bytes: int = 16384,
 ) -> dict[str, Any]:
-    """Read bound report evidence without compiling or opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. Pages contain at most 20 complete records; item_id filters exact IDs."""
+    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. detail=full retains complete legacy rows."""
     return service(conversation_id).read_plan_review(
-        plan_id, section=section, offset=offset, limit=limit, item_id=item_id)
+        plan_id, section=section, offset=offset, limit=limit, item_id=item_id, detail=detail,
+        field_path=field_path, value_offset=value_offset, max_output_bytes=max_output_bytes)
 
 
 @mcp.tool()

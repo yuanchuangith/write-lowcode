@@ -7,7 +7,7 @@
 1. 从用户问题或已确认诊断锁定业务规则、动作 code/RefId、页面以及字段。优先复用本对话已有的当前草稿定位证据，包含草稿设计 ID、内容指纹、分组/节点 Key 和完整目标参数。Write 可独立开始编辑会话，以其不可变备份定位当前草稿；需要发布/草稿差异或运行问题证据时，再用可用的只读 MCP `get_design_versions`、`inspect_action`。运行问题以发布副本取证，修改目标只能是当前草稿，发布副本不能代替草稿定位证据。
 2. 不知道精确 Key 时，在会话内调用 `find_edit_nodes(session_id, query='', group_key='', element_key='', kind='nodes', offset=0, limit=30, conversation_id)`。它从已绑定备份返回有界 `items`，含分组/节点 Key、名称、行号及深度等定位摘要，不返回参数；按业务标签、Key 或 `element_key` 缩小范围，按 `next_offset` 翻页。用 `kind='groups'` 可列分组，包括空分组。摘要不是完整参数或业务结论，同名候选不能默认取第一个。记录动作名称/code、RefId、设计 ID、分组名称/Key、画布行/索引、节点名称/Key 和 `elementKey`；把相关候选缩小到最多 10 个精确节点后再核对完整参数。
 3. 沿字段的读取、条件和赋值找到故障点；涉及嵌套或分支归属且现有证据尚未确认时，使用只读 MCP 的 `inspect_control_flow` 核对父条件和闭合块。未经本次会话备份核对的旧诊断仅作线索，不能代替当前副本证据。
-4. 开始编辑会话后，使用 `inspect_edit_context(session_id, targets=[{group_key,node_key}], conversation_id)` 一次核对 1–10 个精确节点。工具检查会话归属、当前草稿指纹和编译器绑定，返回基线指纹及备份身份、`params_value`、画布行、父级、可见变量和真实 `native_contract`。将复用证据与这些结果核对；缺项或变化时只重取相关证据。注册表未解析动态生成和参数编辑函数体，需要源码证据的部分仍另行取证。复用结果不代替审批前实时检查。
+4. 开始编辑会话后，使用 `inspect_edit_context(session_id, targets=[{group_key,node_key}], conversation_id)` 一次核对 1–10 个精确节点。工具检查会话归属、当前草稿指纹、关系和编译器绑定；默认摘要返回精确身份、位置、父级摘要、参数摘要和安全模板。已知参数路径时用 `parameter_paths` 聚焦。根据下节按需读取完整值或完整上下文；缺项或变化时只重取相关证据。注册表未解析动态生成和参数编辑函数体，需要源码证据的部分仍另行取证。复用结果不代替审批前实时检查。
 5. 保留现有节点时，用当前 `node_key` 作为 `target_node_key`；插入时用已核对的相邻节点作为 `anchor_node_key`。`action_group_key` 来自当前草稿，新增元件的 `element_key` 来自真实注册表，不能臆造 Key 或参数结构。
 6. 给用户展示可见位置、修改前后规则以及实际操作方式。若采用原元件中的自定义表达式，明确表达式所在配置字段；不能描述为“新增 IF 元件”。编译成功证明结构和生成规则可接受，不能证明业务定位正确。
 
@@ -17,7 +17,19 @@
 
 只读工具已导出交接时，向 `begin_edit_session` 传 `handoff_ref`；匹配返回的 `edit_context` 可直接复用，不重复检查相同目标。环境、草稿及目标不匹配或发布／草稿参数有差异时只补查返回位置；失效交接不会建立新占用。跨对话明确选择记录并确认本次范围，不继承旧会话或审批，仍须显式启用编辑技能。详见 [evidence-and-performance.md](evidence-and-performance.md)。
 
-`inspect_edit_context` 返回的 `edit_options.parameter_operations` 是未填完的操作模板，引用当前完整原值；按 `required_inputs` 填写。`params_value` 始终是完整参数，`operation_cursor` 只分页模板（每页最多 64 条）。有 `next_operation_cursor` 时以相同有序 targets 继续；版本变化重新核对。响应超过 1 MiB 应缩小目标集，不能把未返回内容当成空参数。模板与预检共用操作契约，不代表元件源码函数体或运行验证已检查。
+## 参数摘要、完整值与模板
+
+MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要不含完整 `params_value`、父参数、可见变量或原生契约；保留定位、契约计数和按需读取提示。`parameter_paths` 可指定 1–32 个不重复的现有 JSON pointer；路径必须在每个目标中存在，不支持数组下标。需要契约、可见变量或完整替换字典时显式请求 `response_detail="full"`。显式 `include_context=true` 优先返回完整上下文，`false` 优先返回旧式完整原值 guards，两者都优先于 detail。
+
+`edit_options.parameter_operations` 是未填完的安全模板，按 `required_inputs` 填入意图明确的替换值。摘要模板的 `guard_ref` 绑定本对话、会话修订、备份、草稿、关系、编译器、目标、路径及原值指纹；直接原样保留，可替代 `expected_old_value`。同一个操作只能选其一。服务先将签名引用还原为完整旧值，再执行原有严格预检、原生生成和审批校验。引用不代表已阅读业务内容或授予审批。
+
+需要决策所需的完整值时，调用返回的 `read_edit_value(session_id, group_key, node_key, path, conversation_id)` 提示；读取原生数组行时传相同 `item_key`。值小时返回 `complete=true` 及精确 `value`；值大时返回规范 JSON 文本 `text` 片段、`value_sha256` 和 `next_offset`。`offset` 与 `next_offset` 按 Unicode 码点计数，中文和 emoji 不按 UTF-8 字节计数。`max_output_bytes` 是 UTF-8 输出预算（4096–65536）；服务响应中的 guard/binding 计入预算，MCP 包装和 timings 另计。所有页的 `context_binding` 和值指纹必须相同；按 next_offset 顺序拼接 text 后解析完整 JSON。最后一个片段仍 `complete=false,truncated=true`，只以 `continuation_complete=true` 表示文本收集结束。不能把摘要、preview、片段或 guard 引用对象当作完整旧值。
+
+`operation_cursor` 只分页模板，摘要每页最多 8 条，完整模式每页最多 64 条。有 `next_operation_cursor` 时以相同有序 targets 和绑定继续；绑定改变时刷新。旧式 compact 模板的 `expected_old_value_ref.guard_index` 仍指向 `parameter_guards[index].value`，复制其完整 JSON 值。省略的上下文不是空参数；响应超过 1 MiB 应缩小目标集。模板与预检共用操作契约，不代表元件源码函数体或运行验证已检查。
+
+`guard_ref` 只引用不可变基线。批内前一个操作修改同一路径后，下一操作必须使用前一个结果作为完整 `expected_old_value`；重复使用基线引用仍会被严格预检拒绝。数组行、原生 ParamInput 完整记录和全量替换约束见 [patch-schema.md](patch-schema.md#guarded-parameter-updates)。
+
+`read_plan_review` 默认 `detail="summary"`，返回分页行摘要及 `field_path`。检查某个证据时固定 section 和 item_id（无 ID 时固定行 offset），用 field_path 与 `value_offset` 继续读取精确字段；字符偏移和片段规则同上。完整行兼容读取使用 `detail="full"`。响应投影不改变计划、业务复核或人工审批中的完整证据。
 
 ## 与只读技能一致的仓库
 
