@@ -292,6 +292,104 @@ def _has_expectations(expect):
         field in expect for field in ("metadata", "metadata_registrations", "last_return", "last_return_undefined", "call_order"))
 
 
+def _json_equal(left, right):
+    """The runner's JSON oracle: booleans are not numbers; 1 and 1.0 agree."""
+    if type(left) in (int, float) and type(right) in (int, float):
+        return left == right
+    if type(left) is not type(right):
+        return False
+    if isinstance(left, dict):
+        return left.keys() == right.keys() and all(_json_equal(left[key], right[key]) for key in left)
+    if isinstance(left, list):
+        return len(left) == len(right) and all(_json_equal(a, b) for a, b in zip(left, right))
+    return left == right
+
+
+def _observation_kind(value):
+    if value is None:
+        return "null"
+    return {bool: "boolean", int: "number", float: "number", str: "string",
+            dict: "object", list: "object"}[type(value)]
+
+
+def _validate_passed_data_oracle(expect, result):
+    """Reconcile current-runner receipts without executing their JavaScript again.
+
+    This verifies the receipt's internal consistency, not that its trace was
+    produced by execution. Source/compiler bindings and approval signatures
+    retain that separate responsibility. Failed/unsupported executions can
+    legitimately stop before collecting complete observations or assertions.
+    """
+    actual, trace, assertions = result.get("actual"), result.get("trace"), result.get("assertions")
+    if (not isinstance(actual, dict) or not isinstance(trace, list)
+            or any(not isinstance(entry, dict) or not isinstance(entry.get("api"), str) or not entry["api"] for entry in trace)
+            or not isinstance(assertions, list) or not assertions or result.get("reason")):
+        raise LogicReviewError("当前场景通过结果缺少完整观察值、执行记录或断言。")
+    try:
+        validate_json_value(actual)
+        validate_json_value(trace)
+        validate_json_value(assertions)
+    except CanvasAssertionError as exc:
+        raise LogicReviewError("场景通过证据必须是有限 JSON 数据。") from exc
+
+    required = {}
+
+    def add(name, value, expected):
+        required[name] = {"name": name, "passed": True, "actual_present": True,
+                          "actual_kind": _observation_kind(value), "actual": value, "expected": expected}
+        if not _json_equal(value, expected):
+            raise LogicReviewError("场景通过状态与数据观察值不一致：" + name)
+
+    for identifier, field in expect.get("fields", {}).items():
+        fields, presence = actual.get("fields"), actual.get("field_value_presence")
+        if (not isinstance(fields, dict) or not isinstance(fields.get(identifier), dict)
+                or "value" not in fields[identifier] or not isinstance(presence, dict)):
+            raise LogicReviewError("场景通过结果缺少字段值及存在性证据：" + identifier)
+        value = fields[identifier]["value"]
+        if presence.get(identifier) != ("null" if value is None else "value"):
+            raise LogicReviewError("场景字段值与存在性证据不一致：" + identifier)
+        add("fields." + identifier + ".value", value, field["value"])
+    for name in ("metadata", "metadata_registrations", "last_return"):
+        if name not in expect:
+            continue
+        if name not in actual:
+            raise LogicReviewError("场景通过结果缺少观察值：" + name)
+        if name == "metadata_registrations" and (type(actual[name]) is not int or actual[name] < 0):
+            raise LogicReviewError("场景 metadata 注册次数无效。")
+        if name == "last_return" and "last_return_undefined" in actual:
+            raise LogicReviewError("场景返回值与 undefined 存在性证据不一致。")
+        add(name, actual[name], expect[name])
+    if expect.get("last_return_undefined"):
+        if actual.get("last_return_undefined") is not True or "last_return" in actual:
+            raise LogicReviewError("场景 undefined 返回值证据不一致。")
+        add("last_return_undefined", True, True)
+
+    if expect.get("call_counts") or "call_order" in expect or "metadata_registrations" in expect:
+        observed_counts = {}
+        for entry in trace:
+            observed_counts[entry["api"]] = observed_counts.get(entry["api"], 0) + 1
+        if expect.get("call_counts"):
+            counts = actual.get("call_counts")
+            if (not isinstance(counts, dict) or any(type(count) is not int or count < 0 for count in counts.values())
+                    or counts != observed_counts):
+                raise LogicReviewError("场景 API 次数观察值与执行记录不一致。")
+            for name, count in expect["call_counts"].items():
+                add("call_counts." + name, counts.get(name, 0), count)
+        if "call_order" in expect:
+            add("call_order", [entry["api"] for entry in trace], expect["call_order"])
+        if ("metadata_registrations" in expect
+                and actual["metadata_registrations"] != observed_counts.get("metadata.register", 0)):
+            raise LogicReviewError("场景 metadata 注册次数与执行记录不一致。")
+
+    names = [item.get("name") if isinstance(item, dict) else None for item in assertions]
+    if (any(not isinstance(name, str) for name in names) or len(set(names)) != len(names)
+            or set(names) != set(required)):
+        raise LogicReviewError("场景通过断言名称、数量或覆盖范围与固定预期不一致。")
+    for assertion in assertions:
+        if not _json_equal(assertion, required[assertion["name"]]):
+            raise LogicReviewError("场景通过断言与固定预期或实际观察值不一致：" + assertion["name"])
+
+
 def _review_summary(spec, changes, report, requirements=None, canvas_checks=None):
     counts = {status: sum(case["candidate"]["status"] == status for case in report["cases"]) for status in _STATUSES}
     scope_unknown = sum(change["status"] == "unverified" for change in changes)
@@ -414,6 +512,10 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
                 not isinstance(assertions, list) or not assertions or any(not isinstance(item, dict) or item.get("passed") is not True for item in assertions)
             ):
                 raise LogicReviewError("场景通过状态与实际断言结果不一致。")
+            if actual[side]["status"] == "passed":
+                from .logic_scenarios import RUNNER_VERSION
+                if report["runner_version"] == RUNNER_VERSION:
+                    _validate_passed_data_oracle(expected.get("expect", {}), actual[side])
     canvas_checks = None
     if "canvas_assertions" in spec:
         try:

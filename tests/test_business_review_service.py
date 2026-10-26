@@ -18,6 +18,7 @@ from gxp_editor.approval import load_artifact, save_artifact
 from gxp_editor.hashing import sha256_json, sha256_text
 from gxp_editor.logic_review import LogicReviewError
 from gxp_editor.logic_scenarios import RUNNER_VERSION, LogicScenarioRunner
+from tests.scenario_evidence import passed_receipt
 from gxp_editor.service import EditorService, EditorServiceError
 from gxp_editor.state import StateStore
 
@@ -96,7 +97,8 @@ class BusinessReviewServiceTests(unittest.TestCase):
                 "cases": [{"id": case["id"], "title": case.get("title", case["id"]),
                            "requirement_ids": case.get("requirement_ids", []), "expected": case.get("expect", {}),
                            "baseline": {"status": "failed", "actual": {}, "trace": []},
-                           "candidate": {"status": self.outcome, "actual": {}, "trace": []}}
+                           "candidate": (passed_receipt(case.get("expect", {})) if self.outcome == "passed"
+                                         else {"status": self.outcome, "actual": {}, "trace": []})}
                           for case in spec["cases"]]}
 
     def plan(self, spec=None):

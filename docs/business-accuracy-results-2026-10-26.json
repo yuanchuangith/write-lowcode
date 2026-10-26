@@ -1,0 +1,791 @@
+{
+  "corpus_version": "business-accuracy-v1",
+  "measured_at_utc": "2026-10-26T09:31:22.349223+00:00",
+  "scope": "synthetic offline execution and internal evidence checks; no DB, UI, publication or model accuracy measurement",
+  "runner_limits": {
+    "max_cases_per_suite": 20,
+    "max_suite_seconds": 20
+  },
+  "fixture_sha256": "6927c50ea247487f18d51611518250b6d50ecb16135030f245995f38ba694d77",
+  "runner": {
+    "summary": {
+      "templates": 8,
+      "versions": 24,
+      "correct_versions": 8,
+      "mutated_versions": 16,
+      "correct_version_false_block": 0,
+      "mutated_version_failed": 16,
+      "mutated_version_false_green": 0,
+      "supported_unverified_versions": 0,
+      "unsupported_unverified": 3,
+      "attribution_accepted": 12
+    },
+    "versions": [
+      {
+        "template": "page-mode",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 2
+        },
+        "source_sha256": "43f10d1dab69feab4e5c6ea70977112d3cff03694f19f81feda9e5a39d241314",
+        "spec_sha256": "16329bbd37a1eaa7b1d10bf6dd1f252977717c555b31e5b24708f6ee8875ba45",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "page-mode",
+        "version": "always-write",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "passed": 1,
+          "failed": 1
+        },
+        "source_sha256": "9be37c64e10c5a14b9a65e4187c669999ccfda253a2b2d45c9bc10cdd0874306",
+        "spec_sha256": "16329bbd37a1eaa7b1d10bf6dd1f252977717c555b31e5b24708f6ee8875ba45",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "page-mode",
+        "version": "wrong-mode",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 2
+        },
+        "source_sha256": "37adb405e66550f6f131e2b08df8f6b9f7e5682ac4173da25d3f7dfec33a7631",
+        "spec_sha256": "16329bbd37a1eaa7b1d10bf6dd1f252977717c555b31e5b24708f6ee8875ba45",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "and-or",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 3
+        },
+        "source_sha256": "abebf097cd18a90945a8d0b797a1e9579a176249bed7bd47e3dd57984f45dc97",
+        "spec_sha256": "84f54d214903b6def92477567c20c2eb0cc2d677b7372d139e919ad68b7738b8",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "and-or",
+        "version": "or-instead-of-and",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "passed": 1,
+          "failed": 2
+        },
+        "source_sha256": "46efc1f51e50ca8534cc3678b66f7beaf68e982aa8d82bbc5c634bd2e1239787",
+        "spec_sha256": "84f54d214903b6def92477567c20c2eb0cc2d677b7372d139e919ad68b7738b8",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "and-or",
+        "version": "inverted-condition",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 3
+        },
+        "source_sha256": "135fb32a70e1377539537a9fb26fed5f1ad254bfdf195de8a9e84ffc99481ea1",
+        "spec_sha256": "84f54d214903b6def92477567c20c2eb0cc2d677b7372d139e919ad68b7738b8",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "empty-array",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 3
+        },
+        "source_sha256": "7032f3095c6a49f963cdd04072ed5442972209fe1ade90285a85870b99fae826",
+        "spec_sha256": "df0f8dff1a3755be9a711347960b6f9a339018fd4570bac27c67758bb91a7142",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "empty-array",
+        "version": "removed-null-guard",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1,
+          "passed": 2
+        },
+        "source_sha256": "c4e8cacaec1ccbe9456ebde9db63267a289cb5b7a1ac6da77511969bb437d418",
+        "spec_sha256": "df0f8dff1a3755be9a711347960b6f9a339018fd4570bac27c67758bb91a7142",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "empty-array",
+        "version": "empty-counts-as-selected",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 2,
+          "passed": 1
+        },
+        "source_sha256": "67fcad78075fe6875c0dd88751152fa37497ec3d844afed0385d01d52f74aa66",
+        "spec_sha256": "df0f8dff1a3755be9a711347960b6f9a339018fd4570bac27c67758bb91a7142",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "field-binding",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 1
+        },
+        "source_sha256": "ffe05568ce1e9b350c2d3d868a4865e5875390a4ee202d3bcb797480028ccb18",
+        "spec_sha256": "ffe267e56e96d7b233076134b4d3707cdbc58f719fb14d80a3c746fd221d3cbc",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "field-binding",
+        "version": "wrong-target",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1
+        },
+        "source_sha256": "69ccc6c060cd49b7613e00f7d7ace8fd39cb6bfe9adaf970cae2c42a0673dd08",
+        "spec_sha256": "ffe267e56e96d7b233076134b4d3707cdbc58f719fb14d80a3c746fd221d3cbc",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "field-binding",
+        "version": "stale-constant",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1
+        },
+        "source_sha256": "8be5aa0a51e5f529026e8811acd5579fb14e7a76343691d5f55e4379a9425d7e",
+        "spec_sha256": "ffe267e56e96d7b233076134b4d3707cdbc58f719fb14d80a3c746fd221d3cbc",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "branch-effects",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 2
+        },
+        "source_sha256": "f9ba61c247c16b7e659bfb1fd98b7437959d20d63ed14cb04dbc45d2f71c0895",
+        "spec_sha256": "5d4fc58b4b54f3837f6581409f0cbbd4542ff5c60140e6ceeee012ca08c8c643",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "branch-effects",
+        "version": "write-outside-branch",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "passed": 1,
+          "failed": 1
+        },
+        "source_sha256": "0fc02ecd3f28b0b1f50775f723ef15c23375054352447bc02e95f4419845d2e9",
+        "spec_sha256": "5d4fc58b4b54f3837f6581409f0cbbd4542ff5c60140e6ceeee012ca08c8c643",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "branch-effects",
+        "version": "unrequested-audit-write",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 2
+        },
+        "source_sha256": "b06cda03d06c7d8551478b7888bbe6983aa06b1f061d25634237889d340284ce",
+        "spec_sha256": "5d4fc58b4b54f3837f6581409f0cbbd4542ff5c60140e6ceeee012ca08c8c643",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "callback-payload",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 2
+        },
+        "source_sha256": "a99291e78b2d5a2b16f70f21b8e02e60ae9ade7b2a2ca57f992af8c04e44c989",
+        "spec_sha256": "21b2036c21331c775f80799e14a8f6b98318ad0c9a0fd00d30177b179cd5c859",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "callback-payload",
+        "version": "wrong-payload-key",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1,
+          "passed": 1
+        },
+        "source_sha256": "a24d0f30905d100bea6e9a7678aed63a8a9f26e932551d76d483db162f1b97ff",
+        "spec_sha256": "21b2036c21331c775f80799e14a8f6b98318ad0c9a0fd00d30177b179cd5c859",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "callback-payload",
+        "version": "wrong-payload-value",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1,
+          "passed": 1
+        },
+        "source_sha256": "6531ac0c9d6547a7844910a866b322988f73a2ba0209c34fb69ea09e3a2b6c69",
+        "spec_sha256": "21b2036c21331c775f80799e14a8f6b98318ad0c9a0fd00d30177b179cd5c859",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "metadata-sequence",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 2
+        },
+        "source_sha256": "2dc43f180df3597dc0d0f78f6435a10a122dc5ff5bec02d3755aa3b4ad6be352",
+        "spec_sha256": "4bba82cff53c7cf6c65ee692971d358ba3e3300098d651921b5514e52a3206b4",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "metadata-sequence",
+        "version": "stale-metadata",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "passed": 1,
+          "failed": 1
+        },
+        "source_sha256": "8c8696ac8efc10d6f01efc1ad9fb1d96933837ae847faf13d79d1a8dae0dd7e6",
+        "spec_sha256": "4bba82cff53c7cf6c65ee692971d358ba3e3300098d651921b5514e52a3206b4",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "metadata-sequence",
+        "version": "all-events-metadata",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "passed": 1,
+          "failed": 1
+        },
+        "source_sha256": "397c5bab9006e1093f4571874158d365e385b31ffcee84f3dd8e1e70eee7b78a",
+        "spec_sha256": "4bba82cff53c7cf6c65ee692971d358ba3e3300098d651921b5514e52a3206b4",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "output-structure",
+        "version": "correct",
+        "expected_status": "passed",
+        "status": "passed",
+        "case_counts": {
+          "passed": 1
+        },
+        "source_sha256": "63da0971896d9a302e453abb207d6e6f47899137e3a066c8588ebf0a5e4a79b0",
+        "spec_sha256": "2f4f5af188cacfe204b1664bb89d9d10914ec700e283f7b3c1781743ad9ebea2",
+        "review_status": "passed",
+        "gate_blocked": false,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "output-structure",
+        "version": "numeric-identifier",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1
+        },
+        "source_sha256": "f04a1f92ae2f9d1e984c047defc752874575ca38fd477b8db286f030c36a0e89",
+        "spec_sha256": "2f4f5af188cacfe204b1664bb89d9d10914ec700e283f7b3c1781743ad9ebea2",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      },
+      {
+        "template": "output-structure",
+        "version": "wrong-wrapper",
+        "expected_status": "failed",
+        "status": "failed",
+        "case_counts": {
+          "failed": 1
+        },
+        "source_sha256": "a69e05e73003be44e773a8bde51adb8da8c6a54f3bd2eee698eace9a73e65b7b",
+        "spec_sha256": "2f4f5af188cacfe204b1664bb89d9d10914ec700e283f7b3c1781743ad9ebea2",
+        "review_status": "failed",
+        "gate_blocked": true,
+        "accepted": true,
+        "browser_verified": false,
+        "runtime_verified": false
+      }
+    ],
+    "unsupported": [
+      {
+        "id": "unsupported-sdk",
+        "status": "unverified",
+        "reason": "Unsupported field API: result.save",
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "legacy-eval",
+        "status": "unverified",
+        "reason": "Unsupported global: eval",
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "nondeterministic-date",
+        "status": "unverified",
+        "reason": "Unsupported global: Date",
+        "gate_blocked": false,
+        "accepted": true
+      }
+    ],
+    "attribution": [
+      {
+        "id": "group-observed",
+        "expected_status": "passed",
+        "status": "passed",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "unrelated-group",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "skipped-node",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "field-without-node",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "csharp-target",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "unknown-target",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "missing-node",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "configuration-only",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": "passed",
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "unlinked-rule",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "event-not-group",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "overwritten-event",
+        "expected_status": "unverified",
+        "status": "unverified",
+        "scenario_status": "passed",
+        "configuration_status": null,
+        "gate_blocked": false,
+        "accepted": true
+      },
+      {
+        "id": "failure-remains-blocking",
+        "expected_status": "failed",
+        "status": "failed",
+        "scenario_status": "failed",
+        "configuration_status": null,
+        "gate_blocked": true,
+        "accepted": true
+      }
+    ]
+  },
+  "freshness": {
+    "checks": [
+      {
+        "id": "candidate-canvas",
+        "rejected": true
+      },
+      {
+        "id": "candidate-js",
+        "rejected": true
+      },
+      {
+        "id": "candidate-relations",
+        "rejected": true
+      },
+      {
+        "id": "baseline-canvas",
+        "rejected": true
+      },
+      {
+        "id": "baseline-js",
+        "rejected": true
+      },
+      {
+        "id": "compiler-binding",
+        "rejected": true
+      },
+      {
+        "id": "fixed-expectation",
+        "rejected": true
+      },
+      {
+        "id": "fixed-target",
+        "rejected": true
+      },
+      {
+        "id": "receipt-assertions",
+        "rejected": true
+      }
+    ],
+    "rejected": 9,
+    "total": 9
+  },
+  "native": {
+    "seeds": 6,
+    "checks": [
+      {
+        "seed": "supported-write",
+        "mode": "full",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "full",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      },
+      {
+        "seed": "supported-write",
+        "mode": "incremental",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "incremental",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      },
+      {
+        "seed": "supported-write",
+        "mode": "auto",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "incremental",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      },
+      {
+        "seed": "old-reference-retained",
+        "mode": "full",
+        "expected": "accepted-with-old-diagnostic",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "full",
+        "independently_verified": true,
+        "baseline_diagnostics": 1,
+        "runner_status": "unverified"
+      },
+      {
+        "seed": "old-reference-retained",
+        "mode": "incremental",
+        "expected": "accepted-with-old-diagnostic",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "incremental",
+        "independently_verified": true,
+        "baseline_diagnostics": 1,
+        "runner_status": "unverified"
+      },
+      {
+        "seed": "old-reference-retained",
+        "mode": "auto",
+        "expected": "accepted-with-old-diagnostic",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "incremental",
+        "independently_verified": true,
+        "baseline_diagnostics": 1,
+        "runner_status": "unverified"
+      },
+      {
+        "seed": "duplicate-old-reference",
+        "mode": "full",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "duplicate-old-reference",
+        "mode": "incremental",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "duplicate-old-reference",
+        "mode": "auto",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "old-reference-moved-group",
+        "mode": "full",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "old-reference-moved-group",
+        "mode": "incremental",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "old-reference-moved-group",
+        "mode": "auto",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "dead-reference-now-live",
+        "mode": "full",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "dead-reference-now-live",
+        "mode": "incremental",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "dead-reference-now-live",
+        "mode": "auto",
+        "expected": "rejected",
+        "accepted": true,
+        "status": "rejected",
+        "rejection_phase": "javascript_lexical",
+        "rejection_reason": "undeclared_identifier",
+        "identifier": "missingContext"
+      },
+      {
+        "seed": "transitive-callers",
+        "mode": "full",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "full",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      },
+      {
+        "seed": "transitive-callers",
+        "mode": "incremental",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "incremental",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      },
+      {
+        "seed": "transitive-callers",
+        "mode": "auto",
+        "expected": "accepted",
+        "accepted": true,
+        "status": "accepted",
+        "selected_mode": "full",
+        "independently_verified": true,
+        "baseline_diagnostics": 0,
+        "runner_status": "passed"
+      }
+    ],
+    "accepted": 18,
+    "total": 18
+  },
+  "all_checks_passed": true
+}

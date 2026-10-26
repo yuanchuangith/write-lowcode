@@ -6,6 +6,7 @@ import json
 import unittest
 
 from tests.helpers import baseline, transaction
+from tests.scenario_evidence import passed_receipt
 from gxp_editor.hashing import sha256_json, sha256_text
 from gxp_editor.logic_review import build_business_review, validate_business_review, LogicReviewError
 
@@ -34,8 +35,9 @@ class RequirementTargetTests(unittest.TestCase):
         report = {"schema_version": 1, "runner_version": "1", "spec_sha256": sha256_json(spec["scenarios"]),
                   "baseline_source_sha256": sha256_text(self.source), "candidate_source_sha256": sha256_text(self.source),
                   "cases": [{"id": "case", "requirement_ids": [r["id"] for r in requirements], "expected": {"last_return": True},
-                      "baseline": {"status": "passed"}, "candidate": {"status": outcome,
-                          "trace": [{"api": "group.main"}] if trace is None else trace}}]}
+                      "baseline": passed_receipt({"last_return": True}),
+                      "candidate": (passed_receipt({"last_return": True}, [{"api": "group.main"}] if trace is None else trace)
+                                    if outcome == "passed" else {"status": outcome, "trace": []})}]}
         return build_business_review(review_spec=spec, baseline_design=self.base, candidate_design=self.candidate,
                                      compiler_binding=self.binding, scenario_report=report)
 
