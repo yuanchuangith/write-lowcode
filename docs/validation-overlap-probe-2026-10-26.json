@@ -1,0 +1,100 @@
+{
+  "scope": "real independent Node + actual net9 SDK helper with zero app DLLs; separate synthetic C# class; not full isolated production validation",
+  "summary": {
+    "serial": {
+      "n": 5,
+      "median_ms": 6587.332,
+      "max_ms": 6962.159
+    },
+    "parallel": {
+      "n": 5,
+      "median_ms": 3970.548,
+      "max_ms": 5913.857
+    }
+  },
+  "samples": [
+    {
+      "round": 1,
+      "mode": "serial",
+      "total_ms": 6587.332,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 1,
+      "mode": "parallel",
+      "total_ms": 4136.135,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 2,
+      "mode": "parallel",
+      "total_ms": 5913.857,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 2,
+      "mode": "serial",
+      "total_ms": 6945.796,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 3,
+      "mode": "serial",
+      "total_ms": 6962.159,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 3,
+      "mode": "parallel",
+      "total_ms": 3799.0,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 4,
+      "mode": "parallel",
+      "total_ms": 3970.548,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 4,
+      "mode": "serial",
+      "total_ms": 6509.17,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 5,
+      "mode": "serial",
+      "total_ms": 6121.429,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    },
+    {
+      "round": 5,
+      "mode": "parallel",
+      "total_ms": 3701.709,
+      "node_verified": true,
+      "csharp_compiled": true,
+      "candidate_hash_unchanged": true
+    }
+  ],
+  "production_parallel_enabled": false,
+  "rollout_gate_passed": false,
+  "reason": "No production mixed-candidate, isolated-probe failure/cleanup, or reliable tail-latency coverage; retain serial service behavior"
+}

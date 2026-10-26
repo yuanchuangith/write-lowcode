@@ -1,0 +1,7196 @@
+{
+  "scope": "synthetic offline service pipeline; real compiler; fake business repository/database; local temp SQLite and backups; approval launch stubbed; blank C#; no business execution",
+  "implementation_root": "C:\\Users\\yuanchuan\\Desktop\\git\\low_code\\write\\output\\perf-baseline",
+  "rounds": 5,
+  "sizes": [
+    6,
+    1000
+  ],
+  "cache_semantics": "cold clears registry/contract cache before begin only; later tools in that pipeline are warm; Node identity and filesystem OS cache not reset",
+  "unmeasured": [
+    "real database/network",
+    "model input tokens",
+    "model latency",
+    "real UI approval",
+    "business C# compatibility"
+  ],
+  "candidate_hashes_stable": true,
+  "summary": [
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "page": null,
+      "n": 5,
+      "median_ms": 4941.414,
+      "min_ms": 4855.117,
+      "max_ms": 5498.281,
+      "median_source_scans": 9
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "find_edit_nodes",
+      "page": "first",
+      "n": 5,
+      "median_ms": 882.836,
+      "min_ms": 876.294,
+      "max_ms": 948.184,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "find_edit_nodes",
+      "page": "last",
+      "n": 5,
+      "median_ms": 890.315,
+      "min_ms": 868.997,
+      "max_ms": 1122.899,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "page": null,
+      "n": 5,
+      "median_ms": 985.959,
+      "min_ms": 888.539,
+      "max_ms": 1245.43,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "page": null,
+      "n": 5,
+      "median_ms": 4610.523,
+      "min_ms": 4148.46,
+      "max_ms": 5153.189,
+      "median_source_scans": 6
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "page": null,
+      "n": 5,
+      "median_ms": 3014.969,
+      "min_ms": 2941.629,
+      "max_ms": 3145.238,
+      "median_source_scans": 5
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "page": null,
+      "n": 5,
+      "median_ms": 3597.415,
+      "min_ms": 3294.642,
+      "max_ms": 3693.17,
+      "median_source_scans": 7
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "find_edit_nodes",
+      "page": "first",
+      "n": 5,
+      "median_ms": 874.856,
+      "min_ms": 806.424,
+      "max_ms": 1110.586,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "find_edit_nodes",
+      "page": "last",
+      "n": 5,
+      "median_ms": 856.918,
+      "min_ms": 836.033,
+      "max_ms": 1276.227,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "page": null,
+      "n": 5,
+      "median_ms": 979.092,
+      "min_ms": 897.765,
+      "max_ms": 1011.454,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "page": null,
+      "n": 5,
+      "median_ms": 4657.815,
+      "min_ms": 4226.609,
+      "max_ms": 4804.361,
+      "median_source_scans": 6
+    },
+    {
+      "nodes": 6,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "page": null,
+      "n": 5,
+      "median_ms": 3070.135,
+      "min_ms": 2851.1,
+      "max_ms": 3228.035,
+      "median_source_scans": 5
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "page": null,
+      "n": 5,
+      "median_ms": 4958.771,
+      "min_ms": 4792.322,
+      "max_ms": 5453.91,
+      "median_source_scans": 9
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "find_edit_nodes",
+      "page": "first",
+      "n": 5,
+      "median_ms": 943.974,
+      "min_ms": 906.089,
+      "max_ms": 984.618,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "find_edit_nodes",
+      "page": "last",
+      "n": 5,
+      "median_ms": 908.492,
+      "min_ms": 893.609,
+      "max_ms": 992.182,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "page": null,
+      "n": 5,
+      "median_ms": 1019.245,
+      "min_ms": 993.231,
+      "max_ms": 1127.963,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "page": null,
+      "n": 5,
+      "median_ms": 5784.532,
+      "min_ms": 5667.237,
+      "max_ms": 6310.319,
+      "median_source_scans": 6
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "page": null,
+      "n": 5,
+      "median_ms": 3736.465,
+      "min_ms": 3565.493,
+      "max_ms": 3963.197,
+      "median_source_scans": 5
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "page": null,
+      "n": 5,
+      "median_ms": 3571.52,
+      "min_ms": 3401.474,
+      "max_ms": 3770.037,
+      "median_source_scans": 7
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "find_edit_nodes",
+      "page": "first",
+      "n": 5,
+      "median_ms": 932.407,
+      "min_ms": 865.855,
+      "max_ms": 981.714,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "find_edit_nodes",
+      "page": "last",
+      "n": 5,
+      "median_ms": 905.662,
+      "min_ms": 874.654,
+      "max_ms": 955.092,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "page": null,
+      "n": 5,
+      "median_ms": 1084.719,
+      "min_ms": 964.264,
+      "max_ms": 1260.622,
+      "median_source_scans": 2
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "page": null,
+      "n": 5,
+      "median_ms": 5503.657,
+      "min_ms": 5263.522,
+      "max_ms": 5855.343,
+      "median_source_scans": 6
+    },
+    {
+      "nodes": 1000,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "page": null,
+      "n": 5,
+      "median_ms": 3501.295,
+      "min_ms": 3483.301,
+      "max_ms": 3746.02,
+      "median_source_scans": 5
+    }
+  ],
+  "samples": [
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 5498.281,
+      "response_bytes": 5555,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.179
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 370.372
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 377.157
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 955.942
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 359.751
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1693.944,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 377.335
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 208.657
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 308.372
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 993.747
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 428.833
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 355.082
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 380.188
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 335.786
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 5498.252
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 948.184,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 344.469
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.939,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 334.728
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 244.962
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 948.151
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 880.101,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 350.772
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.956,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 311.11
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 193.249
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 880.072
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1013.091,
+      "response_bytes": 6746,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 376.073
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.056,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 363.911
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 249.384
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1013.061
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5153.189,
+      "response_bytes": 6330,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.328,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.809
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.352,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.702
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 199.876
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.3,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 327.42
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1273.139
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 302.896
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 340.099
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1604.466
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 370.231
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.01
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.058
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.446
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5153.156
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3145.238,
+      "response_bytes": 3853,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 345.373
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.854,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 317.224
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 209.863
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 306.541
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 300.955
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1175.997
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 437.338
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.01
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3145.211
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3603.704,
+      "response_bytes": 5348,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.183
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.452
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.32,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 328.665
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 207.523
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 345.769
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 953.449
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 370.722
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 332.997
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 353.445
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.304
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3603.674
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 886.739,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 322.902
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.64,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 341.858
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 198.793
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 886.715
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 898.355,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.209
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.845,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 331.685
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 204.522
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 898.331
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 980.05,
+      "response_bytes": 6743,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 417.313
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.033,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 327.433
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 208.976
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 980.018
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4671.398,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.747,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 368.607
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.106,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 331.348
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 208.446
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.367,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 354.601
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1227.705
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 310.545
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 330.996
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1141.515
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 341.988
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.079
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.564
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4671.369
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3228.035,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 374.488
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.581,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 408.429
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 251.423
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.041
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 308.667
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1153.243
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 354.571
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3228.006
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3597.415,
+      "response_bytes": 5347,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.185
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 358.935
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.092,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.064
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 191.24
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 331.368
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 902.77
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 413.352
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 363.636
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 364.398
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 317.375
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3597.388
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 874.856,
+      "response_bytes": 3457,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 319.162
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 14.611,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 294.951
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 229.022
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 874.829
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 856.918,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 356.939
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.053,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 298.368
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 179.775
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 856.891
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1011.454,
+      "response_bytes": 6745,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 429.183
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.467,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 348.124
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 210.544
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1011.43
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4498.607,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.333,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 414.588
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.681,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 338.591
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 193.981
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.305,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 349.023
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1141.295
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 322.919
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 366.319
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1024.872
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 301.443
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.052
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.302
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4498.583
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3070.135,
+      "response_bytes": 3851,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 339.835
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.102,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 294.179
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.263
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.14
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 312.18
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1186.116
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 400.982
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.017
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3070.11
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 5193.264,
+      "response_bytes": 5552,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.186
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 427.813
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 368.779
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 956.53
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 332.819
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1659.353,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 299.099
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 182.316
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 299.518
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 847.59
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 368.736
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 351.167
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 409.517
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 307.63
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 5193.237
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 876.294,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 327.934
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.286,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.462
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 214.46
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 876.266
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 890.315,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 378.818
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.756,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.657
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 182.241
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 890.289
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1245.43,
+      "response_bytes": 6744,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 535.713
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.39,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.926
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 332.252
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1245.398
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4610.523,
+      "response_bytes": 6332,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.377,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 452.755
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.016,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 378.158
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 265.492
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.332,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 409.403
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1143.68
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 302.896
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 293.572
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1015.352
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 291.171
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.01
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.053
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.792
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4610.497
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3014.969,
+      "response_bytes": 3852,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 383.81
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 8.205,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 350.331
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 179.815
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 288.43
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 292.877
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1131.362
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 338.467
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.011
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3014.942
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4855.117,
+      "response_bytes": 5554,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.383
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.996
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 304.121
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 820.491
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 306.725
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1432.251,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 295.472
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 179.492
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 293.322
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 852.544
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 375.894
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 365.536
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 353.692
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 325.099
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4855.09
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 924.755,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 344.264
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.928,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.399
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 245.718
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 924.72
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 1122.899,
+      "response_bytes": 3458,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 410.011
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 6.043,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 480.378
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 203.614
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 1122.826
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 888.539,
+      "response_bytes": 6743,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 365.131
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.49,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 322.515
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 176.759
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 888.501
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4480.569,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.333,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 421.942
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.997,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 374.833
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 193.846
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.365,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 320.558
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1096.361
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 324.457
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 319.624
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1073.349
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 307.508
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.051
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.333
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4480.545
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 2941.629,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.802
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.288,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 304.199
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 178.356
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 293.161
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 313.313
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1120.196
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 338.367
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 2941.604
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3311.385,
+      "response_bytes": 5349,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.192
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.652
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.518,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.734
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 171.708
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 293.879
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 887.321
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 332.648
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 324.365
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.201
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 296.581
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3311.356
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 806.424,
+      "response_bytes": 3454,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 311.943
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.868,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 288.305
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 184.463
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 806.4
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 853.661,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 363.946
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.528,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 296.284
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 169.168
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 853.635
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 897.765,
+      "response_bytes": 6744,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.831
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 6.332,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 325.501
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 204.528
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 897.734
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4226.609,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.331,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 337.137
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.643,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.879
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 196.951
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.431,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 310.954
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1076.429
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 294.996
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 305.954
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1058.362
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 291.929
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.049
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.649
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4226.573
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 2984.668,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 338.867
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.845,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 408.379
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 180.511
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 299.446
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 294.112
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1083.471
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 330.915
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.016
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 2984.643
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3294.642,
+      "response_bytes": 5346,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.184
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 359.0
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.003,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 294.057
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 178.43
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 291.268
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 820.876
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 315.028
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 344.653
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 333.792
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.068
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3294.615
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 1110.586,
+      "response_bytes": 3457,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.66
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.135,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.931
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 471.781
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 1110.548
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 1276.227,
+      "response_bytes": 3457,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 514.146
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.497,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 535.848
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 202.06
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 1276.191
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 979.092,
+      "response_bytes": 6743,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 363.779
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.898,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.34
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 248.149
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 979.056
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4804.361,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.404,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 366.349
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.079,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 379.583
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 286.834
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.318,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 381.085
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1243.008
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 374.694
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 306.475
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1008.962
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 400.113
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.011
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.069
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.822
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4804.304
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3113.883,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 384.217
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.779,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 307.894
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 230.886
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.783
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 304.968
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1169.954
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 354.529
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.014
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3113.847
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4941.414,
+      "response_bytes": 5554,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.225
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 355.159
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 299.876
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 842.123
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 332.693
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1475.701,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 307.536
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 188.421
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 306.78
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 867.131
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 335.926
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 384.116
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 356.598
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.131
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4941.387
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 876.874,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 335.257
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.279,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 322.966
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 190.951
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 876.849
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 1029.644,
+      "response_bytes": 3457,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 393.875
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.894,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 418.371
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 192.654
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 1029.62
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 985.959,
+      "response_bytes": 6744,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 377.374
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.708,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.003
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 215.824
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 985.933
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4700.454,
+      "response_bytes": 6334,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.332,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 393.622
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.384,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 341.508
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 217.444
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.339,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 350.496
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1232.085
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 354.891
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 333.914
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1068.043
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 360.483
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.066
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.992
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4700.426
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3093.988,
+      "response_bytes": 3853,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 369.342
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.29,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 301.136
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 183.262
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 307.838
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 301.214
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1191.041
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 336.398
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.014
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3093.859
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4902.692,
+      "response_bytes": 5553,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.191
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 524.845
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 315.747
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 822.432
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 353.882
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1493.387,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.403
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 175.75
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 286.085
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 780.535
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 310.444
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 323.18
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 335.851
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 325.356
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4902.663
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 882.836,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 355.155
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.023,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 324.843
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.472
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 882.815
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 868.997,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.054
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.97,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 309.348
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 195.249
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 868.974
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 963.681,
+      "response_bytes": 6744,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.357
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.038,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 388.434
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 215.409
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 963.657
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4148.46,
+      "response_bytes": 6332,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.421,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 357.408
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.229,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 306.391
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.182
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.318,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 312.61
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1073.061
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 285.811
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 293.819
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1007.608
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 286.921
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.049
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.315
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4148.436
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3007.189,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 340.892
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.611,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 338.937
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 196.071
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 289.013
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 287.427
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1175.557
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 331.701
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3007.163
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3693.17,
+      "response_bytes": 5348,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 0.192
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.381
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.984,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 395.593
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 252.004
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 309.915
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 858.852
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 343.519
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 479.194
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 349.244
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 335.949
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3693.139
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 820.755,
+      "response_bytes": 3455,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.484
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.589,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 295.19
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 176.862
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 820.731
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 836.033,
+      "response_bytes": 3456,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.369
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.599,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 301.196
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 168.298
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 836.011
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 932.87,
+      "response_bytes": 6743,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 335.236
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.145,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.022
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 226.994
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 932.834
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 4657.815,
+      "response_bytes": 6333,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.341,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 481.804
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 6.195,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 352.337
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 201.995
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 0.858,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 338.753
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1231.743
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 300.239
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 321.306
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1064.956
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 316.137
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.05
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 1.333
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 4657.786
+        }
+      ]
+    },
+    {
+      "nodes": 6,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 2851.1,
+      "response_bytes": 3847,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 345.32
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.7,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 314.421
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.429
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 290.982
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 287.29
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1068.887
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 320.45
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 2851.057
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 5453.91,
+      "response_bytes": 5559,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 21.889
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 337.313
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 294.109
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 977.218
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 446.119
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1718.572,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 394.541
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 248.632
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 326.463
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 919.308
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 360.569
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 339.039
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 301.02
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 296.994
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 5453.873
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 984.618,
+      "response_bytes": 9230,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 371.512
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.565,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 341.39
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 186.303
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 984.587
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 898.265,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 334.082
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.938,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 298.182
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.637
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 898.237
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1020.031,
+      "response_bytes": 6825,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 356.294
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.844,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 386.561
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 195.541
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1019.98
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 6310.319,
+      "response_bytes": 6337,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 27.778,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 376.315
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.91,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.623
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 214.63
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 23.795,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 338.198
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1513.409
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 324.498
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 299.956
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 2269.57
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 304.566
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.028
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.159
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 94.367
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 6310.285
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3917.198,
+      "response_bytes": 3856,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 353.477
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.962,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.889
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.236
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 355.625
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 315.12
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1639.931
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 360.592
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.012
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3917.163
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3511.531,
+      "response_bytes": 5354,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 20.786
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.866
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.298,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 312.234
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 185.628
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 314.56
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 837.981
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 323.489
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 332.225
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 383.962
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 302.564
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3511.435
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 981.714,
+      "response_bytes": 9231,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 344.372
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.152,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.338
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 252.312
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 981.677
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 955.092,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 349.744
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.866,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 314.392
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 205.011
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 955.058
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1260.622,
+      "response_bytes": 6826,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 434.184
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.147,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 429.777
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 303.983
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1260.577
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5855.343,
+      "response_bytes": 6336,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 23.91,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 408.833
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 7.898,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.856
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 342.46
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 26.145,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 339.497
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1634.8
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 352.623
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 333.955
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1408.735
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 294.759
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.022
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.158
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 85.421
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5855.281
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 1,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3626.505,
+      "response_bytes": 3856,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.139
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.537,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 291.762
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 183.645
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 289.758
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 288.183
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1621.17
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 341.091
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3626.451
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3401.474,
+      "response_bytes": 5355,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 19.604
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 315.377
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.893,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 286.861
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 187.986
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 305.152
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 817.696
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 324.427
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.772
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.647
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 309.051
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3401.404
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 940.95,
+      "response_bytes": 9228,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 356.115
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.173,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 305.311
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 198.15
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 940.91
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 905.662,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 339.837
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.028,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 296.344
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 180.336
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 905.604
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1071.586,
+      "response_bytes": 6825,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 353.239
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.708,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 381.72
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 252.259
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1071.546
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5669.59,
+      "response_bytes": 6339,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 23.053,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 349.132
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.329,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.741
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 252.424
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 48.904,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 311.951
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1461.325
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 422.984
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 340.286
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1534.909
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 329.102
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.027
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.166
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 86.923
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5669.554
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3500.782,
+      "response_bytes": 3857,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 342.939
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.169,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 311.996
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 187.235
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 287.936
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 285.977
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1462.157
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 326.191
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3500.736
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4792.322,
+      "response_bytes": 5561,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 20.351
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 315.185
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 290.092
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 812.424
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 291.113
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1394.732,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 282.994
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 177.617
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 285.911
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 795.062
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 332.019
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 348.555
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 356.199
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 321.106
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4792.269
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 943.974,
+      "response_bytes": 9231,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 385.771
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.301,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 289.622
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 186.185
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 943.931
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 953.01,
+      "response_bytes": 9291,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 364.777
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.812,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.52
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 187.986
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 952.981
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1127.963,
+      "response_bytes": 6826,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 372.561
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.858,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 371.245
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 290.474
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1127.918
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 6109.971,
+      "response_bytes": 6340,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 62.276,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 390.811
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.404,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.486
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 477.049
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 25.978,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 332.031
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1620.873
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 328.008
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 310.068
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1651.483
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 306.922
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.011
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.144
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 90.636
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 6109.935
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 2,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3565.493,
+      "response_bytes": 3857,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 312.084
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.564,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 285.225
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 182.587
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 295.215
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 299.542
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1562.694
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 321.054
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3565.457
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4818.352,
+      "response_bytes": 5561,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 21.982
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 323.714
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 297.843
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 796.102
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 294.405
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1389.469,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 293.626
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 173.376
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 296.168
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 825.046
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 328.581
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 350.781
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 344.546
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 313.032
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4818.319
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 906.089,
+      "response_bytes": 9230,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.57
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.051,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 296.678
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 208.714
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 906.049
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 908.492,
+      "response_bytes": 9292,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 341.414
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.601,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 300.383
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 182.129
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 908.46
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 993.231,
+      "response_bytes": 6823,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 359.875
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.43,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 346.283
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 198.407
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 993.191
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5707.627,
+      "response_bytes": 6338,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 26.331,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 366.84
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.357,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.454
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 232.916
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 26.044,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 326.272
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1566.149
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 387.124
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 323.558
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1515.065
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 307.733
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.02
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.163
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 85.522
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5707.589
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3963.197,
+      "response_bytes": 3856,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.903
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.276,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 323.151
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 193.962
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 313.417
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 302.922
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1746.071
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 409.161
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.068
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3963.14
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3770.037,
+      "response_bytes": 5353,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 23.77
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 333.125
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.829,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 306.839
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 193.039
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 496.134
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 945.019
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 347.832
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 351.458
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 328.418
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 284.34
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3769.997
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 922.883,
+      "response_bytes": 9231,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.307
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.185,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.844
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 195.918
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 922.852
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 905.296,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 328.373
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.989,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 309.765
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 184.958
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 905.238
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1130.731,
+      "response_bytes": 6825,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 430.405
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.62,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 358.118
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 222.219
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1130.692
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5472.466,
+      "response_bytes": 6337,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 23.748,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 386.881
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.283,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 329.013
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 203.824
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 25.71,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 329.79
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1547.987
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 342.517
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 292.942
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1436.456
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 297.498
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.015
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.149
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 83.905
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5472.43
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 3,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3746.02,
+      "response_bytes": 3854,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 328.704
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 6.076,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 302.034
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 174.881
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.034
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 301.21
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1613.548
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 371.264
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.013
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3745.96
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3652.765,
+      "response_bytes": 5353,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 20.428
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 323.639
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.411,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 362.048
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 180.902
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 317.443
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 890.233
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 395.264
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 340.386
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 357.536
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.93
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3652.73
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 865.855,
+      "response_bytes": 9229,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 308.735
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.454,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 282.978
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 197.5
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 865.829
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 874.654,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 327.553
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.404,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 281.163
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 173.818
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 874.625
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 964.264,
+      "response_bytes": 6823,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.899
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.333,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 318.82
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 200.063
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 964.233
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5263.522,
+      "response_bytes": 6340,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 24.055,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 332.907
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.349,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 303.433
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 206.412
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 21.277,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 330.197
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1483.267
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 343.817
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 304.922
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1353.735
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 293.301
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.011
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.145
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 82.309
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5263.494
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3483.301,
+      "response_bytes": 3857,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 310.174
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.966,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 282.919
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 176.301
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 284.096
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 283.191
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1492.565
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 346.562
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.008
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3483.252
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4962.008,
+      "response_bytes": 5557,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 21.381
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 329.479
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 292.797
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 817.338
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 297.925
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1409.18,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 292.615
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 181.432
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 305.082
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 815.929
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 325.78
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 438.025
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 343.24
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 342.604
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4961.97
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 909.351,
+      "response_bytes": 9231,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 345.708
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.911,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 295.755
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 187.729
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 909.319
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 893.609,
+      "response_bytes": 9292,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.373
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 30.007,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 301.12
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 167.86
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 893.582
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1019.245,
+      "response_bytes": 6825,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 338.847
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.952,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 369.49
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 228.775
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1019.213
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5667.237,
+      "response_bytes": 6339,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 23.432,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 375.698
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.824,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.945
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 252.895
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 27.565,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 337.047
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1564.987
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 332.186
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 295.465
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1541.501
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 312.844
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.02
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.157
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 86.648
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5667.198
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 4,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3736.465,
+      "response_bytes": 3857,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 331.417
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.152,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 298.126
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 187.125
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 312.522
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 303.801
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1641.963
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 331.379
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.012
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3736.425
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 4958.771,
+      "response_bytes": 5556,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 9,
+        "process.node": 3,
+        "compiler_command.describe_registry": 1,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 20.789
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.969
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 290.864
+        },
+        {
+          "stage": "compiler.describe_registry",
+          "elapsed_ms": 855.137
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 305.637
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 1452.586,
+          "cache_hit": false
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 297.9
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 178.77
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 295.069
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 864.65
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 338.58
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 336.582
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 352.715
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 315.791
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 4958.736
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 976.183,
+      "response_bytes": 9231,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 341.378
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.419,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 304.052
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 234.111
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 976.129
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 992.182,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 346.044
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.491,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 304.482
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 200.278
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 992.141
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1004.519,
+      "response_bytes": 6826,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 361.574
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.609,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 338.631
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 211.753
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1004.472
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5784.532,
+      "response_bytes": 6340,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 28.359,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 395.398
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.003,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 346.678
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 250.194
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 25.286,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 333.943
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1600.269
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 394.478
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 315.836
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1499.338
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 301.518
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.026
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.162
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 85.353
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5784.461
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "cold",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3716.821,
+      "response_bytes": 3857,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 316.117
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.524,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 280.441
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 179.602
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 285.883
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 295.003
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1723.719
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 337.151
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.009
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3716.776
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "begin_edit_session",
+      "total_elapsed_ms": 3571.52,
+      "response_bytes": 5354,
+      "counts": {
+        "local_sqlite_statements": 9,
+        "fake_repository.load_draft": 1,
+        "source_scans": 7,
+        "process.node": 2,
+        "process.git": 5,
+        "compiler_command.validate_design": 1,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 1
+      },
+      "timings": [
+        {
+          "stage": "database.load_draft",
+          "elapsed_ms": 20.209
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 322.566
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.474,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 329.686
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 183.519
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 327.993
+        },
+        {
+          "stage": "compiler.validate_design",
+          "elapsed_ms": 899.619
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 324.738
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 372.164
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 326.094
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 307.417
+        },
+        {
+          "stage": "service.begin_edit_session",
+          "elapsed_ms": 3571.479
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "page": "first",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 932.407,
+      "response_bytes": 9230,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 339.813
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 4.02,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 300.187
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 178.564
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 932.376
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "page": "last",
+      "tool": "find_edit_nodes",
+      "total_elapsed_ms": 915.479,
+      "response_bytes": 9293,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 347.366
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 3.949,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 301.368
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 184.244
+        },
+        {
+          "stage": "service.find_edit_nodes",
+          "elapsed_ms": 915.445
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "inspect_edit_context",
+      "total_elapsed_ms": 1084.719,
+      "response_bytes": 6826,
+      "counts": {
+        "local_sqlite_statements": 2,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 2,
+        "process.node": 1,
+        "process.git": 5
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 399.656
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 6.445,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 367.721
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 227.531
+        },
+        {
+          "stage": "service.inspect_edit_context",
+          "elapsed_ms": 1084.678
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "plan_canvas_patch",
+      "total_elapsed_ms": 5503.657,
+      "response_bytes": 6336,
+      "counts": {
+        "local_sqlite_statements": 16,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "source_scans": 6,
+        "process.node": 3,
+        "process.git": 5,
+        "compiler_command.compile_patch": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 22.706,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 373.641
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.53,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 314.862
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 262.186
+        },
+        {
+          "stage": "operations.preflight",
+          "elapsed_ms": 22.868,
+          "operation_count": 1
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 312.908
+        },
+        {
+          "stage": "compiler.compile_patch",
+          "elapsed_ms": 1507.902
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 378.61
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 299.966
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1414.703
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 313.12
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.055
+        },
+        {
+          "stage": "review.scenarios",
+          "elapsed_ms": 0.202
+        },
+        {
+          "stage": "review.business_checks",
+          "elapsed_ms": 86.468
+        },
+        {
+          "stage": "service.plan_canvas_patch",
+          "elapsed_ms": 5503.62
+        }
+      ]
+    },
+    {
+      "nodes": 1000,
+      "round": 5,
+      "initial_cache": "warm",
+      "tool": "prepare_write",
+      "total_elapsed_ms": 3501.295,
+      "response_bytes": 3856,
+      "counts": {
+        "local_sqlite_statements": 13,
+        "fake_database.status": 1,
+        "fake_repository.index_status": 1,
+        "fake_repository.grant_status": 2,
+        "source_scans": 5,
+        "process.node": 2,
+        "process.git": 5,
+        "fake_repository.load_draft": 1,
+        "fake_repository.load_relations": 1,
+        "compiler_command.verify_candidate": 1
+      },
+      "timings": [
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 320.399
+        },
+        {
+          "stage": "compiler.registry",
+          "elapsed_ms": 5.095,
+          "cache_hit": true
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 299.619
+        },
+        {
+          "stage": "compiler.git_provenance",
+          "elapsed_ms": 182.426
+        },
+        {
+          "stage": "compiler.rule_binding",
+          "elapsed_ms": 288.463
+        },
+        {
+          "stage": "compiler.source_verification",
+          "elapsed_ms": 285.925
+        },
+        {
+          "stage": "compiler.verify_candidate",
+          "elapsed_ms": 1503.722
+        },
+        {
+          "stage": "compiler.source_verification_final",
+          "elapsed_ms": 316.692
+        },
+        {
+          "stage": "runtime.csharp_validation",
+          "elapsed_ms": 0.01
+        },
+        {
+          "stage": "service.prepare_write",
+          "elapsed_ms": 3501.247
+        }
+      ]
+    }
+  ]
+}

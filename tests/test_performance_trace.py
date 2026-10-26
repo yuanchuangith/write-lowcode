@@ -11,6 +11,23 @@ from gxp_editor.telemetry import traced_tool, stage, add_external, current_trace
 
 
 class PerformanceTraceTests(unittest.TestCase):
+    def test_nested_intervals_can_be_unioned_without_double_counting(self):
+        @traced_tool
+        def call():
+            with stage("service.request"):
+                with stage("database.read"):
+                    pass
+                add_external([{"stage": "runtime.external", "elapsed_ms": 3}])
+            return {"ok": True}
+        response = call()
+        child, external, parent = response["timings"]
+        self.assertEqual((parent["depth"], child["depth"]), (0, 1))
+        self.assertLessEqual(parent["start_ms"], child["start_ms"])
+        self.assertLessEqual(child["start_ms"] + child["elapsed_ms"],
+                             parent["start_ms"] + parent["elapsed_ms"] + 0.002)
+        self.assertNotIn("start_ms", external)
+        self.assertNotIn("_origin", response)
+
     def test_observations_never_mutate_signed_artifacts(self):
         artifact = transaction()
         original = copy.deepcopy(artifact)

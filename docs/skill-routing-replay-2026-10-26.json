@@ -1,0 +1,204 @@
+{
+  "schema_version": 1,
+  "title": "当前代理一次离线路由推理回放",
+  "corpus": "docs/skill-routing-corpus-2026-10-26.json",
+  "corpus_sha256": "aabd71e5a372e6e650c3dfa12328bd617a9be36b071b4f6d1a431e1a8f4afbe4",
+  "freeze_record": "docs/skill-routing-corpus-freeze-2026-10-26.json",
+  "protocol": {
+    "agent": "当前 Codex 代理 /root/forward_evaluate",
+    "runs_per_case": 1,
+    "replay_kind": "代理读取合成上下文后实际作出的下一步选择及自查；未执行所选业务调用。",
+    "expectations_authored_before_replay": true,
+    "same_author_and_replay_agent": true,
+    "blind": false,
+    "independent_grader": false,
+    "tool_execution": "下面 selected_tools 均为计划调用；本评估仅实际读取本地技能和工具定义、写入这些新增文档。",
+    "argument_bindings": "arguments_from_result 表示必须从真实前置调用响应提取的字段；不是工具参数，也不是虚构返回值。",
+    "scoring": "逐案人工自查选择、顺序、禁止行为和证据范围，不运行关键词/字符串匹配器。",
+    "model_latency_ms": null,
+    "production_accuracy": null,
+    "limitations": ["作者已经看过预期，存在自评偏差", "只覆盖 12 个指定上下文，不能外推生产任务分布", "没有真实工具响应，未验证后续执行、数据库权限、审批 UI 或运行行为", "未做多模型比较、盲测、重复采样或模型耗时测量"]
+  },
+  "replays": [
+    {
+      "id": "R01",
+      "selected_route": "Look 只读诊断",
+      "selected_tools": [
+        {"step": "history", "parallel_group": "history", "provider": "gxp-lowcode-readonly", "tool": "search_business_logic_graph", "arguments": {"action": "ActOne", "scope_id": "scope-dev", "environment": "development", "limit": 20}},
+        {"step": "neighborhood", "parallel_group": "history", "provider": "gxp-lowcode-readonly", "tool": "get_business_graph", "arguments": {"query": "ActOne", "scope_id": "scope-dev", "environment": "development", "depth": 1, "include_catalog": false, "request_id": "2fbb59df-7995-4bd6-95e7-b8c45aa73fc8"}, "note": "UUID 为该合成请求的非敏感示例，仅在支持 request_id 的工具上传递。"},
+        {"step": "diagnose", "after": ["history", "neighborhood"], "parallel_group": "identity", "provider": "gxp-lowcode-readonly", "tool": "diagnose_codex_input", "arguments": {"text": "帮我排查 ActOne 的下拉为什么没有可选值。"}},
+        {"step": "resolve", "after": ["history", "neighborhood"], "parallel_group": "identity", "provider": "gxp-lowcode-readonly", "tool": "resolve_action", "arguments": {"identifier": "ActOne"}}
+      ],
+      "next_step": "若身份唯一，从 resolve 响应取得 RefId 后读当前版本，随后在发布副本上先 facts 定位；读取 component-filter-audit.md，再执行过滤写入阶段审计。命中相关历史后用实际当前发布 ID 复核，不能沿图自动扩散。",
+      "response_example": "先核对 ActOne 当前发布副本的过滤配置和写入阶段；已有关系图只作历史线索。",
+      "decision_basis": [
+        {"source": "L_GRAPH_ROUTE", "lines": [28, 29, 33], "evidence": "先检索历史案例和已知实体邻域；当前发布权威；目录补查有界。"},
+        {"source": "L_DIAGNOSE", "lines": [153, 155, 159, 163, 165], "evidence": "完整原文、精确身份、当前副本、facts 优先和下拉专项审计。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "历史检索先行，诊断和身份解析独立且参数完整；版本及参数读取明确依赖实际结果。没有 editor、业务行读取、图写入或自动遍历选择。后续审计是待执行条件步骤，不声称本次已经完成诊断。"}
+    },
+    {
+      "id": "R02",
+      "selected_route": "停止未启用的编辑分支",
+      "selected_tools": [],
+      "next_step": "等待当前用户消息显式调用 $gxp-lowcode-edit；不要求重新确认相同范围，不要求 Look 导出。",
+      "response_example": "这次修改范围已确认。根据 skills/gxp-lowcode-edit/SKILL.md:10 的首次启用规则，当前消息还需显式调用 $gxp-lowcode-edit 才能启动编辑；不需要另外导出交接。",
+      "decision_basis": [
+        {"source": "W_ACTIVATE", "lines": [10, 12], "evidence": "continue/apply the plan 不激活首次编辑，连 editor_status 也不可提前调用；handoff_ref 可选。"},
+        {"source": "L_EDIT_GATE", "lines": [126, 127], "evidence": "具体方案确认与编辑端实际启用策略分别判断。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "无任何编辑业务调用，解释了明确规则来源，没有把范围确认重问一遍或引入交接前置条件。此处等待的是技能显式启用，不是重复审批已确定方案。"}
+    },
+    {
+      "id": "R03",
+      "selected_route": "Write 独立启动现有草稿编辑",
+      "selected_tools": [
+        {"step": "register", "provider": "gxp-lowcode-editor", "tool": "create_conversation", "arguments": {"label": "ActOne 初始化默认值 A 改 B"}},
+        {"step": "begin", "after": ["register"], "provider": "gxp-lowcode-editor", "tool": "begin_edit_session", "arguments": {"identifier": "ActOne"}, "arguments_from_result": {"conversation_id": "register 响应的 conversation_id"}}
+      ],
+      "next_step": "检查入口实际返回的未发布草稿、备份、支持操作和绑定；定位当前初始化节点并核对原值。固定保持其他行为的验收条件后规划；只有正常检查就绪才 prepare_write，之后仅由人工批准 SQL 并确认保存。",
+      "response_example": "开始核对 ActOne 当前草稿的初始化节点，将默认值从 A 改为 B，并检查其他行为保持不变。检查就绪后会打开正式审批窗口。",
+      "decision_basis": [
+        {"source": "W_ACTIVATE", "lines": [10, 12, 13], "evidence": "显式启用允许规划并在就绪时直接打开正式审批；无需 Look 交接或额外聊天确认。"},
+        {"source": "W_WORKFLOW", "lines": [41, 42, 43, 45], "evidence": "注册一次 conversation，使用实际 ID 开会话；当前备份定位和验收不可省略。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "两次调用按依赖串行，conversation_id 只取真实返回。没有假造会话、强制 handoff、二次范围确认或越过验收和人工审批。"}
+    },
+    {
+      "id": "R04",
+      "selected_route": "有界等待同一事务启动",
+      "selected_tools": [
+        {"step": "startup_wait", "provider": "clock", "tool": "sleep", "arguments": {"duration_ms": 1000}},
+        {"step": "status", "after": ["startup_wait"], "provider": "gxp-lowcode-editor", "tool": "get_write_status", "arguments": {"transaction_id": "tx1", "conversation_id": "c1"}}
+      ],
+      "next_step": "根据 status 的实际 next_action 与 poll_after_ms 决定下一步；若窗口已就绪等待人工，立即让出。",
+      "response_example": "审批窗口仍在启动，按提示稍候后核对同一事务 tx1 的状态。",
+      "decision_basis": [
+        {"source": "W_POLL", "lines": [220, 223, 228], "evidence": "按 next_action/poll_after_ms 查询本对话事务；启动中不能 prepare_write 或重开窗口。"},
+        {"source": "W_ACTIVATE", "lines": [11], "evidence": "同一授权对话继续无需重新调用技能。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "1000 毫秒的计划等待先于 tx1/c1 状态读取；没有第二窗口、重建会话、代批准或无界轮询。没有把尚未执行的状态读取写成启动已完成。"}
+    },
+    {
+      "id": "R05",
+      "selected_route": "告知人工审批等待并让出",
+      "selected_tools": [],
+      "next_step": "由用户在已打开的正式窗口审核 SQL 并确认保存；收到新的实际状态后再继续工作流。",
+      "response_example": "正式审批窗口已就绪，正在等待你审核 SQL 并确认保存。完成窗口里的操作后再继续。",
+      "decision_basis": [
+        {"source": "W_POLL", "lines": [229, 236], "evidence": "Window ready awaiting human 时让出，不持续轮询。"},
+        {"source": "W_ACTIVATE", "lines": [13], "evidence": "只有正式窗口的人类用户能批准 SQL 并确认执行。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "聊天中的继续不变成正式批准。该阶段选择零工具调用，不重复轮询、重开或代用户操作。"}
+    },
+    {
+      "id": "R06",
+      "selected_route": "先消歧同名动作",
+      "selected_tools": [],
+      "next_step": "取得页面、动作类型、code 或 RefId 的区分信息后，才读取所选动作当前版本和参数。已有候选已足够暴露歧义，重复同名搜索无益。",
+      "response_example": "找到两个“初始化”：公共动作 ActA（ref-a），以及 page-p 的表单动作 ActB（ref-b）。需要先明确是哪个动作，才能核对清空培训范围的位置。",
+      "decision_basis": [
+        {"source": "L_DIAGNOSE", "lines": [158], "evidence": "多个同名结果不得默认选第一个，按类型、code、RefId、页面消歧。"},
+        {"source": "W_TARGET", "lines": [5, 8], "evidence": "不能只按名称决定位置；同名候选不能取第一个。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "展示的类型、code、RefId 和页面都来自合成输入，没有选猜测目标或臆造页面名称。具体参数读取和根因判断保持待定；没有编辑业务调用。"}
+    },
+    {
+      "id": "R07",
+      "selected_route": "当前发布副本精确取证",
+      "selected_tools": [
+        {"step": "published_node", "provider": "gxp-lowcode-readonly", "tool": "inspect_action", "arguments": {"identifier": "ActOne", "version": "published", "design_id": "pub1", "group": "main", "node_key": "n1", "include_params": true, "include_generated_csharp": false}}
+      ],
+      "next_step": "对比输入中已确认的草稿差异与本次发布节点完整内容。若解释真实交互仍需分支或样本，只补取该缺口；不自动发布或编辑。",
+      "response_example": "当前存在未发布的草稿改动，运行仍以 pub1 发布副本为准。接下来核对发布副本的对应节点；实际运行路径和业务效果仍需单独验证。",
+      "decision_basis": [
+        {"source": "L_VERSIONS", "lines": [99, 112, 113], "evidence": "运行副本是发布副本，草稿修改不影响运行。"},
+        {"source": "L_DIAGNOSE", "lines": [163, 164], "evidence": "已完成 facts 且精确定位一个节点，此时才可读参数。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "使用新鲜版本 pub1 和已确认 main/n1，参数读取范围满足前提。没有重复版本读取、历史加载、自动发布或将 draft1 当成运行配置。"}
+    },
+    {
+      "id": "R08",
+      "selected_route": "停止 Write 轮询，Look 核对当前发布",
+      "selected_tools": [
+        {"step": "current_versions", "provider": "gxp-lowcode-readonly", "tool": "get_design_versions", "arguments": {"ref_id": "ref-one", "include_history": false}},
+        {"step": "current_published_facts", "after": ["current_versions"], "condition": "当前发布副本存在", "provider": "gxp-lowcode-readonly", "tool": "inspect_action", "arguments": {"identifier": "ActOne", "version": "published", "terms": ["初始化"], "include_params": false, "include_generated_csharp": false}, "arguments_from_result": {"design_id": "current_versions 响应的当前发布设计 ID"}}
+      ],
+      "next_step": "对本次版本响应报告同步状态；facts 缩小并确认目标后才读完整参数，必要时检查当前草稿。提醒人工发布公共动作 ActOne/初始化。保留 tx1 已完成状态和相同图谱提案 declined，不再问图谱。",
+      "response_example": "公共动作“初始化”（ActOne）的草稿已保存并核验，会话已释放。保存回执不能证明已发布；我会核对当前发布副本。需要在画布检查后手动发布，实际运行效果还需业务验证。",
+      "decision_basis": [
+        {"source": "W_SAVE", "lines": [46, 47], "evidence": "verified 且 session_released 确认保存完成；随后给出人工发布目标，不能称运行生效。"},
+        {"source": "W_POLL", "lines": [232], "evidence": "完成后停止事务轮询。"},
+        {"source": "W_GRAPH_STATE", "lines": [30], "evidence": "相同 declined 提案持续抑制，不因状态查询或时间经过而重问。"},
+        {"source": "L_SAVE_PUBLISH", "lines": [219, 221, 222], "evidence": "重读当前副本并明确发布同步状态，草稿修复不能称已生效。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "选择独立只读核对回答生效问题，未重启完成的保存事务。未知节点先 facts，不虚构精确 Key 或发布设计 ID；当前副本缺失时应报告缺失。没有重复图谱征询、自动发布或运行通过声明。"}
+    },
+    {
+      "id": "R09",
+      "selected_route": "重读当前副本并复核发布内容",
+      "selected_tools": [
+        {"step": "fresh_versions", "provider": "gxp-lowcode-readonly", "tool": "get_design_versions", "arguments": {"ref_id": "ref-one", "include_history": false}},
+        {"step": "fresh_published_node", "after": ["fresh_versions"], "condition": "本次响应存在当前发布副本且已知目标仍可解析", "provider": "gxp-lowcode-readonly", "tool": "inspect_action", "arguments": {"identifier": "ActOne", "version": "published", "group": "main", "node_key": "n1", "include_params": true, "include_generated_csharp": false}, "arguments_from_result": {"design_id": "fresh_versions 响应的当前发布设计 ID"}}
+      ],
+      "next_step": "同时比较当前草稿/发布同步状态和实际目标内容。如果节点已删除或身份变化，重新定位并保留未确认状态；无真实样本时明确未执行运行验证。",
+      "response_example": "先重新读取 ActOne 当前发布和草稿，再核对发布节点内容及同步状态。即使哈希一致，没有业务样本也不能确认运行验收通过。",
+      "decision_basis": [
+        {"source": "L_SAVE_PUBLISH", "lines": [226, 227, 228], "evidence": "发布声明后重读发布、比较两副本，哈希同步仍查内容，未取样本则未执行运行验证。"},
+        {"source": "L_DIAGNOSE", "lines": [159, 164], "evidence": "默认当前版本不加载历史；精确目标范围可读取参数。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "依赖本次版本响应绑定 design_id，未使用旧 ID。内容核对和运行验收严格区分，没有发布调用或根据口头声明及哈希假报成功。"}
+    },
+    {
+      "id": "R10",
+      "selected_route": "先精确读取完整案例",
+      "selected_tools": [
+        {"step": "exact_case", "provider": "gxp-lowcode-readonly", "tool": "search_business_logic_graph", "arguments": {"case_key": "case-one", "scope_id": "scope-dev", "environment": "development"}}
+      ],
+      "next_step": "读取实际 available/status/found；不可将 incomplete 当不存在。已有案例要求 complete=true、replacement_safe=true，逐项复核 supports.lifecycle、当前发布依赖及 unresolved；从完整 relation 保留有效同胞事实后合入同意的修正，携带实际 snapshot_token 一次替换。若完整性、支持或身份不满足，则停止替换并保留缺口；冲突后重新精确读和合并。",
+      "response_example": "这会替换 case-one 的整份案例支持，先精确读取完整快照，核对并保留其他有效关系后再提交同意的修正。当前截断摘要不能直接用于替换。",
+      "decision_basis": [
+        {"source": "L_EXACT_CASE", "lines": [7], "evidence": "精确模式只传 case_key、scope_id、environment。"},
+        {"source": "L_COMPLETE_CASE", "lines": [18, 20, 24, 26, 28], "evidence": "预算不完整仍未知；完整快照、逐支持生命周期、replacement_safe 和 CAS 令牌是安全整案替换的前提。"},
+        {"source": "W_GRAPH_REPLACE", "lines": [36, 37, 38], "evidence": "即使已有广泛搜索结果也要精确读取；不能拿邻域拼整案或省略预条件。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "唯一计划业务调用是含三个允许字段的精确搜索。没有 upsert、邻域拼凑、混入筛选、伪造令牌或假定支持有效。后续替换清楚标为依赖实际完整响应的条件步骤。"}
+    },
+    {
+      "id": "R11",
+      "selected_route": "保留未知存在性，停止自动图补查",
+      "selected_tools": [],
+      "next_step": "保留图缓存不可用和待补证关系的具体缺口，整理已有当前动作只读证据。需要新增查询时仅围绕实际诊断缺口，不继续耗尽预算的目录扩展；日后精确查询恢复且结果完整后才能判断案例存在性。",
+      "response_example": "图缓存不可用，因此还不能判断 case-one 是否存在，也不能安全新建。周边补查已到本次边界，先保留缺口；现有动作的只读证据仍可继续用于排查和报告。",
+      "decision_basis": [
+        {"source": "L_COMPLETE_CASE", "lines": [24], "evidence": "仅 available=true 且 found=false 能支持不存在；工具不可用不等于空案例。"},
+        {"source": "L_GRAPH_ROUTE", "lines": [33, 36], "evidence": "目录补查最多 3 次、1 跳、30 秒；不递归、不全量刷新，图缓存故障不阻止正常只读诊断。"},
+        {"source": "W_GRAPH_REPLACE", "lines": [36, 43], "evidence": "未知图不能当空图；工具不可用时报告提案/缺口，不能声称图写入成功。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "没有空令牌创建、重试循环、图遍历、刷新或编辑业务库选择。用户要求补齐并不能补足缺少的证据或恢复缓存；没有把缓存故障归为业务根因。"}
+    },
+    {
+      "id": "R12",
+      "selected_route": "当前备份内有界发现未知节点",
+      "selected_tools": [
+        {"step": "discover", "provider": "gxp-lowcode-editor", "tool": "find_edit_nodes", "arguments": {"session_id": "s1", "conversation_id": "c1", "kind": "nodes", "query": "初始化", "offset": 0, "limit": 30}}
+      ],
+      "next_step": "按真实候选的分组、节点名称、画布行和 Key 消歧，确认最多 10 个目标后 inspect_edit_context(response_detail=summary)，用 parameter_paths 聚焦；需要确切值时 read_edit_value，不能把摘要当完整参数。仅证据适用性存在缺口时才选读留证候选页。",
+      "response_example": "继续在这次会话的当前备份里查找初始化节点，先确认位置，再核对这次修改需要的参数。",
+      "decision_basis": [
+        {"source": "W_WORKFLOW", "lines": [41, 42], "evidence": "候选记录不自动选最新或耗尽；未知节点用 find_edit_nodes，精确上下文默认摘要。"},
+        {"source": "W_TARGET", "lines": [8, 10, 16, 22], "evidence": "有界分页发现、最多 10 个精确目标、复用入口状态，按需读取精确值。"},
+        {"source": "W_ACTIVATE", "lines": [11, 12], "evidence": "本授权对话可继续；Look 留证不是必要前置条件。"}
+      ],
+      "self_review": {"verdict": "matched", "assessment": "节点发现绑定 s1/c1 且有限分页，没有未知 Key 的 inspect 调用、自动候选耗尽或最新记录选择。入口状态和授权复用，没有 editor_status、重新启用或 handoff 要求。"}
+    }
+  ],
+  "summary": {
+    "cases": 12,
+    "self_review_matched": 12,
+    "self_review_mismatched": 0,
+    "business_mcp_calls_executed": 0,
+    "claim": "12/12 指定上下文在本次当前代理离线自查中符合预先固定的路由约束。",
+    "not_claimed": ["生产准确率 100%", "独立模型评测或独立裁判结果", "实际 MCP 工作流端到端通过", "模型速度或延迟改善"]
+  }
+}

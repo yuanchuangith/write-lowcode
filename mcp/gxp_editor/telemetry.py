@@ -10,6 +10,8 @@ from contextvars import ContextVar
 from functools import wraps
 
 _ACTIVE = ContextVar("gxp_performance_trace", default=None)
+_ORIGIN = ContextVar("gxp_performance_origin", default=None)
+_DEPTH = ContextVar("gxp_performance_depth", default=0)
 _TAGS = {"cache_hit", "cold", "count", "operation_count", "reference_count", "process_id", "slot_wait_ms", "error_code"}
 _LOG = logging.getLogger("gxp.performance")
 
@@ -19,7 +21,7 @@ def current_trace_id():
     return trace["trace_id"] if trace else ""
 
 
-def _append(name, elapsed, tags):
+def _append(name, elapsed, tags, *, start_ms=None, depth=None):
     trace = _ACTIVE.get()
     if trace is None or len(trace["timings"]) >= 256:
         return
@@ -28,6 +30,9 @@ def _append(name, elapsed, tags):
     if type(elapsed) not in (int, float) or not math.isfinite(elapsed) or elapsed < 0:
         return
     item = {"stage": name, "elapsed_ms": round(elapsed, 3)}
+    if start_ms is not None and math.isfinite(start_ms) and start_ms >= 0:
+        item["start_ms"] = round(start_ms, 3)
+        item["depth"] = depth
     for key, value in tags.items():
         if key in _TAGS and (type(value) in (bool, int) or type(value) is float and math.isfinite(value)
                              or key == "error_code" and isinstance(value, str) and len(value) <= 80
@@ -39,13 +44,18 @@ def _append(name, elapsed, tags):
 @contextmanager
 def stage(name, **tags):
     started = time.perf_counter()
+    origin = _ORIGIN.get()
+    depth = _DEPTH.get()
+    token = _DEPTH.set(depth + 1)
     try:
         yield tags
     except Exception as exc:
         tags["error_code"] = getattr(exc, "code", type(exc).__name__)
         raise
     finally:
-        _append(name, (time.perf_counter() - started) * 1000, tags)
+        _DEPTH.reset(token)
+        _append(name, (time.perf_counter() - started) * 1000, tags,
+                start_ms=(started - origin) * 1000 if origin is not None else None, depth=depth)
 
 
 def add_external(spans):
@@ -74,6 +84,8 @@ def traced_tool(function):
         trace = {"trace_id": uuid.uuid4().hex, "timings": []}
         token = _ACTIVE.set(trace)
         started = time.perf_counter()
+        origin_token = _ORIGIN.set(started)
+        depth_token = _DEPTH.set(0)
         try:
             result = function(*args, **kwargs)
         except Exception as exc:
@@ -85,6 +97,8 @@ def traced_tool(function):
                       "error_details": details}
         finally:
             trace["total_elapsed_ms"] = round((time.perf_counter() - started) * 1000, 3)
+            _DEPTH.reset(depth_token)
+            _ORIGIN.reset(origin_token)
             _ACTIVE.reset(token)
         if isinstance(result, dict) and (result.get("error") or result.get("error_code")):
             # Normalize only the transport envelope, including failures returned

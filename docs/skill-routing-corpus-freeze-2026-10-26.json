@@ -1,0 +1,48 @@
+{
+  "schema_version": 1,
+  "artifact": "docs/skill-routing-corpus-2026-10-26.json",
+  "sha256": "aabd71e5a372e6e650c3dfa12328bd617a9be36b071b4f6d1a431e1a8f4afbe4",
+  "frozen_at_utc": "2026-10-26T09:50:39.842087+00:00",
+  "case_ids": [
+    "R01",
+    "R02",
+    "R03",
+    "R04",
+    "R05",
+    "R06",
+    "R07",
+    "R08",
+    "R09",
+    "R10",
+    "R11",
+    "R12"
+  ],
+  "source_snapshots": [
+    {
+      "path": "../look/skills/gxp-lowcode-debug/SKILL.md",
+      "sha256": "15bd40bb5dcc38f66fbe31cb37578aa456e82093ee51af601b739691dce05adf"
+    },
+    {
+      "path": "../look/skills/gxp-lowcode-debug/references/business-logic-graph.md",
+      "sha256": "31fce425cd56f661c69e890510588aa08c3dfb6c5dc31968e077343a5cede6d8"
+    },
+    {
+      "path": "skills/gxp-lowcode-edit/SKILL.md",
+      "sha256": "18b12a92e38d99bf90167a339b542eca917048d503dc6791be9e1c411aa9ed79"
+    },
+    {
+      "path": "skills/gxp-lowcode-edit/references/evidence-and-performance.md",
+      "sha256": "4a3a5dc0574ce1ce58de39b8496b37a33cea6f8f9bfdc887926055574c022c2e"
+    },
+    {
+      "path": "skills/gxp-lowcode-edit/references/session-workflows.md",
+      "sha256": "3bd6864983ecf3bbbfef11bc850bcccc1f3abc0549f8a78b27c69f1b4b47a734"
+    },
+    {
+      "path": "skills/gxp-lowcode-edit/references/targeting-and-source.md",
+      "sha256": "7de5740a04e8c40db1a2dc701958112f15df712920aae2a869a9313c00e5e8c7"
+    }
+  ],
+  "meaning": "Expected outcomes were authored and frozen before replay. The replay must not edit them to fit selected routes. This is not a blind or independently authored evaluation.",
+  "source_note": "The complete-case heading in the current Look graph reference is line 20 (line 18 is a newly inserted query-budget contract). The frozen corpus source_refs.L_COMPLETE_CASE contract text is unchanged; replay evidence cites current exact lines."
+}

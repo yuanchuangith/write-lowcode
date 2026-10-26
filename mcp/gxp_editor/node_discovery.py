@@ -8,8 +8,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-from .canvas_assertions import CanvasAssertionError, validate_json_value
-from .edit_context import EditContextError, _objects, _text, _unique
+from .native_catalog import NativeCatalogError, validated_catalog
 
 
 MAX_LABEL_LENGTH = 256
@@ -58,76 +57,46 @@ Duplicate labels remain separate rows; duplicate native keys reject the canvas.
     if type(design) is not dict or type(registry) is not dict:
         raise NodeDiscoveryError("design and registry must be objects")
 
-    # Match inspect_edit_context's complete-canvas integrity checks before
-    # filtering so a hidden duplicate or invalid node cannot become a target.
+    # Validate the complete canvas even when only one small page is requested.
     try:
-        validate_json_value(design)
-        validate_json_value(registry)
-        elements = _unique(_objects(registry.get("elements"), "registry.elements"), "registry.elements")
-        groups = _unique(_objects(design.get("actionData"), "design.actionData"), "design.actionData")
-        _objects(design.get("globalVariables"), "design.globalVariables")
-        seen_keys, rows = set(), []
-        needle = query.casefold()
-        for group_index, (native_group_key, group) in enumerate(groups.items()):
-            if group.get("actionType") not in {"js", "csharp"}:
-                raise NodeDiscoveryError("Group has an unknown actionType")
-            group_title = _label(group.get("title"), "group.title")
-            for section in ("inputParams", "outputParams"):
-                _objects(group.get(section, []), "group." + section)
-            nodes = _objects(group.get("data"), "group.data")
-            _unique(nodes, "group.data")
-            preceding, node_rows = set(), []
-            for index, node in enumerate(nodes):
-                node_key = node["key"]
-                if node_key in seen_keys:
-                    raise NodeDiscoveryError("Canvas contains an ambiguous node key", reason_code="ambiguous_target")
-                seen_keys.add(node_key)
-                native_element_key = _text(node.get("elementKey"), "node.elementKey")
-                if native_element_key not in elements:
-                    raise NodeDiscoveryError("Unknown native element", reason_code="unknown_native_element")
-                for section in ("input_params", "output_params"):
-                    _objects(elements[native_element_key].get(section, []), "native_contract." + section)
-                depth = node.get("depth", [])
-                if (type(depth) is not list or any(type(key) is not str or key not in preceding for key in depth)
-                        or len(set(depth)) != len(depth)):
-                    raise NodeDiscoveryError("Node depth must reference unique preceding parents in the same group",
-                                             reason_code="invalid_node_depth")
-                if "paramsValue" in node:
-                    if type(node["paramsValue"]) is not dict:
-                        raise NodeDiscoveryError("node.paramsValue must be an object")
-                    for section in ("inputParams", "outputParams"):
-                        if section in node["paramsValue"] and type(node["paramsValue"][section]) is not dict:
-                            raise NodeDiscoveryError("node.paramsValue." + section + " must be an object")
-                title = _label(node.get("title"), "node.title")
-                preceding.add(node_key)
-                if element_key and native_element_key != element_key:
-                    continue
-                node_rows.append((title, {"group_key": native_group_key, "group_title": _display(group_title),
-                    "group_title_truncated": group_title is not None and len(group_title) > MAX_LABEL_LENGTH,
-                    "language": group["actionType"], "group_index": group_index, "node_key": node_key,
-                    "title": _display(title), "title_truncated": title is not None and len(title) > MAX_LABEL_LENGTH,
-                    "element_key": native_element_key, "line": index + 1, "depth": list(depth)}))
-            if group_key and native_group_key != group_key:
+        _, groups, _ = validated_catalog(design, registry)
+    except NativeCatalogError as exc:
+        raise NodeDiscoveryError(str(exc), reason_code=exc.reason_code) from exc
+    rows, total = [], 0
+    needle = query.casefold()
+    for group_index, (native_group_key, group) in enumerate(groups.items()):
+        group_title = _label(group.get("title"), "group.title")
+        group_labels = (native_group_key, group_title or "")
+        selected_group = not group_key or native_group_key == group_key
+        contains_element = not element_key
+        for index, node in enumerate(group["data"]):
+            # Preserve label validation for off-page/filtered nodes, too.
+            title = _label(node.get("title"), "node.title")
+            native_element_key = node["elementKey"]
+            if element_key and native_element_key != element_key:
                 continue
-            group_labels = (native_group_key, group_title or "")
-            if kind == "groups":
-                if element_key and not node_rows:
-                    continue
-                if needle and not any(needle in label.casefold() for label in group_labels):
-                    continue
+            contains_element = True
+            if kind != "nodes" or not selected_group:
+                continue
+            labels = (*group_labels, title or "", native_element_key)
+            if needle and not any(needle in label.casefold() for label in labels):
+                continue
+            if offset <= total < offset + limit:
                 rows.append({"group_key": native_group_key, "group_title": _display(group_title),
                     "group_title_truncated": group_title is not None and len(group_title) > MAX_LABEL_LENGTH,
-                    "language": group["actionType"], "group_index": group_index, "node_count": len(nodes)})
-            else:
-                for title, row in node_rows:
-                    labels = (*group_labels, title or "", row["element_key"])
-                    if not needle or any(needle in label.casefold() for label in labels):
-                        rows.append(row)
-    except (CanvasAssertionError, EditContextError) as exc:
-        raise NodeDiscoveryError("Node discovery requires an intact native canvas: " + str(exc)) from exc
-
-    response = {"kind": kind, "items": rows[offset:offset + limit], "total": len(rows),
-                "offset": offset, "limit": limit, "next_offset": offset + limit if offset + limit < len(rows) else None,
+                    "language": group["actionType"], "group_index": group_index, "node_key": node["key"],
+                    "title": _display(title), "title_truncated": title is not None and len(title) > MAX_LABEL_LENGTH,
+                    "element_key": native_element_key, "line": index + 1, "depth": list(node.get("depth", []))})
+            total += 1
+        if kind == "groups" and selected_group and contains_element and (
+                not needle or any(needle in label.casefold() for label in group_labels)):
+            if offset <= total < offset + limit:
+                rows.append({"group_key": native_group_key, "group_title": _display(group_title),
+                    "group_title_truncated": group_title is not None and len(group_title) > MAX_LABEL_LENGTH,
+                    "language": group["actionType"], "group_index": group_index, "node_count": len(group["data"])})
+            total += 1
+    response = {"kind": kind, "items": rows, "total": total,
+                "offset": offset, "limit": limit, "next_offset": offset + limit if offset + limit < total else None,
                 "filters": {"query": query, "group_key": group_key, "element_key": element_key}, "read_only": True}
     if len(json.dumps(response, ensure_ascii=False).encode("utf-8")) > MAX_DISCOVERY_BYTES:
         raise NodeDiscoveryError("Node discovery exceeds 256 KiB; request a smaller limit",

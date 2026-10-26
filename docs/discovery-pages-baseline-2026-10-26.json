@@ -1,0 +1,106 @@
+{
+  "scope": "synthetic 10k minimal nodes; full JSON/integrity checks; tracemalloc included in timing; no database/compiler/model",
+  "nodes": 10000,
+  "implementation_root": "C:\\Users\\yuanchuan\\Desktop\\git\\low_code\\write\\output\\perf-baseline",
+  "results": [
+    {
+      "scenario": "first",
+      "n": 5,
+      "samples": [
+        {
+          "elapsed_ms": 813.098,
+          "peak_bytes": 7306796,
+          "response_sha256": "e4c01b50217bdf34bc6439a4b6340e226620288465e05184842b78c3a54d4f7f"
+        },
+        {
+          "elapsed_ms": 894.0,
+          "peak_bytes": 7301220,
+          "response_sha256": "e4c01b50217bdf34bc6439a4b6340e226620288465e05184842b78c3a54d4f7f"
+        },
+        {
+          "elapsed_ms": 733.33,
+          "peak_bytes": 7301012,
+          "response_sha256": "e4c01b50217bdf34bc6439a4b6340e226620288465e05184842b78c3a54d4f7f"
+        },
+        {
+          "elapsed_ms": 824.524,
+          "peak_bytes": 7301620,
+          "response_sha256": "e4c01b50217bdf34bc6439a4b6340e226620288465e05184842b78c3a54d4f7f"
+        },
+        {
+          "elapsed_ms": 747.045,
+          "peak_bytes": 7301076,
+          "response_sha256": "e4c01b50217bdf34bc6439a4b6340e226620288465e05184842b78c3a54d4f7f"
+        }
+      ],
+      "median_ms": 813.098,
+      "median_peak_bytes": 7301220
+    },
+    {
+      "scenario": "last",
+      "n": 5,
+      "samples": [
+        {
+          "elapsed_ms": 819.236,
+          "peak_bytes": 7301974,
+          "response_sha256": "04a3e2fce919dba7493bc80eebf997b79a905e1824459d03d855384574680be0"
+        },
+        {
+          "elapsed_ms": 746.771,
+          "peak_bytes": 7301366,
+          "response_sha256": "04a3e2fce919dba7493bc80eebf997b79a905e1824459d03d855384574680be0"
+        },
+        {
+          "elapsed_ms": 793.182,
+          "peak_bytes": 7301302,
+          "response_sha256": "04a3e2fce919dba7493bc80eebf997b79a905e1824459d03d855384574680be0"
+        },
+        {
+          "elapsed_ms": 782.694,
+          "peak_bytes": 7301910,
+          "response_sha256": "04a3e2fce919dba7493bc80eebf997b79a905e1824459d03d855384574680be0"
+        },
+        {
+          "elapsed_ms": 712.542,
+          "peak_bytes": 7301366,
+          "response_sha256": "04a3e2fce919dba7493bc80eebf997b79a905e1824459d03d855384574680be0"
+        }
+      ],
+      "median_ms": 782.694,
+      "median_peak_bytes": 7301366
+    },
+    {
+      "scenario": "groups",
+      "n": 5,
+      "samples": [
+        {
+          "elapsed_ms": 656.768,
+          "peak_bytes": 7203510,
+          "response_sha256": "b89f55fc361981f3831071d6b37daabaad229a7b9f9582983ee1dc0de038d4a4"
+        },
+        {
+          "elapsed_ms": 684.515,
+          "peak_bytes": 7203854,
+          "response_sha256": "b89f55fc361981f3831071d6b37daabaad229a7b9f9582983ee1dc0de038d4a4"
+        },
+        {
+          "elapsed_ms": 696.188,
+          "peak_bytes": 7203382,
+          "response_sha256": "b89f55fc361981f3831071d6b37daabaad229a7b9f9582983ee1dc0de038d4a4"
+        },
+        {
+          "elapsed_ms": 679.2,
+          "peak_bytes": 7203854,
+          "response_sha256": "b89f55fc361981f3831071d6b37daabaad229a7b9f9582983ee1dc0de038d4a4"
+        },
+        {
+          "elapsed_ms": 660.742,
+          "peak_bytes": 7203382,
+          "response_sha256": "b89f55fc361981f3831071d6b37daabaad229a7b9f9582983ee1dc0de038d4a4"
+        }
+      ],
+      "median_ms": 679.2,
+      "median_peak_bytes": 7203510
+    }
+  ]
+}

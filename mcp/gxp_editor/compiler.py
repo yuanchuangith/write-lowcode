@@ -381,7 +381,7 @@ class CompilerBridge:
                             for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
                                          "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
                                          "incremental_codegen.cjs", "generation_modes.cjs",
-                                         "operation_contracts.json", "operation_preflight.py", "edit_context.py")})
+                                         "operation_contracts.json", "operation_preflight.py", "edit_context.py", "native_catalog.py")})
 
     @staticmethod
     def _binding_fields(registry: dict[str, Any]) -> dict[str, Any]:

@@ -34,6 +34,9 @@ def fixtures():
         path, selector, value, padding = "/inputParams/settings/flag", None, True, ""
         if name == "long_chinese":
             settings["notes"] = "配置备注中文" * 12000
+            settings["expression"] = "(" + " || ".join(
+                f"(inputRows[{index}].status === '已批准' && inputRows[{index}].enabled === true)"
+                for index in range(1200)) + ")"
         elif name == "nested_filters":
             settings["filters"] = [{"field": str(i), "operator": "equals", "value": "筛选条件" * 50} for i in range(150)]
         elif name == "native_array_rows":
@@ -44,10 +47,18 @@ def fixtures():
         elif name == "large_parent":
             parent = {"key": "parent", "elementKey": "If", "title": "Parent", "depth": [],
                       "paramsValue": {"inputParams": {"condition": "true", "notes": "父配置" * 15000}, "outputParams": {}}}
-            canvas["actionData"][0]["data"].insert(0, parent)
-            canvas["actionData"][0]["data"][1]["depth"] = ["parent"]
+            inner = {"key": "inner_parent", "elementKey": "If", "title": "Inner parent", "depth": ["parent"],
+                     "paramsValue": {"inputParams": {"condition": "true", "notes": "内层父配置" * 10000}, "outputParams": {}}}
+            target = canvas["actionData"][0]["data"][0]
+            target["depth"] = ["parent", "inner_parent"]
+            canvas["actionData"][0]["data"] = [parent, inner, target]
         elif name == "large_native_contract":
             padding = "原生默认配置" * 10000
+            target = canvas["actionData"][0]["data"][0]
+            for index in range(1, 4):
+                sibling = deepcopy(target)
+                sibling.update(key=f"same_contract_{index}", title=f"Same contract {index}")
+                canvas["actionData"][0]["data"].append(sibling)
         else:
             settings["notes"] = "历史配置" * 16000
         rows.append((name, canvas, path, selector, value, padding))
@@ -75,7 +86,15 @@ async def conversation(server, fixture, detail):
         sid = begin["session_id"]
         await call("find_edit_nodes", session_id=sid, query="Target", limit=1)
         options = {"response_detail": "full"} if detail == "full" else {"parameter_paths": [path]}
-        context = await call("inspect_edit_context", session_id=sid, targets=[{"group_key": "main", "node_key": "target"}], **options)
+        targets = [{"group_key": "main", "node_key": "target"}]
+        if name == "large_native_contract":
+            targets += [{"group_key": "main", "node_key": f"same_contract_{index}"} for index in range(1, 4)]
+        context = await call("inspect_edit_context", session_id=sid, targets=targets, **options)
+        if len(context["nodes"]) != len(targets) or any(row["element_key"] != "Noop" for row in context["nodes"]):
+            raise RuntimeError("Exact context target coverage changed: " + name)
+        if detail == "full" and name == "large_native_contract":
+            if any(row["native_contract"] != context["nodes"][0]["native_contract"] for row in context["nodes"]):
+                raise RuntimeError("Expected repeated identical complete native contracts")
         # Both flows read the same needed field/row. Unrelated config is not
         # reread, and complete fragments are never substituted for an old value.
         read = await call("read_edit_value", session_id=sid, group_key="main", node_key="target", path=path, item_key=selector)
@@ -93,7 +112,12 @@ async def conversation(server, fixture, detail):
                    **({"detail": "full"} if detail == "full" else {}))
         pending = await call("prepare_write", plan_id=plan["plan_id"], **({"response_detail": "full"} if detail == "full" else {}))
         artifact = load_artifact(harness.service.state.get_transaction(pending["transaction_id"])["artifact_path"])
+        target = next(node for node in canvas["actionData"][0]["data"] if node["key"] == "target")
         return {"detail": detail, "calls": len(phases), "phases": phases,
+            "fixture_shape": {"context_target_count": len(targets), "planned_target_count": 1,
+                "target_parent_depth": len(target.get("depth", [])),
+                "long_expression_chars": len(target["paramsValue"]["inputParams"]["settings"].get("expression", "")),
+                "native_contract_padding_chars": len(padding)},
             "structured_utf8_bytes": sum(row["structured_utf8_bytes"] for row in phases),
             "text_and_structured_utf8_bytes": sum(row["text_and_structured_utf8_bytes"] for row in phases),
             "candidate_sha256": sha256_json(plan_artifact["desired"]),

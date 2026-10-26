@@ -71,7 +71,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         stack = self.enterContext(ExitStack())
         stack.enter_context(patch.object(self.service, "_components", return_value=(
             editor_config(), object(), self.repository, self.compiler, object())))
-        stack.enter_context(patch.object(self.service, "editor_status", return_value={"write_ready": True, "gates": {}}))
+        stack.enter_context(patch.object(self.service, "_readiness_status", return_value={"noncompiler_write_ready": True, "gates": {}}))
         stack.enter_context(patch.object(self.service, "_runtime_validation_evidence", return_value=runtime_validation("")))
         stack.enter_context(patch.object(self.service, "_launch_approval", self.launch))
         stack.enter_context(patch("gxp_editor.service.runtime_root", return_value=self.root))

@@ -431,7 +431,7 @@ class ServiceStatusTests(unittest.TestCase):
                 compiler,
                 object(),
             )
-            with patch.object(service, "editor_status", return_value={"write_ready": True, "gates": {}}) as status_probe, patch.object(
+            with patch.object(service, "_readiness_status", return_value={"noncompiler_write_ready": True, "gates": {}}) as status_probe, patch.object(
                 service, "_components", return_value=components
             ), patch.object(service, "_launch_approval") as launch:
                 with self.assertRaisesRegex(CompilerError, "Candidate canvas is invalid"):
@@ -449,7 +449,7 @@ class ServiceStatusTests(unittest.TestCase):
                         service.prepare_write("plan-1")
                 candidate_validation.assert_called_once_with(components[-1], draft["code"], "new-csharp")
                 self.assertEqual(status_probe.call_count, 2)
-                status_probe.assert_called_with(probe_runtime=False)
+                status_probe.assert_called_with(probe_runtime=False, defer_compiler=True)
 
         self.assertFalse(state.transaction_created)
         launch.assert_not_called()

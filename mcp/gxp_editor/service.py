@@ -13,7 +13,7 @@ from .approval import load_artifact, save_artifact
 from .action_context import action_context, publication_target, queue_publication_targets
 from .backup import BackupStore
 from .compiler import CompilerBridge, CompilerError
-from .telemetry import stage, add_external
+from .telemetry import stage, add_external, timed
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
 from .db import EditorDatabase
 from .hashing import relation_snapshot_hash, sha256_json, sha256_text
@@ -205,9 +205,23 @@ class EditorService:
     def editor_status(
         self, *, runtime_artifacts: dict[str, Any] | None = None, probe_runtime: bool = True,
     ) -> dict[str, Any]:
+        return self._readiness_status(runtime_artifacts=runtime_artifacts, probe_runtime=probe_runtime)
+
+    @component_request
+    @timed("readiness.status")
+    def _readiness_status(
+        self, *, runtime_artifacts: dict[str, Any] | None = None, probe_runtime: bool = True,
+        defer_compiler: bool = False,
+    ) -> dict[str, Any]:
+        """Prepare may defer its compiler scan until after draft/relation IO.
+
+        This helper never grants write readiness without that scan. The public
+        status endpoint always verifies all gates.
+        """
         result: dict[str, Any] = {
             "configured": False,
             "planning_ready": False,
+            "noncompiler_write_ready": False,
             "write_ready": False,
             "production_ready": False,
             "runtime_compatibility_verified": False,
@@ -266,21 +280,18 @@ class EditorService:
         except Exception as exc:
             result["gates"]["least_privilege"] = {"ready": False, "error": str(exc)}
         try:
-            registry, binding = compiler.registry_and_binding()
-            result["compiler"] = {
-                **binding,
-                "element_count": len(registry.get("elements") or []),
-                "supported_operations": registry.get("supported_operations") or [],
-            }
-            result["gates"]["compiler"] = {
-                "ready": True,
-                "blocking": True,
-                "source_provenance_verified": True,
-                "canvas_validation_required": True,
-                "code_generation_required": True,
-            }
+            if defer_compiler:
+                registry, binding = None, None
+            else:
+                registry, binding = compiler.registry_and_binding()
+            if defer_compiler:
+                result["gates"]["compiler"] = {"ready": False, "deferred": True, "blocking": True}
+            else:
+                self._set_compiler_status(result, registry, binding)
         except Exception as exc:
             result["gates"]["compiler"] = {"ready": False, "error": str(exc)}
+        result["noncompiler_write_ready"] = all(bool(result["gates"].get(name, {}).get("ready"))
+            for name in ("database", "human_approval_key", "indexes", "least_privilege"))
         try:
             if runtime_artifacts is not None:
                 runtime_status = dict(runtime_artifacts)
@@ -358,8 +369,16 @@ class EditorService:
         return result
 
     @staticmethod
-    def _database_safety_binding(config, repository: EditorRepository) -> dict[str, Any]:
-        grants = repository.grant_status(
+    def _set_compiler_status(result, registry, binding):
+        result["compiler"] = {**binding, "element_count": len(registry.get("elements") or []),
+                              "supported_operations": registry.get("supported_operations") or []}
+        result["gates"]["compiler"] = {"ready": True, "blocking": True,
+            "source_provenance_verified": True, "canvas_validation_required": True, "code_generation_required": True}
+
+    @staticmethod
+    def _database_safety_binding(config, repository: EditorRepository, *, verified_grants=None) -> dict[str, Any]:
+        # Only pass the immediately preceding readiness result within this request.
+        grants = verified_grants if verified_grants is not None else repository.grant_status(
             account_mode=config.database.account_mode,
             expected_grants_sha256=config.database.expected_grants_sha256,
         )
@@ -536,28 +555,35 @@ class EditorService:
                                  else runtime_validator.no_source_evidence())
         except Exception as exc:
             runtime_artifacts = {"available": False, "zero_backend_mode": True, "error": str(exc)}
-        backup = BackupStore(integrity_key=approval_secret(config)).create(
-            draft,
-            {
-                "bridge_sha256": registry["bridge_sha256"],
-                "compiler_binding": compiler.compiler_binding(),
-                "registry_hash": registry.get("registry_hash"),
-                "rule_source_sha256": registry.get("rule_source_sha256"),
-                "frontend_version": registry.get("frontend_version"),
-                "elements": sorted(used),
-                "validation": validation.get("validation"),
-                "session_mode": "reference_repair" if repair else "edit",
-            },
-            runtime_artifacts,
-        )
+        with stage("backup.create"):
+            backup = BackupStore(integrity_key=approval_secret(config)).create(
+                draft,
+                {
+                    "bridge_sha256": registry["bridge_sha256"],
+                    "compiler_binding": compiler.compiler_binding(),
+                    "registry_hash": registry.get("registry_hash"),
+                    "rule_source_sha256": registry.get("rule_source_sha256"),
+                    "frontend_version": registry.get("frontend_version"),
+                    "elements": sorted(used),
+                    "validation": validation.get("validation"),
+                    "session_mode": "reference_repair" if repair else "edit",
+                },
+                runtime_artifacts,
+            )
         report = None
         if repair:
             # Backup the original bytes before inspecting or projecting any binding.
             report = scan_references(compiler_design, registry)
             compiler.validate_design(inspection_projection(compiler_design, report))
-        binding = compiler.compiler_binding()
         # Finish fallible readiness reads before acquiring local draft occupancy.
         status = self.editor_status(runtime_artifacts=runtime_artifacts)
+        if not status.get("gates", {}).get("compiler", {}).get("ready"):
+            raise EditorServiceError("Compiler readiness changed before session creation: "
+                                     + json.dumps(status.get("gates", {}).get("compiler"), ensure_ascii=False))
+        # editor_status just checked the source after backup/projection and database
+        # work. Its binding is safe for adjacent consumers until the next IO.
+        binding = {key: value for key, value in status["compiler"].items()
+                   if key not in {"element_count", "supported_operations"}}
         session = self.state.create_session(
             draft,
             backup["backup_id"],
@@ -1260,20 +1286,22 @@ class EditorService:
                                                       owner_revision=session.get("owner_revision", 0))
         if checkpoint is not None and sha256_json(checkpoint["spec"]) != sha256_json(artifact["business_review"]["spec"]):
             raise EditorServiceError("已确认要求已变化；旧计划只可查看，请按当前要求重新生成计划。")
-        status = self.editor_status(probe_runtime=False)
-        if not status["write_ready"]:
+        status = self._readiness_status(probe_runtime=False, defer_compiler=True)
+        if not status["noncompiler_write_ready"]:
             raise EditorServiceError("Database write safety gates are not ready: " + json.dumps(status["gates"], ensure_ascii=False))
         config, _, repository, compiler, runtime_validator = self._components()
-        database_safety = self._database_safety_binding(config, repository)
+        database_safety = self._database_safety_binding(config, repository, verified_grants=status.get("grants"))
         if plan["status"] != "ready" or session["state"] != "planned" or session.get("plan_id") != plan_id:
             raise EditorServiceError("Only the current ready plan can enter approval")
-        current = repository.load_draft_by_id(session["design_id"])
+        with stage("database.load_draft"):
+            current = repository.load_draft_by_id(session["design_id"])
         if (
             current["content_hash"] != artifact.get("base_content_hash")
             or plan.get("base_hash") != artifact.get("base_content_hash")
         ):
             raise EditorServiceError("Draft changed after the plan was generated")
-        current_relations = repository.load_relations(session["design_id"])
+        with stage("database.load_relations"):
+            current_relations = repository.load_relations(session["design_id"])
         if (artifact.get("generation") or artifact.get("generation_selection")) and relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
             raise EditorServiceError("Draft relation data changed after generation planning")
         registry, binding = compiler.registry_and_binding()

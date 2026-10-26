@@ -231,3 +231,9 @@ C# compilation and saved-draft checks keep their original meaning;
 `browser_verified` and `runtime_verified` remain false for this local runner.
 Old records remain viewable, but pending writes without current review evidence
 must be regenerated. Restore uses its existing immutable-backup approval path.
+
+For the current runner, a `passed` receipt must contain exactly one complete
+assertion for each fixed expectation. Names, expectations, observations, JSON
+types and API counts/order are reconciled; missing or contradictory evidence is
+rejected. Failed or unverified runs may stop before collecting those assertions.
+Receipt consistency does not establish live execution or production acceptance.

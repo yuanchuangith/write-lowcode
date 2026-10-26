@@ -6,7 +6,7 @@ import math
 from copy import deepcopy
 from typing import Any
 
-from .canvas_assertions import CanvasAssertionError, validate_json_value
+from .native_catalog import NativeCatalogError, validated_catalog
 from .reference_repair import _catalog
 from .operation_preflight import SCHEMA_VERSION, UNSAFE, atomic_parameters, operation_shape, same_json
 from .value_transport import value_summary
@@ -164,52 +164,20 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
             raise EditContextError("targets contains a duplicate group/node")
         seen.add(pair)
         selected.append(pair)
-    if type(design) is not dict or type(registry) is not dict:
-        raise EditContextError("design and registry must be objects")
     try:
-        validate_json_value(design)
-        validate_json_value(registry)
-    except CanvasAssertionError as exc:
-        raise EditContextError("Edit context requires bounded finite JSON data: " + str(exc)) from exc
-    elements = _unique(_objects(registry.get("elements"), "registry.elements"), "registry.elements")
-    groups = _unique(_objects(design.get("actionData"), "design.actionData"), "design.actionData")
-    _objects(design.get("globalVariables"), "design.globalVariables")
-    all_keys, locations = set(), {}
-    for group_key, group in groups.items():
-        if group.get("actionType") not in ("js", "csharp"):
-            raise EditContextError("Group has an unknown actionType: " + group_key)
-        for section in ("inputParams", "outputParams"):
-            _objects(group.get(section, []), "group." + section)
-        nodes = _objects(group.get("data"), "group.data")
-        _unique(nodes, "group.data")
-        previous_keys = set()
-        for index, node in enumerate(nodes):
-            node_key = node["key"]
-            if node_key in all_keys:
-                raise EditContextError("Canvas contains an ambiguous node key: " + node_key,
-                                       group_key=group_key, node_key=node_key, reason_code="ambiguous_target")
-            all_keys.add(node_key)
-            element_key = _text(node.get("elementKey"), "node.elementKey")
-            if element_key not in elements:
-                raise EditContextError("Unknown native element: " + element_key,
-                                       group_key=group_key, node_key=node_key, reason_code="unknown_native_element")
-            for section in ("input_params", "output_params"):
-                _objects(elements[element_key].get(section, []), "native_contract." + section)
-            depth = node.get("depth", [])
-            if (type(depth) is not list or any(type(key) is not str or key not in previous_keys for key in depth)
-                    or len(set(depth)) != len(depth)):
-                raise EditContextError("Node depth must reference unique preceding parents in the same group: " + node_key,
-                                       group_key=group_key, node_key=node_key, reason_code="invalid_node_depth")
-            if "paramsValue" in node:
-                if type(node["paramsValue"]) is not dict:
-                    raise EditContextError("node.paramsValue must be an object: " + node_key,
-                                           group_key=group_key, node_key=node_key, reason_code="invalid_parameter_value")
-                for section in ("inputParams", "outputParams"):
-                    if section in node["paramsValue"] and type(node["paramsValue"][section]) is not dict:
-                        raise EditContextError("node.paramsValue." + section + " must be an object: " + node_key,
-                                               group_key=group_key, node_key=node_key, reason_code="invalid_parameter_value")
-            previous_keys.add(node_key)
-            locations[group_key, node_key] = (group, index, node)
+        elements, groups, locations = validated_catalog(design, registry, selected=selected)
+    except NativeCatalogError as exc:
+        raise EditContextError(str(exc), group_key=exc.group_key, node_key=exc.node_key,
+                               reason_code=exc.reason_code) from exc
+    # Retain only parents needed by selected targets, after validating every node.
+    parent_keys = {}
+    for group, _, node in list(locations.values()):
+        parent_keys.setdefault(group["key"], set()).update(node.get("depth", []))
+    for group_key, keys in parent_keys.items():
+        if keys:
+            for index, parent in enumerate(groups[group_key]["data"]):
+                if parent["key"] in keys:
+                    locations[group_key, parent["key"]] = (groups[group_key], index, parent)
     nodes = []
     summary = response_detail == "summary" and include_context is None
     compact = not include_context if include_context is not None else operation_cursor > 0

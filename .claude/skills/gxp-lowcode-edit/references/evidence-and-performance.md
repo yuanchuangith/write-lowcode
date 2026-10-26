@@ -126,10 +126,17 @@ Confirmed requirements are checkpointed separately from disposable candidate rep
 
 MCP responses expose `trace_id`, `total_elapsed_ms`, `timings` with bounded stages, durations, counts/cache hits and stable error codes. Failures retain completed timings. Use them to distinguish database reads, evidence checks, preflight, registry/contract loading, generation, independent regeneration, runtime reference checks, SDK discovery, restore, build and business review. They measure tool work, not the model's reasoning or network round trip. Performance logs contain no parameter values, code, credentials or exception text; timings never enter signed plan content or business fingerprints.
 
+Local spans can include `start_ms` and `depth`; nested durations overlap, so do not
+sum them as independent costs. Readiness evidence is reused only for adjacent
+consumers in one request. Prepare checks the compiler again after draft/relation
+reads; independent Node and C# validation remain serial and retain their gates.
+Node paging still validates the complete canvas before constructing the current
+page, including duplicate keys and invalid nodes outside the displayed range.
+
 Registry and component-contract caches are process-local and bounded. Keys include normalized source paths, content fingerprints, bridge/adapter/protocol and Node identity; Git provenance is refreshed. Generation and each independent verification still run in fresh Node processes. No candidate success result is cached, and content drift is checked even when length and modification time are unchanged.
 
 C# workspaces reuse only validated restore preparation, bound to actual SDK identity, target framework, DLL content fingerprints and project/NuGet template versions. Exclusive cross-process slots isolate each candidate; source and build outputs are scrubbed between leases. Cold preparation restores packages; every nonblank candidate build uses `--no-restore --no-incremental`. Planning and approval each compile the complete candidate again, with reference fingerprints checked before and after. Dirty, interrupted or corrupt preparation is rebuilt cold; repeated failures return diagnostics rather than using old success. Busy or timed-out checkers remain blocking.
 
 Pure Candidate.cs `CSxxxx` code errors may retain verified restore preparation after reference/assets checks and source/output cleanup, so corrected code need not restore again. Environment, mixed, metadata, timeout and drift failures remain cold. Adjacent registry/binding reads share only their immediate verified snapshot; every independent Node generation/verification still checks source, bridge and adapter before and after execution.
 
-These changes do not weaken canvas/code checks, human SQL approval or saved-draft verification. Full remains the default; honor the user's mode choice. Source maintenance does not install/update the running plugin, restart Codex, save or publish a business draft. Assess speed from measured stages and cold/warm comparisons, never claim an unsupported percentage.
+These changes do not weaken canvas/code checks, human SQL approval or saved-draft verification. Full generation remains the default; honor the user's generation mode choice. Tool responses default to summaries with explicit full reads. Source maintenance does not install/update the running plugin, restart Codex, save or publish a business draft. Assess speed from measured stages and cold/warm comparisons, never claim an unsupported percentage.
