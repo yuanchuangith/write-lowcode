@@ -209,7 +209,7 @@ def prepare_write(plan_id: str, conversation_id: str = "", response_detail: str 
 @mcp.tool()
 @traced_tool
 def get_write_status(transaction_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Read save status; after verification and release, list publication_targets by name/code for manual republication. Never writes."""
+    """Read save status; after verified completion, list publication_targets and look_graph_review. Compare existing Look relations using this diagnosis; ask to add/update only for confirmed differences, with a concrete proposal first. No differences means no update question. Never writes."""
     return service(conversation_id).get_write_status(transaction_id)
 
 
@@ -230,7 +230,7 @@ def recover_edit_session(session_id: str, conversation_id: str = "") -> dict[str
 @mcp.tool()
 @traced_tool
 def verify_saved_draft(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Verify an unfinished save, or return its completed historical save receipt without rechecking later edits."""
+    """Verify an unfinished save, or return its completed historical save receipt and look_graph_review without rechecking later edits. A graph review is a comparison hint, never permission to update."""
     return service(conversation_id).verify_saved_draft(session_id)
 
 
@@ -244,7 +244,7 @@ def prepare_restore(session_id: str, backup_id: str, conversation_id: str = "") 
 @mcp.tool()
 @traced_tool
 def finish_edit_session(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Release a verified session and return publication_targets to list by name/code for manual republication."""
+    """Release a verified session and return publication_targets plus look_graph_review. Compare first; ask once to add/update Look relations only when confirmed differences exist, then wait for user consent."""
     return service(conversation_id).finish_edit_session(session_id)
 
 

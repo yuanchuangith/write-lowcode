@@ -146,20 +146,66 @@ class SessionReleaseTests(unittest.TestCase):
             status = self.service.get_write_status(self.tx)
             self.assertTrue(status["verified"])
             self.assertTrue(status["session_released"])
+            review = status["look_graph_review"]
+            self.assertEqual(review["transaction_id"], self.tx)
+            self.assertTrue(review["compare_before_asking"])
+            self.assertTrue(review["ask_only_if_changes"])
+            self.assertEqual(review["supported_changes"], ["add", "update"])
+            self.assertTrue(review["requires_user_confirmation"])
+            self.assertFalse(review["graph_write_executed"])
             self.assertEqual(status["publication_targets"][0]["action_name"], "Action one")
             self.assertEqual(status["publication_targets"][0]["action_code"], "ActionOne")
             verified = self.service.verify_saved_draft(self.session["id"])
             self.assertEqual(verified["saved_verification"], receipt)
             self.assertFalse(verified["current_draft_rechecked"])
+            self.assertEqual(verified["look_graph_review"], review)
             self.assertEqual(verified["publication_targets"][0]["action_code"], "ActionOne")
             finished = self.service.finish_edit_session(self.session["id"])
             self.assertTrue(finished["finished"])
+            self.assertEqual(finished["look_graph_review"], review)
             self.assertEqual(finished["publication_targets"][0]["ref_id"], "ref-1")
         self.path.unlink()
         status = self.service.get_write_status(self.tx)
         self.assertFalse(status["artifact_available"])
         self.assertEqual(status["publication_targets"][0]["action_code"], "ActionOne")
         self.assertIsNone(self.store.active_session(self.owner))
+
+    def test_graph_review_waits_for_verified_completion_and_excludes_unsuccessful_closures(self):
+        for transaction_state, session_state in (
+            ("awaiting_approval", "awaiting_approval"),
+            ("executing", "awaiting_approval"),
+            ("saved", "saved"),
+            ("saved", "verified"),
+            ("saved_state_pending", "saved_state_pending"),
+            ("rolled_back", "rolled_back"),
+            ("failed_no_write", "failed_no_write"),
+            ("cancelled", "aborted"),
+            ("saved", "closed_unverified"),
+        ):
+            with self.subTest(transaction=transaction_state, session=session_state):
+                self.store.update_transaction(self.tx, transaction_state)
+                self.store.update_session(self.session["id"], session_state, conversation_id=self.owner)
+                self.assertIsNone(self.service.get_write_status(self.tx)["look_graph_review"])
+
+    def test_manual_finish_adds_graph_review_without_reexecuting_saved_transaction(self):
+        self.store.update_transaction(self.tx, "saved")
+        self.store.update_session(self.session["id"], "verified", conversation_id=self.owner)
+        with patch.object(self.service, "_components", side_effect=AssertionError("must not execute")):
+            result = self.service.finish_edit_session(self.session["id"])
+            self.assertEqual(result["look_graph_review"]["transaction_id"], self.tx)
+            self.assertEqual(result["look_graph_review"], self.service.get_write_status(self.tx)["look_graph_review"])
+        self.assertEqual(self.store.get_transaction(self.tx)["state"], "saved")
+
+    def test_previous_save_does_not_offer_graph_review_during_a_new_restore(self):
+        self.store.update_transaction(self.tx, "saved")
+        self.store.update_session(self.session["id"], "verified", conversation_id=self.owner)
+        restore = self.store.create_transaction(self.session["id"], None, "restore", "restore.json", conversation_id=self.owner)
+        self.assertIsNone(self.service.get_write_status(self.tx)["look_graph_review"])
+        self.store.update_transaction(restore, "saved")
+        self.store.update_session(self.session["id"], "verified", conversation_id=self.owner)
+        result = self.service.finish_edit_session(self.session["id"])
+        self.assertEqual(result["look_graph_review"]["transaction_id"], restore)
+        self.assertIsNone(self.service.get_write_status(self.tx)["look_graph_review"])
 
     def test_unverified_closure_is_never_reported_as_verified(self):
         self.store.update_transaction(self.tx, "saved")
@@ -168,6 +214,7 @@ class SessionReleaseTests(unittest.TestCase):
         status = self.service.get_write_status(self.tx)
         self.assertFalse(status["verified"])
         self.assertIsNone(status["saved_verification"])
+        self.assertIsNone(status["look_graph_review"])
         self.assertEqual(status["publication_targets"], [])
 
     def test_verify_cannot_race_automatic_completion_worker(self):

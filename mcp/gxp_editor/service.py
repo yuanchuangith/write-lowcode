@@ -22,6 +22,7 @@ from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
 from .state import ACTIVE_STATES, StateError, StateStore, saved_verification, assert_session_database_scope
 from .review_response import evidence_summary, review_page, review_response
+from .post_write import look_graph_review
 from .transaction import build_transaction_artifact, validate_transaction_artifact
 from .reference_repair import build_repair, inspection_projection, scan_references
 from .recovery import archive_edit_session, recover_session
@@ -1297,6 +1298,7 @@ class EditorService:
             "old_content_hash": artifact.get("old_content_hash"),
             "new_content_hash": artifact.get("new_content_hash"),
             "publication_targets": publication_targets,
+            "look_graph_review": look_graph_review(session, transaction),
         }
 
     def reopen_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
@@ -1443,12 +1445,14 @@ class EditorService:
                     "saved_verification": receipt, "current_draft_rechecked": False,
                     "session_released": True, "transaction_kind": transaction["kind"],
                     "runtime_finalized": False, "manual_publication_required": True,
+                    "look_graph_review": look_graph_review(session, transaction),
                     "publication_targets": [action_context(session["baseline"])]}
         if session["state"] == "finished" and transaction["state"] == "saved":
             return {"verified": True, "session_released": True, "design_id": session["design_id"],
                     "ref_id": session["ref_id"], "verification_scope": "previously_finished_session",
                     "current_draft_rechecked": False, "runtime_finalized": False,
                     "manual_publication_required": True,
+                    "look_graph_review": look_graph_review(session, transaction),
                     "publication_targets": [action_context(session["baseline"])]}
         _, _, repository, _, _ = self._components()
         if transaction["state"] != "saved":
@@ -1484,8 +1488,11 @@ class EditorService:
             self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
                                       owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
                                       expected_transaction_id=session.get("transaction_id"))
+        completed = {**session, "state": "finished"}
+        transaction = self.state.get_transaction(session["transaction_id"]) if session.get("transaction_id") else {}
         return {
             "finished": True,
+            "look_graph_review": look_graph_review(completed, transaction),
             "publication_targets": [action_context(session["baseline"])],
             "action_code": session["action_code"],
             "action_name": session["action_name"],
