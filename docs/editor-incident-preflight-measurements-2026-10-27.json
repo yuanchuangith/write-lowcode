@@ -1,0 +1,293 @@
+{
+  "schema_version": 1,
+  "measured_at": "2026-10-27T15:21:05+08:00",
+  "scope": "synthetic_approval_preflight_orchestration",
+  "python_version": "3.12.7",
+  "platform": "Windows",
+  "rounds_per_scenario": 5,
+  "limitations": [
+    "No business database, credentials, sessions, approvals, or actual compiler source are accessed.",
+    "Draft, relation, grants, and compiler bindings use synthetic fixtures and Mock objects.",
+    "Call counts are repository-level entry calls, not actual SQL statements or database round trips.",
+    "Durations exclude fixture construction and do not represent database, production, or end-to-end latency.",
+    "This report has no baseline comparison and makes no speedup claim."
+  ],
+  "scenarios": [
+    {
+      "name": "match",
+      "expected_outcome": "match",
+      "median_elapsed_ms": 0.3557,
+      "median_repository_calls": {
+        "read_session": 1,
+        "draft": 1,
+        "relation": 1,
+        "grants": 1,
+        "compiler": 1
+      },
+      "samples": [
+        {
+          "elapsed_ms": 0.3703,
+          "outcome": "match",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.3557,
+          "outcome": "match",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.3049,
+          "outcome": "match",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.5209,
+          "outcome": "match",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.3116,
+          "outcome": "match",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        }
+      ]
+    },
+    {
+      "name": "stale_payload",
+      "expected_outcome": "draft_baseline_changed",
+      "median_elapsed_ms": 0.2693,
+      "median_repository_calls": {
+        "read_session": 1,
+        "draft": 1,
+        "relation": 1,
+        "grants": 0,
+        "compiler": 0
+      },
+      "samples": [
+        {
+          "elapsed_ms": 0.301,
+          "outcome": "draft_baseline_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.2746,
+          "outcome": "draft_baseline_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.2569,
+          "outcome": "draft_baseline_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.2693,
+          "outcome": "draft_baseline_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.2526,
+          "outcome": "draft_baseline_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 0,
+            "compiler": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "db_unavailable",
+      "expected_outcome": "baseline_evidence_unavailable",
+      "median_elapsed_ms": 0.1273,
+      "median_repository_calls": {
+        "read_session": 1,
+        "draft": 0,
+        "relation": 0,
+        "grants": 0,
+        "compiler": 0
+      },
+      "samples": [
+        {
+          "elapsed_ms": 0.2302,
+          "outcome": "baseline_evidence_unavailable",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 0,
+            "relation": 0,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.1273,
+          "outcome": "baseline_evidence_unavailable",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 0,
+            "relation": 0,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.1217,
+          "outcome": "baseline_evidence_unavailable",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 0,
+            "relation": 0,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.1191,
+          "outcome": "baseline_evidence_unavailable",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 0,
+            "relation": 0,
+            "grants": 0,
+            "compiler": 0
+          }
+        },
+        {
+          "elapsed_ms": 0.1384,
+          "outcome": "baseline_evidence_unavailable",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 0,
+            "relation": 0,
+            "grants": 0,
+            "compiler": 0
+          }
+        }
+      ]
+    },
+    {
+      "name": "compiler_changed",
+      "expected_outcome": "compiler_binding_changed",
+      "median_elapsed_ms": 0.3351,
+      "median_repository_calls": {
+        "read_session": 1,
+        "draft": 1,
+        "relation": 1,
+        "grants": 1,
+        "compiler": 1
+      },
+      "samples": [
+        {
+          "elapsed_ms": 0.5252,
+          "outcome": "compiler_binding_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.3302,
+          "outcome": "compiler_binding_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.3351,
+          "outcome": "compiler_binding_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.311,
+          "outcome": "compiler_binding_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        },
+        {
+          "elapsed_ms": 0.4346,
+          "outcome": "compiler_binding_changed",
+          "repository_calls": {
+            "read_session": 1,
+            "draft": 1,
+            "relation": 1,
+            "grants": 1,
+            "compiler": 1
+          }
+        }
+      ]
+    }
+  ]
+}

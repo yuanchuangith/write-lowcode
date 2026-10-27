@@ -11,6 +11,8 @@
 | MCP 工具、参数及默认值 | [mcp/server.py](mcp/server.py) |
 | 工作流与编排 | [service.py](mcp/gxp_editor/service.py)、[workflow_guidance.py](mcp/gxp_editor/workflow_guidance.py) |
 | 会话、基线及并发 | [state.py](mcp/gxp_editor/state.py)、[backup.py](mcp/gxp_editor/backup.py)、[repository.py](mcp/gxp_editor/repository.py) |
+| 诊断比较、恢复归因和队列交接 | [baseline_comparison.py](mcp/gxp_editor/baseline_comparison.py)、[execution_evidence.py](mcp/gxp_editor/execution_evidence.py)、[queue_protocol.py](mcp/gxp_editor/queue_protocol.py) |
+| 运行快照、进程租约和独立 UI 宿主 | [runtime_package.py](mcp/gxp_editor/runtime_package.py)、[ui_lifecycle.py](mcp/gxp_editor/ui_lifecycle.py)、[ui_host.py](mcp/gxp_editor/ui_host.py)、[ui_observer.py](mcp/gxp_editor/ui_observer.py) |
 | 节点发现、上下文、值传输与守卫 | [node_discovery.py](mcp/gxp_editor/node_discovery.py)、[edit_context.py](mcp/gxp_editor/edit_context.py)、[value_transport.py](mcp/gxp_editor/value_transport.py)、[edit_guards.py](mcp/gxp_editor/edit_guards.py) |
 | 操作校验及原生生成 | [operation_preflight.py](mcp/gxp_editor/operation_preflight.py)、[compiler.py](mcp/gxp_editor/compiler.py)、[native_compiler/](mcp/gxp_editor/native_compiler/bridge_core.js) |
 | 场景、断言及业务复核 | [logic_review.py](mcp/gxp_editor/logic_review.py)、[logic_scenarios.py](mcp/gxp_editor/logic_scenarios.py)、[canvas_assertions.py](mcp/gxp_editor/canvas_assertions.py)、[review_response.py](mcp/gxp_editor/review_response.py) |
@@ -48,6 +50,16 @@
 [.mcp.json](.mcp.json) 声明本地启动器，[.codex-plugin/plugin.json](.codex-plugin/plugin.json) 声明 Codex 插件。仓库没有一键 Codex / Claude 安装器；准备运行环境、同步技能与更新客户端安装是三个不同步骤。源码改动不会自动更新 Codex 缓存或重启客户端。
 
 数据库设置仅按用户明确要求通过 [database_settings.py](scripts/database_settings.py) 或本机工具处理；具体见[统一设置](skills/gxp-lowcode-edit/references/database-settings.md)。普通开发和离线验证不读取凭据、不访问业务库、不保存或发布草稿。
+
+### 运行资源与窗口生命周期
+
+源码发布前，在所有运行文件及插件版本确定后执行 `python scripts/build_runtime_manifest.py`。manifest 按实际文件字节构建；打包或 checkout 若转换换行，必须在最终打包字节上重建。`start_mcp.ps1` 验证完整包后，将其原子复制到 `%LOCALAPPDATA%/GxpLowcodeEditor/runtime/packages/<manifest_sha256>/`，再从固定快照运行。MCP、UI、宿主和观察进程各持独立身份租约；不会自动删除快照。运行快照保护成功启动的实例，无法保住宿主尚未启动就删除的插件入口。
+
+`setup.ps1` 修改共享 `.venv` 前持共同协调锁，活动租约、旧版使用该环境的进程或无法核实的使用者都会阻断原地更新。需要并行升级时应另建版本环境，不能替换仍在使用的解释器。编译器继续在实际 Node 调用前后校验来源；manifest 不替代原有来源、完整编译或人工审批。
+
+Windows UI 默认经用户单独启动的 `scripts/ui_host.py --runtime-root <已验证快照目录>` 运行，宿主必须能够证明处于 MCP teardown Job 外。MCP 不会自行启动宿主、安装服务或计划任务；缺宿主返回 `ui_host_required` 和具体命令。宿主只接受当前用户作用域内的固定 UI 请求，独立 observer 保留实际 UI 句柄，断线后继续记录退出；launcher 与 UI 的 PID/退出码分别保存。源码交付不启动或部署这个宿主。
+
+基线比较继续使用原内容、关系、SQL 及审批签名算法，诊断摘要不加入签名。重开前定向读取草稿和完整关系，显式使用 REPEATABLE READ 一致快照；缺证据返回 unknown。队列锁顺序为队列终身锁探测 → 按稳定顺序获取窗口/执行锁 → 短 SQLite 控制事务，控制事务不跨业务查询或等待。启动保留 generation/token 与 revision，子窗口取得锁后再次校验，执行 claim 仍检查成员归属和当前事务。结果匹配与事务提交归因分别持久化；`state=saved` 不能单独推出 `executed=true`。完整实现及验证范围见[故障修复交付记录](docs/editor-incident-repair-delivery-2026-10-27.md)。
 
 ## 开发与验证流程
 

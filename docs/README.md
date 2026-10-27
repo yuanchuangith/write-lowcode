@@ -24,7 +24,7 @@
 
 ## 最新优化交付与附件
 
-[编辑工具故障修复实施计划](editor-incident-repair-plan-2026-10-27.md)覆盖基线诊断、版本资源、审批窗口生命周期及 hash 辅助恢复；当前为待实施方案，不代表已经安装或修复。
+[编辑工具故障修复实施计划](editor-incident-repair-plan-2026-10-27.md)保留原计划状态；实际源码、验证和未部署边界见[故障修复交付记录](editor-incident-repair-delivery-2026-10-27.md)。本次未安装插件或启动实际 UI 宿主。
 
 `create_conversation` 返回类型热修复见[2026-10-27 修复记录](conversation-response-hotfix-2026-10-27.md)。这是传输契约修复，不改变已冻结的优化测量。
 

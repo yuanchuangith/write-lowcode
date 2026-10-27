@@ -155,6 +155,30 @@ does not imply that the original canvas is valid.
 
 ## Session recovery
 
+- Baseline failures include `draft_baseline_changed`, `draft_relations_changed`
+  or `baseline_evidence_unavailable`, with a versioned comparison and minimum
+  next step. `revision_only_changed` still blocks old CAS conditions. Never
+  call this backup expiration, refresh the old baseline, edit its timestamp or
+  carry old approvals into a new plan. Use the inspected, explicitly confirmed
+  cancellation procedure before starting from the current draft.
+- Reopening checks the actual current draft and complete relations in one
+  consistent read view, original account/grants, current compiler binding and
+  local ownership/pointers. New transactions bind the authenticated principal
+  and database scope in signed `database_safety`; old valid transactions report
+  `principal_verification=legacy_grants_only` without being retroactively signed.
+  Unknown required evidence disables reopening; it is not proof of no change.
+- `plugin_runtime_path_missing` and `plugin_runtime_resource_changed` identify
+  a broken instance resource and require a connection to an intact runtime.
+  Do not reinstall, modify the installed cache, restart the MCP or start a host
+  without the user's separate instruction. `ui_host_required` returns an
+  explicit external-host command; surface that concrete requirement and retain
+  the existing pending transaction. Repeated `prepare_write` is not recovery.
+- Each startup has its own journal. Launcher PID/exit and claimed UI PID/exit
+  are separate evidence. `process_state=unknown` and a missing heartbeat cannot
+  establish death, non-execution or a specific terminating process. `ready`
+  means visible/event-loop ready; use `review_ready` and `preview_pending` for
+  review readiness. A late old event does not describe the new startup.
+
 - New approval saves verify the committed draft and relations and release the
   session in the save worker before showing a publication prompt. Completed
   sessions retain a `saved_verification` receipt. Status/verification calls reuse
@@ -197,6 +221,18 @@ does not imply that the original canvas is valid.
   approved candidate and signed pre-write relation hash. Recovery never modifies
   business data. A match to the candidate becomes verified; call
   `finish_edit_session`. A match to the original releases the failed session.
+- Snapshot verification and execution attribution remain separate through
+  status, verification, finish and history. A candidate match can have
+  `verified=true`, `executed=false`, `execution_outcome=unknown` and
+  `commit_evidence=snapshot_match_only`. Explain that the current result matches,
+  while this transaction's commit is unproven. Never interpret false as never
+  executed or retry the original transaction. Historical receipts explicitly
+  report that the current draft was not reread; do not promise it is unchanged.
+- A positively identified dead queue can reopen its remaining pending items
+  after every required check. Completed entries are displayed, never repeated.
+  A reserved generation must match its exact exited startup before replacement;
+  timeout alone cannot release it. A live stalled queue is not automatically
+  terminated. Membership/pointer changes during launch reject the old preflight.
 - The executor and recovery share an OS lock. Recovery cannot release a live
   executor. Old executing records without this protocol cannot be assumed dead.
 - If neither snapshot matches, use the handling window's explicit human choice
@@ -254,6 +290,10 @@ user requests continuation.
   owner, and invalidates the old dialogue's access and in-flight mutations. It
   does not approve or execute statements. Use the returned transaction ID with
   `reopen_approval` and the new marker to open the flow in the receiving dialogue.
+- `attached=true` remains a successful transfer even when subsequent baseline
+  diagnostics are unavailable. Inspect `baseline_status=current/stale/unknown`
+  and its comparison time; stale evidence still permits handling/cancellation,
+  but does not permit editing or execution from that old baseline.
 - An old session handling window cannot cancel, recover, reopen or finish a flow
   after handoff. Status is scoped to the calling dialogue. Omitting a marker
   accesses only legacy sessions, never all dialogues.
