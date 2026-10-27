@@ -41,14 +41,39 @@ class WindowStartupTests(unittest.TestCase):
                    and time.monotonic() < deadline):
                 time.sleep(.02)
 
-    def launch(self, source, *, key="test-window", timeout=2):
+    def launch(self, source, *, key="test-window", timeout=2, mode="direct"):
         script = self.root / "child.py"
         script.write_text(
             f"import sys,time\nsys.path.insert(0,{str(MCP_ROOT)!r})\n"
             "from gxp_editor.ui_launch import report_window_startup\n" + source,
             encoding="utf-8")
-        return launch_window(lifecycle_mode="direct", executable=sys.executable, script=script, arguments=[], cwd=self.root,
+        return launch_window(lifecycle_mode=mode, executable=sys.executable, script=script, arguments=[], cwd=self.root,
                              launch_key=key, startup_root=self.startup, timeout_seconds=timeout)
+
+    def test_default_auto_opens_from_conversation_without_external_host(self):
+        with patch("gxp_editor.runtime_package.assert_runtime_resources") as resources, \
+             patch("gxp_editor.runtime_package.assert_python_interpreter") as interpreter, \
+             patch("gxp_editor.ui_host.submit_request", side_effect=AssertionError("No host required")):
+            result = self.launch("report_window_startup('ready')\ntime.sleep(.3)\nreport_window_startup('closed')\n", mode="auto")
+        self.assertTrue(result["window_opened"], result)
+        self.assertEqual(result["isolation_mode"], "conversation_bound")
+        resources.assert_called_once_with(self.root)
+        interpreter.assert_called_once_with(Path(sys.executable))
+        self.wait_for_status("test-window", "closed")
+
+    def test_default_auto_rejects_runtime_or_interpreter_drift_before_spawn(self):
+        from gxp_editor.runtime_package import RuntimeResourceError
+        for entry, code in (("assert_runtime_resources", "plugin_runtime_resource_changed"),
+                            ("assert_python_interpreter", "plugin_runtime_interpreter_changed")):
+            with self.subTest(code=code), \
+                 patch("gxp_editor.runtime_package.assert_runtime_resources"), \
+                 patch("gxp_editor.runtime_package.assert_python_interpreter"), \
+                 patch("gxp_editor.runtime_package." + entry, side_effect=RuntimeResourceError(code, "fixture")), \
+                 patch("gxp_editor.ui_launch.subprocess.Popen", side_effect=AssertionError("No process permitted")):
+                result = self.launch("", mode="auto", key=code)
+            self.assertEqual(result["reason_code"], code)
+            self.assertEqual(result["process_state"], "exited")
+            self.assertFalse(result["window_opened"])
 
     def wait_for_status(self, key, status):
         deadline = time.monotonic() + 3
@@ -122,6 +147,7 @@ class WindowStartupTests(unittest.TestCase):
         self.assertEqual(result["startup_status"], "failed")
         self.assertFalse(result["window_opened"])
         self.assertFalse(result["window_starting"])
+        self.assertEqual(result["process_state"], "exited")
 
     def test_manual_launch_has_no_receipt_side_effects(self):
         with patch.dict(os.environ, {}, clear=True):

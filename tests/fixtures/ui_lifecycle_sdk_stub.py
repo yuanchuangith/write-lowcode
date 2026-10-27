@@ -60,7 +60,7 @@ def server(folder, scenario):
         with patch("gxp_editor.runtime_package.assert_runtime_resources", return_value=None):
             result = launch_window(executable=sys.executable, script=folder / "ui.py", arguments=[],
                 cwd=PACKAGE, launch_key="sdk-stub", startup_root=folder / "receipts", recovery_kind="nonwriting",
-                lifecycle_mode="direct" if scenario == "baseline" else "auto")
+                lifecycle_mode="direct" if scenario == "baseline" else "external_host")
         return {**result, "server_pid": os.getpid(), "server_token": process_identity(os.getpid())[1],
                 "breakaway_result": breakaway, "breakaway_pid": breakaway_pid}
 

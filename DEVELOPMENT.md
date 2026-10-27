@@ -57,7 +57,7 @@
 
 `setup.ps1` 修改共享 `.venv` 前持共同协调锁，活动租约、旧版使用该环境的进程或无法核实的使用者都会阻断原地更新。需要并行升级时应另建版本环境，不能替换仍在使用的解释器。编译器继续在实际 Node 调用前后校验来源；manifest 不替代原有来源、完整编译或人工审批。
 
-Windows UI 默认经用户单独启动的 `scripts/ui_host.py --runtime-root <已验证快照目录>` 运行，宿主必须能够证明处于 MCP teardown Job 外。MCP 不会自行启动宿主、安装服务或计划任务；缺宿主返回 `ui_host_required` 和具体命令。宿主只接受当前用户作用域内的固定 UI 请求，独立 observer 保留实际 UI 句柄，断线后继续记录退出；launcher 与 UI 的 PID/退出码分别保存。源码交付不启动或部署这个宿主。
+Windows UI 默认由当前对话直接打开，不需要外部终端或预先启动服务；保持连接直到审批结束。默认路径保留完整运行包和解释器预检、真实 UI claim、窗口去重及队列 generation 守卫。工具通信异常结束时窗口可能随进程树退出，不能宣称已实现断线存活；未知执行仍先核对。独立 host 仅作为显式选择的诊断后端，不是日常使用前置条件。详见[窗口生命周期](docs/ui-lifecycle-contract.md)。
 
 基线比较继续使用原内容、关系、SQL 及审批签名算法，诊断摘要不加入签名。重开前定向读取草稿和完整关系，显式使用 REPEATABLE READ 一致快照；缺证据返回 unknown。队列锁顺序为队列终身锁探测 → 按稳定顺序获取窗口/执行锁 → 短 SQLite 控制事务，控制事务不跨业务查询或等待。启动保留 generation/token 与 revision，子窗口取得锁后再次校验，执行 claim 仍检查成员归属和当前事务。结果匹配与事务提交归因分别持久化；`state=saved` 不能单独推出 `executed=true`。完整实现及验证范围见[故障修复交付记录](docs/editor-incident-repair-delivery-2026-10-27.md)。
 

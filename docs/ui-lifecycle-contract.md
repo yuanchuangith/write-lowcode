@@ -1,6 +1,8 @@
-# UI 生命周期与独立宿主
+# UI 生命周期与对话启动
 
-Windows 的审批/处理窗口使用用户明确启动的本地 UI host。MCP 只提交固定入口请求，不启动 host，不安装服务或计划任务；连接结束不会向 host、observer 或 UI 发送终止信号。审批、执行、SQL、执行锁和审批签名协议仍由原 UI/writer 处理。
+从 0.1.51 起，Windows 的审批/处理窗口恢复为由当前对话直接打开，无需另开终端或预先启动 UI host。默认 `auto` 路径保留完整 runtime manifest 和冻结解释器校验、实际 UI claim、去重及原审批/执行守卫，回执标记 `isolation_mode=conversation_bound`。保持工具连接直到审批结束；一次性 MCP 客户端退出可能连带关闭窗口，不能宣称默认路径实现断线存活。业务执行未知时仍先核对，不能重复保存。
+
+独立 host 保留为显式 `external_host` 后端，用于已有隔离测试和维护；正式工具默认不选择它，也不要求用户手动启动服务。以下独立宿主说明仅适用于这个可选后端。
 
 ## 启动与版本
 
@@ -28,4 +30,4 @@ observer 由 host 启动，独立于 MCP；它在 UI claim 后持有真实 UI �
 
 覆盖旧直接启动路径在 SDK 超时清理时 UI 消失，以及独立 host 在持续连接、正常 EOF、服务端超时、客户端异常退出、嵌套 Job 和断线后 UI 自行异常退出时的行为。检查 host/observer/UI 均不属于 SDK teardown Job，venv PID 转发、正常退出码 0、异常退出码 7 与退出码 259。另测 unknown 身份、迟到事件、ready phase、请求限制和生产 Job 隔离拒绝。
 
-这组复现证明当前 Windows/SDK 的同类机制与修复行为，不倒推历史现场的具体终止者。源码交付不启动生产 host、不重启 MCP、不安装插件。非 Windows 显式直接路径创建独立 session；Windows 的 `lifecycle_mode=direct` 仅用于有限隔离夹具，正式工具不传此参数。
+这组复现证明可选独立宿主在当前 Windows/SDK 的行为，不代表默认对话路径的断线存活，也不倒推历史现场的具体终止者。`lifecycle_mode=direct` 继续用于有限隔离夹具，正式工具通过 `auto` 直接打开窗口。默认路径回归另验证无宿主即可打开、来源或解释器漂移仍拒绝启动，以及已有窗口不重复创建。

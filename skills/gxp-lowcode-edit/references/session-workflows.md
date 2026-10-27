@@ -169,10 +169,12 @@ does not imply that the original canvas is valid.
   Unknown required evidence disables reopening; it is not proof of no change.
 - `plugin_runtime_path_missing` and `plugin_runtime_resource_changed` identify
   a broken instance resource and require a connection to an intact runtime.
-  Do not reinstall, modify the installed cache, restart the MCP or start a host
-  without the user's separate instruction. `ui_host_required` returns an
-  explicit external-host command; surface that concrete requirement and retain
-  the existing pending transaction. Repeated `prepare_write` is not recovery.
+  Default approval/recovery windows open directly from the active conversation;
+  no external terminal or host is required. Keep the tool connection available
+  until review finishes. Do not reinstall, modify the installed cache or restart
+  the MCP without the user's separate instruction. An older instance returning
+  `ui_host_required` needs the updated connection, not a manually started host.
+  Retain the pending transaction; repeated `prepare_write` is not recovery.
 - Each startup has its own journal. Launcher PID/exit and claimed UI PID/exit
   are separate evidence. `process_state=unknown` and a missing heartbeat cannot
   establish death, non-execution or a specific terminating process. `ready`
