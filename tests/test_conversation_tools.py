@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import importlib.util
 import unittest
+from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from pathlib import Path
 from unittest.mock import patch
 
@@ -15,6 +17,45 @@ SPEC.loader.exec_module(SERVER)
 
 
 class ConversationToolContractTests(unittest.TestCase):
+    def test_create_conversation_survives_mcp_output_validation_without_edit_session(self):
+        import json
+        from gxp_editor.state import StateStore
+
+        with TemporaryDirectory() as folder:
+            state = StateStore(Path(folder) / "editor.sqlite3")
+            with patch.object(SERVER, "service", return_value=SimpleNamespace(create_conversation=state.create_conversation)):
+                content, result = asyncio.run(SERVER.mcp.call_tool("create_conversation", {"label": "  transport test  "}))
+            self.assertRegex(result["conversation_id"], r"^[0-9a-f]{32}$")
+            self.assertEqual(result["label"], "transport test")
+            self.assertEqual(result["timings"], [])
+            self.assertIsInstance(result["total_elapsed_ms"], float)
+            self.assertGreaterEqual(result["total_elapsed_ms"], 0)
+            self.assertRegex(result["trace_id"], r"^[0-9a-f]{32}$")
+            self.assertEqual(json.loads(content[0].text), result)
+            with state._connection() as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0], 1)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM edit_queues").fetchone()[0], 0)
+
+    def test_create_conversation_failure_survives_mcp_output_validation(self):
+        from gxp_editor.state import StateStore
+
+        with TemporaryDirectory() as folder:
+            state = StateStore(Path(folder) / "editor.sqlite3")
+            with patch.object(SERVER, "service", return_value=SimpleNamespace(create_conversation=state.create_conversation)):
+                _, result = asyncio.run(SERVER.mcp.call_tool("create_conversation", {"label": "x" * 121}))
+            self.assertTrue(result["blocked"])
+            self.assertFalse(result["write_executed"])
+            self.assertEqual(result["error_code"], "StateError")
+            self.assertIsInstance(result["timings"], list)
+            self.assertIsInstance(result["total_elapsed_ms"], float)
+            self.assertIsInstance(result["evidence_gaps"], list)
+            self.assertIsInstance(result["fallback"], dict)
+            with state._connection() as db:
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM conversations").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM sessions").fetchone()[0], 0)
+                self.assertEqual(db.execute("SELECT COUNT(*) FROM edit_queues").fetchone()[0], 0)
+
     def test_settings_entry_is_available_without_editor_service_or_conversation(self):
         import sys
         from types import ModuleType

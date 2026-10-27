@@ -60,7 +60,7 @@ def database_settings(
 
 @mcp.tool()
 @traced_tool
-def create_conversation(label: str = "") -> dict[str, str]:
+def create_conversation(label: str = "") -> dict[str, Any]:
     """Create a dialogue marker once; retain and supply its conversation_id on every later call."""
     return service().create_conversation(label)
 

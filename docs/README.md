@@ -24,6 +24,8 @@
 
 ## 最新优化交付与附件
 
+`create_conversation` 返回类型热修复见[2026-10-27 修复记录](conversation-response-hotfix-2026-10-27.md)。这是传输契约修复，不改变已冻结的优化测量。
+
 2026-10-27 的来源扫描优化、有限排查兜底及30例独立路由回放见[本次交付报告](look-write-optimization-delivery-2026-10-27.md)，语料、冻结哈希与各次回放位于 `evaluation-2026-10-27/`。以下2026-10-26附件保持原样。
 
 先读[Look / Write 优化实施与验收](look-write-optimization-delivery-2026-10-26.md)，再按问题读取附件。该报告描述本轮实施时的交付状态；后续安装和文档整理不追改冻结测量。
