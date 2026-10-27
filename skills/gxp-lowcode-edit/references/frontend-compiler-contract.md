@@ -66,11 +66,12 @@ signed approval evidence.
 
 ## Reusable preparation and timings
 
-The bounded in-process registry/contract cache is content-bound to native sources, bridge, adapter, protocol and Node identity; Git provenance is refreshed. It caches rule preparation, never a candidate's successful validation. Generation and independent regeneration still use fresh Node processes and compare full artifacts and bindings.
-
-C# restore workspaces are bound to the actual SDK identity, target framework, DLL content fingerprints and project/NuGet templates. Cross-process exclusive slots isolate candidates; source and compilation outputs are removed between leases. Cold workspaces restore packages; cold and warm candidates both run `dotnet build --no-restore --no-incremental`, separately before planning and approval. Reference checks before and after, independent probe processes and bounded timeouts remain mandatory. Interrupted/corrupt preparation requires a cold rebuild, not a reused successful candidate.
-
-Public response `trace_id`, `total_elapsed_ms` and `timings` report preparation and checking stages; they are not signed content or code-generation evidence. Cache hits do not prove runtime compatibility or a speed percentage. Detailed interpretation and failure handling are in [evidence-and-performance.md](evidence-and-performance.md).
+Preparation may be reused only under its verified source/SDK/reference binding;
+candidate success is never cached. Fresh independent generation, complete
+candidate compilation before planning and approval, source/reference checks and
+timeouts retain their blocking meaning. Cache identity, workspace cleanup,
+cold/warm failure handling and interpretation of `trace_id`, `total_elapsed_ms`
+and `timings` are maintained in [timing and reusable preparation](batch-repair-and-performance.md#timing-and-reusable-preparation).
 
 ## Rebuilding a stale compiler bridge
 

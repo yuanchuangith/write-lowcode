@@ -10,7 +10,7 @@ Check `supported_operations` from session entry or the latest readiness evidence
 
 `plan_canvas_patch` preflights the entire submitted operation batch before native generation or C# compilation; do not add another model tool round trip. It checks later operations as well as the first, simulates sequential existing-parameter changes on a private baseline copy and validates field/path/old-value/array-selector/alias rules. Structural operations whose generated defaults or keys are not yet available make dependent checks pending; `pending_checks` does not certify native validity.
 
-Failures expose bounded `error_details.issues`, `issue_count`, `issues_truncated`, `pending_checks`, a zero-based `operation_index`, trusted group/node/path, `reason_code`, `expected_shape` and `refresh_scope`. Correct the shown independent errors and resubmit the complete batch; if truncated, subsequent bounded results may reveal remaining errors. Preserve expectations and resubmit from the immutable session baseline, never append operations to a failed candidate or approve an older plan automatically. See [evidence-and-performance.md](evidence-and-performance.md) for templates and repair scope.
+Failures expose bounded `error_details` and any `pending_checks`. Correct shown independent errors and resubmit the complete batch from the immutable session baseline under the same expectations. Follow [batch repair](batch-repair-and-performance.md#repair-a-failed-batch-without-starting-over) for diagnostic fields, focused context reads and retry scope; use [targeting and source](targeting-and-source.md#参数摘要完整值与模板) for templates.
 
 ## Group creation
 

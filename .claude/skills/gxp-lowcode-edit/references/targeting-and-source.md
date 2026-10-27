@@ -23,13 +23,15 @@ MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要
 
 `edit_options.parameter_operations` 是未填完的安全模板，按 `required_inputs` 填入意图明确的替换值。摘要模板的 `guard_ref` 绑定本对话、会话修订、备份、草稿、关系、编译器、目标、路径及原值指纹；直接原样保留，可替代 `expected_old_value`。同一个操作只能选其一。服务先将签名引用还原为完整旧值，再执行原有严格预检、原生生成和审批校验。引用不代表已阅读业务内容或授予审批。
 
-需要决策所需的完整值时，调用返回的 `read_edit_value(session_id, group_key, node_key, path, conversation_id)` 提示；读取原生数组行时传相同 `item_key`。值小时返回 `complete=true` 及精确 `value`；值大时返回规范 JSON 文本 `text` 片段、`value_sha256` 和 `next_offset`。`offset` 与 `next_offset` 按 Unicode 码点计数，中文和 emoji 不按 UTF-8 字节计数。`max_output_bytes` 是 UTF-8 输出预算（4096–65536）；服务响应中的 guard/binding 计入预算，MCP 包装和 timings 另计。所有页的 `context_binding` 和值指纹必须相同；按 next_offset 顺序拼接 text 后解析完整 JSON。最后一个片段仍 `complete=false,truncated=true`，只以 `continuation_complete=true` 表示文本收集结束。不能把摘要、preview、片段或 guard 引用对象当作完整旧值。
+`edit_options.atomic_parameter_paths` 标出必须整体更新的 ParamInput 记录；保留原生字段，并同步相应 value/code。原生数组行仅使用工具给出的唯一 id/key 选择器，否则整体替换数组并保留其它行。`insert_in_block` 只是能力提示，实际插入仍须通过原生块校验。具体字段见 [操作契约](patch-schema.md)。
+
+需要决策所需的完整值时，调用返回的 `read_edit_value(session_id, group_key, node_key, path, conversation_id)` 提示；读取原生数组行时传相同 `item_key`。值小时返回 `complete=true` 及精确 `value`；值大时返回规范 JSON 文本 `text` 片段、`value_sha256` 和 `next_offset`。`offset` 与 `next_offset` 按 Unicode 码点计数，中文和 emoji 不按 UTF-8 字节计数。`max_output_bytes` 是 UTF-8 输出预算，默认 16384（16 KiB），范围 4096–65536；服务响应中的 guard/binding 计入预算，MCP 包装和 timings 另计。所有页的 `context_binding` 和值指纹必须相同；按 next_offset 顺序拼接 text 后解析完整 JSON。最后一个片段仍 `complete=false,truncated=true`，只以 `continuation_complete=true` 表示文本收集结束。不能把摘要、preview、片段或 guard 引用对象当作完整旧值。
 
 `operation_cursor` 只分页模板，摘要每页最多 8 条，完整模式每页最多 64 条。有 `next_operation_cursor` 时以相同有序 targets 和绑定继续；绑定改变时刷新。旧式 compact 模板的 `expected_old_value_ref.guard_index` 仍指向 `parameter_guards[index].value`，复制其完整 JSON 值。省略的上下文不是空参数；响应超过 1 MiB 应缩小目标集。模板与预检共用操作契约，不代表元件源码函数体或运行验证已检查。
 
 `guard_ref` 只引用不可变基线。批内前一个操作修改同一路径后，下一操作必须使用前一个结果作为完整 `expected_old_value`；重复使用基线引用仍会被严格预检拒绝。数组行、原生 ParamInput 完整记录和全量替换约束见 [patch-schema.md](patch-schema.md#guarded-parameter-updates)。
 
-`read_plan_review` 默认 `detail="summary"`，返回分页行摘要及 `field_path`。检查某个证据时固定 section 和 item_id（无 ID 时固定行 offset），用 field_path 与 `value_offset` 继续读取精确字段；字符偏移和片段规则同上。完整行兼容读取使用 `detail="full"`。响应投影不改变计划、业务复核或人工审批中的完整证据。
+计划报告的默认摘要、单字段续读和完整模式统一见 [业务报告读取](business-review.md#read-results-and-route-the-next-step)。参数与报告字段均按需读取，不自动遍历全部分页。
 
 ## 与只读技能一致的仓库
 

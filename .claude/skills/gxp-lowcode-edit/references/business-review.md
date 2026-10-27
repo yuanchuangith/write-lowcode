@@ -176,15 +176,28 @@ default to `response_detail="summary"`. Planning returns
 report, validation or review UI. Request `response_detail="full"` only when the
 complete returned report is necessary; it adds the former `review_report`.
 
-Read details with `read_plan_review(plan_id, section, offset=0, limit=10,
-item_id="", conversation_id=...)`. Sections are `summary`, `requirements`,
-`changes`, `scenarios`, `canvas_checks`, `spec`. Limits are 1–20 items. Select an
-issue's section and ID when available; otherwise use its index as the offset.
-Follow `next_offset` because the 256 KiB page budget can shorten a page. If one
-item alone exceeds that budget, inspect the complete evidence in the formal
-approval window when eligible. A standalone `open_plan_review` window is only
-for an explicit user request; do not launch it automatically for oversized
-evidence or before approval. Do not interpret an empty oversized page as no evidence.
+Read selected evidence with `read_plan_review(plan_id, section, offset=0,
+limit=10, item_id="", conversation_id=...)`. Sections are `summary`,
+`requirements`, `changes`, `scenarios`, `canvas_checks`, `spec`; limits are
+1–20 items. MCP defaults to `detail="summary"` and a 16 KiB UTF-8 budget
+(`max_output_bytes=16384`, maximum 65536). Select an issue's section and ID
+when available; otherwise fix its row offset. Follow `next_offset` only when
+another relevant row is needed; do not automatically exhaust report pages.
+
+A summary's `field_path` locates exact evidence within that row. Select it with
+`item_id` and `offset=0`, or keep its original row offset when no ID exists; keep
+that selection fixed while reading the field. Pass `field_path` and
+`value_offset`; `complete=true` returns the exact `value`, while a large field
+returns canonical JSON `text` fragments. Keep `report_sha256` and
+`value_sha256` unchanged. Offsets count Unicode code points; the budget counts
+UTF-8 bytes. For fragments, follow `next_offset` as the next `value_offset`
+until `continuation_complete=true`, then parse the collected JSON. Previews and
+individual fragments are not complete values.
+This handles a single oversized row without opening a window. Request
+`detail="full"` for complete legacy rows only when needed; a truncated or omitted
+row is not absent evidence. Response projection never changes complete plan or
+approval evidence. A standalone `open_plan_review` requires an explicit user
+request, including when evidence is large.
 
 `no_changes=true` means the requested state already matches: no new plan or
 approval was created. Stop that planning path without `prepare_write`.

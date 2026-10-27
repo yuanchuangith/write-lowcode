@@ -1,5 +1,7 @@
 # 排查留证复用、错误修正与编译准备优化
 
+> 历史实现说明，保留当时的接口与性能口径。下文“第一页完整上下文”等描述早于默认摘要优化；当前调用规则见[证据复用](../skills/gxp-lowcode-edit/references/evidence-and-performance.md)、[目标与值读取](../skills/gxp-lowcode-edit/references/targeting-and-source.md)及[批次修复与耗时](../skills/gxp-lowcode-edit/references/batch-repair-and-performance.md)。最新测量见[优化交付报告](look-write-optimization-delivery-2026-10-26.md)。
+
 本轮合成冷、热路径与错误修正数据见 [性能报告](optimization-performance-report.md)，可用 `scripts/benchmark_edit_pipeline.py` 复现。
 
 本轮源码改动让 `look` 的只读证据可供 `write` 后续复用，减少重复定位、无效编译和恢复环境的工作。这是可选留证，Write 仍可独立使用，不以 Look、完整诊断方案或 `handoff_ref` 为前提。全量仍是默认生成模式，增量／自动选择规则、独立生成复验、完整候选 C# 编译及人工 SQL 审批继续保留。

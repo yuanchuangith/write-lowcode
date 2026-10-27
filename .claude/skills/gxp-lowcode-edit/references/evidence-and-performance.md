@@ -1,4 +1,6 @@
-# Reuse diagnosis evidence and repair failed operations
+# Reuse diagnosis evidence
+
+Read this reference when reusing dialogue findings or optional readonly records. For current target/value reads, use [targeting-and-source.md](targeting-and-source.md); live-session ownership transfer is in [session-workflows.md](session-workflows.md#dialogue-handoff).
 
 ## Check available evidence first
 
@@ -7,40 +9,6 @@ Write works independently. Look may leave evidence and data for later reuse, but
 When material is missing, stale or contradictory, investigate the affected question directly or use available Look readonly tools. The user does not need to start another Look task or arrange a complete handoff. Keep supported findings, but revise an earlier cause, excluded explanation or proposed fix when new evidence warrants it; explain the basis and preserve the user's confirmed scope and business requirements. Evidence reuse must not block necessary investigation. Tool checks still establish current draft identity and target parameters before edits.
 
 This is design-evidence reuse, not the live-session transfer described in `session-workflows.md`. The explicit invocation gate still applies: a readonly export, confirmed proposal or stored record does not activate the editor. Once activated and the current scope is authorized, reuse that confirmation within the same dialogue; do not repeatedly ask.
-
-## Review Look's graph after a completed write
-
-After an actual save (including restore) is verified and its session is released, completion responses from `get_write_status`, `verify_saved_draft` or `finish_edit_session` include `look_graph_review`. Write never automatically updates Look's graph. The stable `transaction_id` identifies the result across queries. Review once per transaction, or together for completed queue actions even if a later action fails. `get_edit_queue` includes cumulative graph-review summaries; do not lose earlier completions or re-ask them when a later item changes state.
-
-### Bind the comparison and retain its outcome
-
-Read `look_graph_review.review_state` first. Its `outcome`, `revision`, `proposal_sha256` and `graph_revision` persist locally per transaction; status polling does not reset them. `declined`, `no_difference` and `recorded` need no repeated question. `proposed` waits for the user's answer to the already-shown proposal. `pending_publication` waits for current publication evidence before comparison resumes. Do not infer consent from any stored state.
-
-Check the original `look_graph_review.database_scope` against the current Look configuration and actual environment before comparison or mutation. Write and Look can encode scope differently: compare their non-secret endpoint/database identity and mapped environment, not raw string equality or a guessed conversion. Never insert Write's opaque binding directly as Look's `scope_id`. Missing original binding, changed destination or an unverified mapping leaves the comparison unresolved; explain the gap rather than querying/writing an unrelated environment.
-
-Reuse the dialogue's findings and current graph evidence where still applicable. Otherwise query only relevant relations through `search_business_logic_graph` or `get_business_graph`, using verified Look `scope_id`/`environment` and stable action/node/table identities. This is a comparison, not a second root-cause investigation. Missing, unavailable, limited or truncated results are unknown, not an empty graph.
-
-- **Add:** no corresponding relation exists and the investigation supplies a confirmed relationship worth retaining. This also supports a previously empty graph; lack of prior Look use or records does not prevent additions.
-- **Update:** a corresponding relation exists, but confirmed evidence justifies correcting its direction, condition, mapping or conclusion, or supplementing missing evidence. Show the affected existing relation and the proposed change; preserve other valid supports and history.
-- **No difference:** the graph already represents the confirmed findings accurately. Reusing a relation to diagnose a problem, a canvas edit, or a different hash alone does not establish a graph change. State “本次排查结果与已有关系图一致，无需新增或修改。” Do not ask for an empty/idempotent update.
-- **Pending:** identity, evidence, publication or comparison is insufficient. Explain the precise gap and retain the proposal in the dialogue; do not present an unknown graph as empty or promote a proposed draft relationship into a confirmed runtime fact.
-
-For confirmed, recordable additions/updates, show a compact proposal with the relation, its evidence and whether it is new or changed, then ask “是否根据本次排查结果，新增或修改 Look 关系图？” The original edit approval is not graph consent. A refusal or no answer leaves the graph unchanged. The completed save and publication reminder do not depend on graph consent.
-
-Record the observed outcome with `record_graph_review(transaction_id, outcome, proposal_sha256, expected_revision, graph_revision, conversation_id)`. Pass the current state's `revision` as `expected_revision`; a conflict requires reading the new state, not overwriting it blindly. Use `no_difference` only after a sufficient comparison, `proposed` when the concrete proposal is shown, `declined` only after actual refusal, `pending_publication` for a published-copy evidence gap, and `recorded` only after Look confirms the write. A stable SHA-256 of the canonically serialized proposed metadata identifies the same proposal without storing business data. Include it for proposal-related outcomes; `recorded` requires the graph revision returned by Look. For a combined queue review, update every covered completed transaction separately. An unchanged declined proposal remains suppressed even across intermediate outcomes. Set `reconsider_declined=true` with `outcome='proposed'` only after the user explicitly asks to reconsider that exact proposal; polling, elapsed time and silence never justify it. Reconsideration only reopens discussion and grants no graph consent. This local bookkeeping grants no mutation authority and does not mark missing evidence as verified.
-
-### Read, merge and replace a complete case
-
-After explicit consent, use Look's `upsert_business_logic_graph` following its `gxp-lowcode-debug` reference `business-logic-graph.md`. The same `case_key` replaces the case's complete set of relationship supports. Submitting only the changed fact can withdraw valid sibling facts, so use this sequence for additions and updates:
-
-1. Read the exact case through `search_business_logic_graph(case_key=..., scope_id=..., environment=...)`, even when a broad search found the affected relation. Require `available=true`; only its explicit `found=false` proves the exact case absent. Retain its `snapshot_token`, `graph_revision` and complete `case_snapshot`; a search summary, projected graph or truncated response is not a replacement source. For an explicitly absent case, retain its empty token and construct a complete new case.
-2. For an existing case require `case_snapshot.complete=true`, `replacement_safe=true`, and inspect its `lifecycle`, `unresolved` entries and every support's lifecycle. Start from `case_snapshot.relation`, preserve unaffected valid entities/facts/evidence, and merge the approved additions/corrections with consistent local IDs. Support `replacement_fact_id` maps lifecycle evidence to the replacement's fact IDs. A stale/invalidated observation or withdrawn/stale support must not be copied into active support without current evidence and an approved correction. If lifecycle or unresolved identities prevent a safe complete merge, stop that update and explain what must be reverified.
-3. Submit the complete merged relation with `expected_case_snapshot=snapshot_token`. For a confirmed missing case, use `expected_case_snapshot=''` to require that it still does not exist. Do not omit the precondition or use `None` for this workflow. `GRAPH_CASE_SNAPSHOT_CHANGED` requires a fresh exact-case read and merge; preserve the consent's scope, and show any materially changed proposal before obtaining its agreement.
-4. Read the actual tool result and record `recorded` only on confirmed success. A bounded/truncated write response does not justify copying its returned projection into another replacement. Query exact-case evidence again only if needed to resolve an uncertain result. Report actual new/updated/idempotent results, never assume success from submitting a request.
-
-Use `invalidate_business_logic_graph` only for a specifically evidenced invalidation in the approved proposal. Saving a draft alone does not invalidate a still-current published relationship. Read-only comparison and review-state recording never authorize graph mutation.
-
-Persist only supported metadata, precise anchors, evidence fingerprints and the correct scope. Action relationships require current published/control-flow evidence under Look's contract. The saved draft receipt proves the committed draft snapshot, not publication or runtime behavior: leave relations that depend on unpublished changes pending until publication is confirmed and rechecked. Independently confirmed schema/source findings may be retained when their own evidence gates pass. Never store business rows, passwords, full parameters, SQL or source bodies. If Look/tools are unavailable or reject the evidence, report the proposal/gap without claiming graph success or affecting the completed write.
 
 ## Optional local readonly record
 
@@ -99,44 +67,22 @@ When looking for stored evidence in a new dialogue, first assess entry's optiona
 
 Records are stored under `%LOCALAPPDATA%\GxpLowcodeHandoff\v1` on the same machine. They contain bounded design evidence and the original request, plus proposed changes, preservation requirements and scenarios when known. No credentials, business query rows or complete generated JS/C# are transferred. Accept IDs, never arbitrary paths. A checksum is an integrity check, not authorization or human approval.
 
+## Related procedures
+
+Each procedure has one maintained source. These section links preserve older callers without loading unrelated workflows.
+
+## Review Look's graph after a completed write
+
+After a verified save and session release, read [post-write-graph-review.md](post-write-graph-review.md) for comparison, consent, persisted review state and complete-case replacement.
+
 ## Templates and complete parameters
 
-For verified targets call `inspect_edit_context(session_id, targets, operation_cursor=0, conversation_id)`. MCP defaults to summary; focus known `parameter_paths`, reuse signed `guard_ref` templates and read exact values only when the decision needs them. Request `response_detail="full"` for complete `nodes[].params_value`, native contracts, visible variables and parents. See [targeting-and-source.md](targeting-and-source.md#参数摘要完整值与模板) for exact reads, character offsets and legacy overrides. `edit_options` includes:
-
-- `parameter_operations` contains incomplete safe operation templates with exact paths. Fill `required_inputs` with the intended replacement and preserve its signed baseline guard, or supply the complete exact old value. Never submit placeholders or treat `complete=false` as a runnable operation.
-- `atomic_parameter_paths` identifies ParamInput records that must be changed as complete records. Preserve native keys and synchronize the applicable value/code members.
-- Array rows use a unique existing native `id`/`key` selector when advertised. Numeric array indexes remain unsupported; otherwise replace the whole array while preserving unchanged rows.
-- `insert_in_block` is a capability hint; native block validation still decides whether insertion is valid.
-
-Summary templates are paged in groups of at most 8; full compatibility pages use at most 64. Continue with `next_operation_cursor`, identical ordered targets and the same `context_binding`. Explicit `include_context=true/false` retains the legacy full/compact projections, including complete old-value guards. Refresh if the binding changes. Omitted context is not empty context; previews and text fragments are not complete JSON values. Native editor/generator function bodies are not parsed into the registry; inspect source only when structured evidence is insufficient. Neither context bindings nor guards grant approval.
+Use [targeting-and-source.md](targeting-and-source.md) for parameter summaries, exact reads and operation-template paging, then the relevant [patch schema](patch-schema.md) for operation fields.
 
 ## Repair a failed batch without starting over
 
-`plan_canvas_patch` internally preflights the entire batch before native generation and C# compilation. There is no extra required tool call. It checks operation fields, exact target identities, JSON pointers, complete old-value guards, arrays and batch-local aliases against a private baseline copy. Sequential parameter updates expect the preceding operation's result. Later operations that need native generated keys/defaults are listed as `pending_checks`; they are not falsely reported as validated.
-
-Read the bounded `error_details`: `phase`, `operation_index` (zero based), `group_key`, `node_key`, `path`, `reason_code`, `expected_shape` and `refresh_scope`. `issues` aggregates independently decidable errors; `issue_count` and `issues_truncated` reveal omitted diagnostics. Fix the shown errors and resubmit the whole corrected batch; another bounded response may reveal remaining issues. `pending_checks` requires native generation, not guessed keys. Do not infer an exact node from a group-only compiler diagnostic.
-
-Each issue's `context_ref` provides a focused read using verified baseline identities. Supply this request's session/conversation when asked; group-only locations can use `find_edit_nodes` scoped to that group or available readonly `inspect_action`, but never invent a node from a group-only diagnostic. At most 20 issues are returned; after correcting them, resubmit the complete batch to obtain remaining errors. Errors omit parameter values; read complete parameters through the indicated context. The transport also supplies `failure_stage` and stable `error_code` for returned and thrown failures.
-
-Keep the user's original `review_spec`, preservation rules and scenarios. Each planning attempt starts from the immutable session baseline, never from the failed candidate. A failed retry does not authorize submitting an older pending plan. Reuse valid diagnosis/location evidence; refresh only the indicated target or changed source binding. Do not switch full/incremental mode to evade a failure, loosen requirements or modify unrelated business callbacks.
-
-Confirmed requirements are checkpointed separately from disposable candidate reports, bound to this session's baseline/compiler. Missing or corrupt candidate files can be regenerated without losing those requirements. Changed requirements survive a failed generation and block approval of the older plan; concurrent changes are checked atomically. If a legacy session has no checkpoint and its candidate is unreadable, follow `legacy_review_spec_unavailable` recovery rather than submitting an empty replacement spec. Same-dialogue exact-target/mode/queue begin retries reuse a verified session and return `next_tool`; they do not cancel it or inherit new approval.
+Read [batch repair](batch-repair-and-performance.md#repair-a-failed-batch-without-starting-over) to repair the complete batch under its original expectations.
 
 ## Timing and reusable preparation
 
-MCP responses expose `trace_id`, `total_elapsed_ms`, `timings` with bounded stages, durations, counts/cache hits and stable error codes. Failures retain completed timings. Use them to distinguish database reads, evidence checks, preflight, registry/contract loading, generation, independent regeneration, runtime reference checks, SDK discovery, restore, build and business review. They measure tool work, not the model's reasoning or network round trip. Performance logs contain no parameter values, code, credentials or exception text; timings never enter signed plan content or business fingerprints.
-
-Local spans can include `start_ms` and `depth`; nested durations overlap, so do not
-sum them as independent costs. Readiness evidence is reused only for adjacent
-consumers in one request. Prepare checks the compiler again after draft/relation
-reads; independent Node and C# validation remain serial and retain their gates.
-Node paging still validates the complete canvas before constructing the current
-page, including duplicate keys and invalid nodes outside the displayed range.
-
-Registry and component-contract caches are process-local and bounded. Keys include normalized source paths, content fingerprints, bridge/adapter/protocol and Node identity; Git provenance is refreshed. Generation and each independent verification still run in fresh Node processes. No candidate success result is cached, and content drift is checked even when length and modification time are unchanged.
-
-C# workspaces reuse only validated restore preparation, bound to actual SDK identity, target framework, DLL content fingerprints and project/NuGet template versions. Exclusive cross-process slots isolate each candidate; source and build outputs are scrubbed between leases. Cold preparation restores packages; every nonblank candidate build uses `--no-restore --no-incremental`. Planning and approval each compile the complete candidate again, with reference fingerprints checked before and after. Dirty, interrupted or corrupt preparation is rebuilt cold; repeated failures return diagnostics rather than using old success. Busy or timed-out checkers remain blocking.
-
-Pure Candidate.cs `CSxxxx` code errors may retain verified restore preparation after reference/assets checks and source/output cleanup, so corrected code need not restore again. Environment, mixed, metadata, timeout and drift failures remain cold. Adjacent registry/binding reads share only their immediate verified snapshot; every independent Node generation/verification still checks source, bridge and adapter before and after execution.
-
-These changes do not weaken canvas/code checks, human SQL approval or saved-draft verification. Full generation remains the default; honor the user's generation mode choice. Tool responses default to summaries with explicit full reads. Source maintenance does not install/update the running plugin, restart Codex, save or publish a business draft. Assess speed from measured stages and cold/warm comparisons, never claim an unsupported percentage.
+Read [timing and reusable preparation](batch-repair-and-performance.md#timing-and-reusable-preparation) when investigating service latency or cache reuse.
