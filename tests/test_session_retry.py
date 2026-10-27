@@ -5,11 +5,12 @@ import copy
 import tempfile
 import unittest
 from pathlib import Path
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 from gxp_editor.service import EditorService
 from gxp_editor.state import StateStore, StateError
-from tests.helpers import baseline, editor_config
+from tests.helpers import baseline, editor_config, relation
 from tests.test_service import FakeCompiler
 
 
@@ -18,7 +19,7 @@ class SessionRetryTests(unittest.TestCase):
         self.folder = self.enterContext(tempfile.TemporaryDirectory())
         self.store = StateStore(Path(self.folder) / "state.sqlite3")
         self.owner = self.store.create_conversation("retry")["conversation_id"]
-        self.draft = baseline(data_json={"actionData": [], "globalVariables": []}, csharp_code="")
+        self.draft = baseline(data_json={"actionData": [], "globalVariables": []}, csharp_code="", relations=[])
         self.compiler = FakeCompiler()
         self.binding = self.compiler.compiler_binding()
         self.service = object.__new__(EditorService)
@@ -26,7 +27,10 @@ class SessionRetryTests(unittest.TestCase):
         self.service._conversation_id = self.owner
         self.repository = Mock()
         self.repository.load_draft_by_identifier.return_value = copy.deepcopy(self.draft)
+        self.repository.load_draft_by_id.side_effect = lambda identifier, session=None: copy.deepcopy(self.repository.load_draft_by_identifier.return_value)
         self.repository.load_relations.return_value = []
+        self.repository.database.read_session.side_effect = lambda: nullcontext(object())
+        self.repository._relations.side_effect = lambda identifier, db_session: copy.deepcopy(self.repository.load_relations.return_value)
         self.enterContext(patch.object(self.service, "_components", return_value=(
             editor_config(), object(), self.repository, self.compiler, object())))
         self.abort = self.enterContext(patch.object(self.service, "abort_edit_session"))
@@ -65,9 +69,9 @@ class SessionRetryTests(unittest.TestCase):
         session = self.create()
         for kind in ("relation", "content", "compiler"):
             with self.subTest(kind=kind):
-                self.repository.load_relations.return_value = [{"id": "changed"}] if kind == "relation" else []
+                self.repository.load_relations.return_value = [relation(id="changed")] if kind == "relation" else []
                 self.repository.load_draft_by_identifier.return_value = {**self.draft,
-                    **({"content_hash": "changed"} if kind == "content" else {})}
+                    **({"js_code": "changed-js"} if kind == "content" else {})}
                 with patch.object(self.compiler, "compiler_binding", return_value=(
                         {"compiler_binding_sha256": "changed"} if kind == "compiler" else self.binding)):
                     result = self.service.begin_edit_session(self.draft["code"])

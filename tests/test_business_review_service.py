@@ -498,8 +498,9 @@ class BusinessReviewServiceTests(unittest.TestCase):
         verified = self.compiler.verify_compiled_result.call_args.kwargs
         self.assertEqual(verified["baseline_artifacts"], saved)
         self.assertIn("actionData", verified["baseline_design"])
-        self.draft["relations"] = [{"id": "external", "action_data_id": "assign", "data": "changed"}]
-        with self.assertRaisesRegex(EditorServiceError, "relation data changed"):
+        from tests.helpers import relation
+        self.draft["relations"] = [relation(id="external", action_data_id="assign", data="changed")]
+        with self.assertRaisesRegex(EditorServiceError, "relations changed"):
             self.plan()
 
     def _assert_generation_mode_roundtrip(self, mode, *, prepare=True):
@@ -564,8 +565,9 @@ class BusinessReviewServiceTests(unittest.TestCase):
 
     def test_full_selection_also_rejects_relation_drift_before_approval(self):
         result, _, _ = self._assert_generation_mode_roundtrip(None, prepare=False)
-        self.draft["relations"] = [{"id": "external", "action_data_id": "assign", "data": "changed"}]
-        with self.assertRaisesRegex(EditorServiceError, "relation data changed"):
+        from tests.helpers import relation
+        self.draft["relations"] = [relation(id="external", action_data_id="assign", data="changed")]
+        with self.assertRaisesRegex(EditorServiceError, "relations changed"):
             self.service.prepare_write(result["plan_id"])
         self.compiler.verify_candidate_artifact.assert_not_called()
         self.launch.assert_not_called()

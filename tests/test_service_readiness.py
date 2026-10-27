@@ -25,9 +25,9 @@ class ServiceReadinessTests(unittest.TestCase):
             plan = harness.service.plan_canvas_patch(session["session_id"], [operation], review_spec=harness.spec())
             old_load = harness.repository.load_draft_by_id
             changed = False
-            def load_then_drift(identifier):
+            def load_then_drift(identifier, *, session=None):
                 nonlocal changed
-                loaded = old_load(identifier)
+                loaded = old_load(identifier, session=session)
                 changed = True
                 return loaded
             original = harness.compiler.registry_and_binding

@@ -237,6 +237,16 @@ LIMIT 1001
                 if len(owned) != 1:
                     raise RepositoryError("已阻止修改：关联记录不属于本次审批的草稿。")
 
+    @staticmethod
+    def authenticated_principal(session: DatabaseSession) -> str:
+        """Read the effective authenticated actor from this actual connection."""
+        rows = session.query("SELECT CURRENT_USER() AS authenticated_principal", max_rows=1)
+        principal = rows[0].get("authenticated_principal") if len(rows) == 1 else None
+        if (not isinstance(principal, str) or not principal or len(principal) > 512
+                or any(ord(character) < 32 or ord(character) == 127 for character in principal)):
+            raise RepositoryError("The database authenticated principal could not be verified")
+        return principal
+
     def grant_status(
         self,
         *,
@@ -246,6 +256,14 @@ LIMIT 1001
         if account_mode not in {"dedicated", "shared_restricted", "shared_unrestricted"}:
             raise RepositoryError(f"Unsupported database account mode: {account_mode}")
         with self.database.read_session() as session:
+            try:
+                principal = self.authenticated_principal(session)
+            except Exception:
+                # A new prepare must require this evidence. Historic signed
+                # artifacts without an actor still use their original grants
+                # contract, so an additive observation cannot silently change
+                # that contract. SHOW GRANTS failures continue to propagate.
+                principal = None
             rows = session.query("SHOW GRANTS", max_rows=50)
         grants = [str(next(iter(row.values()))) for row in rows if row]
         canonical_grants = sorted(
@@ -367,6 +385,8 @@ LIMIT 1001
             safe = shared_unrestricted_safe
         return {
             "safe": safe,
+            "authenticated_principal": principal,
+            "principal_verified": principal is not None,
             "account_mode": account_mode,
             "dedicated_safe": dedicated_safe,
             "shared_policy_eligible": shared_policy_eligible,

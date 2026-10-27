@@ -146,12 +146,13 @@ class PayloadReductionTests(unittest.TestCase):
         self.assertIs(result["value"], False)
         self.assertTrue(result["complete"])
         self.assertIn("guard_ref", result)
-        self.h.draft["content_hash"] = "changed"
+        self.h.draft["js_code"] = "changed-js"
         with self.assertRaisesRegex(EditorServiceError, "stale"):
             self.service.read_edit_value(self.session_id, "main", "target", self.path)
 
     def test_value_pages_reject_relation_drift_and_transfer_before_return(self):
-        with patch.object(self.h.repository, "load_relations", return_value=[{"id": "changed"}]):
+        from tests.helpers import relation
+        with patch.object(self.h.repository, "load_relations", return_value=[relation(id="changed")]):
             with self.assertRaisesRegex(EditorServiceError, "relations changed"):
                 self.service.read_edit_value(self.session_id, "main", "target", self.path)
         other = self.service.state.create_conversation("other")['conversation_id']

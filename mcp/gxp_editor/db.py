@@ -90,7 +90,10 @@ class EditorDatabase:
         session = DatabaseSession(connection)
         try:
             session.execute("SET SESSION MAX_EXECUTION_TIME = 5000")
-            session.execute("START TRANSACTION READ ONLY")
+            # Server defaults may be READ COMMITTED. Draft and relation reads
+            # must share one MVCC view even under that default.
+            session.execute("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
+            session.execute("START TRANSACTION WITH CONSISTENT SNAPSHOT, READ ONLY")
             yield session
         finally:
             with contextlib.suppress(Exception):

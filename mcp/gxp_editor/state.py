@@ -62,7 +62,7 @@ def saved_verification(session: dict[str, Any], transaction: dict[str, Any]) -> 
     except (TypeError, ValueError):
         return None
     receipt = message.get("saved_verification") if isinstance(message, dict) else None
-    if (not isinstance(receipt, dict) or receipt.get("scope") != "committed_draft_snapshot"
+    if (not isinstance(receipt, dict) or receipt.get("scope") not in {"committed_draft_snapshot", "current_draft_snapshot"}
             or receipt.get("design_id") != session["design_id"]
             or not all(receipt.get(key) for key in ("content_hash", "relation_hash", "verified_at"))):
         return None
@@ -148,6 +148,17 @@ CREATE TABLE IF NOT EXISTS transactions (
             db.execute("CREATE TABLE IF NOT EXISTS review_spec_checkpoints (session_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL, sha256 TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS graph_reviews (transaction_id TEXT PRIMARY KEY, outcome TEXT NOT NULL, revision INTEGER NOT NULL, proposal_sha256 TEXT NOT NULL, graph_revision INTEGER, updated_at TEXT NOT NULL)")
             db.execute("CREATE TABLE IF NOT EXISTS graph_review_declines (transaction_id TEXT NOT NULL, proposal_sha256 TEXT NOT NULL, PRIMARY KEY(transaction_id, proposal_sha256))")
+            db.execute("CREATE TABLE IF NOT EXISTS transaction_evidence (transaction_id TEXT PRIMARY KEY, payload_json TEXT NOT NULL)")
+            db.execute("CREATE TABLE IF NOT EXISTS queue_runtime (queue_id TEXT PRIMARY KEY, revision INTEGER NOT NULL DEFAULT 0, generation INTEGER NOT NULL DEFAULT 0, launch_token TEXT NOT NULL DEFAULT '', launch_state TEXT NOT NULL DEFAULT 'idle')")
+            if "reserved_revision" not in {row["name"] for row in db.execute("PRAGMA table_info(queue_runtime)")}:
+                db.execute("ALTER TABLE queue_runtime ADD COLUMN reserved_revision INTEGER NOT NULL DEFAULT -1")
+            db.execute("INSERT OR IGNORE INTO queue_runtime(queue_id) SELECT id FROM edit_queues")
+            for operation in ("INSERT", "UPDATE", "DELETE"):
+                reference = "OLD" if operation == "DELETE" else "NEW"
+                db.execute(f"CREATE TRIGGER IF NOT EXISTS queue_items_{operation.lower()} AFTER {operation} ON edit_queue_items BEGIN UPDATE queue_runtime SET revision=revision+1 WHERE queue_id={reference}.queue_id; END")
+            db.execute("CREATE TRIGGER IF NOT EXISTS queue_item_old_membership AFTER UPDATE OF queue_id ON edit_queue_items WHEN OLD.queue_id<>NEW.queue_id BEGIN UPDATE queue_runtime SET revision=revision+1 WHERE queue_id=OLD.queue_id; END")
+            db.execute("CREATE TRIGGER IF NOT EXISTS queue_session_revision AFTER UPDATE OF state,plan_id,transaction_id,owner_revision,conversation_id,queue_id ON sessions BEGIN UPDATE queue_runtime SET revision=revision+1 WHERE queue_id=OLD.queue_id OR queue_id=NEW.queue_id; END")
+            db.execute("CREATE TRIGGER IF NOT EXISTS queue_transaction_revision AFTER UPDATE OF state ON transactions BEGIN UPDATE queue_runtime SET revision=revision+1 WHERE queue_id IN (SELECT queue_id FROM sessions WHERE id=NEW.session_id); END")
 
     @staticmethod
     def _row(row: sqlite3.Row | None) -> dict[str, Any] | None:
@@ -174,6 +185,7 @@ CREATE TABLE IF NOT EXISTS transactions (
         with self._connection() as db:
             self._conversation_exists(db, conversation_id)
             db.execute("INSERT INTO edit_queues VALUES (?,?,?)", (queue_id, conversation_id, datetime.now().isoformat(timespec="seconds")))
+            db.execute("INSERT INTO queue_runtime(queue_id) VALUES (?)", (queue_id,))
         return queue_id
 
     @staticmethod
@@ -499,6 +511,15 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """Serialize execution against manual cancellation across processes."""
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
+            session = db.execute("SELECT s.queue_id FROM sessions s JOIN transactions t ON t.session_id=s.id WHERE t.id=?", (transaction_id,)).fetchone()
+            if session and session["queue_id"]:
+                from .queue_protocol import validate_in
+                validate_in(db, session["queue_id"])
+                member = db.execute("SELECT s.owner_revision,s.conversation_id,q.conversation_id AS queue_owner,i.owner_revision AS queued_revision "
+                    "FROM sessions s JOIN transactions t ON t.session_id=s.id JOIN edit_queue_items i ON i.session_id=s.id "
+                    "JOIN edit_queues q ON q.id=i.queue_id WHERE t.id=? AND i.queue_id=s.queue_id", (transaction_id,)).fetchone()
+                if not member or member["owner_revision"] != member["queued_revision"] or member["conversation_id"] != member["queue_owner"]:
+                    raise StateError("Queue membership or ownership changed; execution was blocked")
             affected = db.execute(
                 "UPDATE transactions SET state='executing', updated_at=? WHERE id=? AND state='awaiting_approval' "
                 "AND session_id IN (SELECT id FROM sessions WHERE state IN ('awaiting_approval','restore_pending') AND transaction_id=?)",
@@ -508,7 +529,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError("Transaction is no longer awaiting approval; execution was blocked")
 
     def finish_verified_save(self, transaction_id: str, *, content_hash: str, relation_hash: str,
-                             conversation_id: str, owner_revision: int) -> dict[str, Any]:
+                             conversation_id: str, owner_revision: int, commit_confirmed: bool = False) -> dict[str, Any]:
         """Atomically retain post-commit verification evidence and release its session."""
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -519,9 +540,25 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             self._assert_owner(session, conversation_id, owner_revision)
             if session["transaction_id"] != transaction_id or session["state"] not in {"saved", "verified"}:
                 raise StateError("Session changed before save verification could finish")
-            receipt = {"scope": "committed_draft_snapshot", "design_id": session["design_id"],
+            receipt = {"design_id": session["design_id"],
                        "content_hash": content_hash, "relation_hash": relation_hash,
                        "verified_at": datetime.now().isoformat(timespec="milliseconds")}
+            evidence_row = db.execute("SELECT payload_json FROM transaction_evidence WHERE transaction_id=?", (transaction_id,)).fetchone()
+            from .execution_evidence import execution_evidence
+            try:
+                observation = json.loads(evidence_row[0]) if evidence_row else None
+            except (TypeError, ValueError):
+                observation = None
+            evidence = execution_evidence(dict(transaction), observation=observation)
+            if commit_confirmed:
+                evidence.update({"schema_version": 1, "execution_outcome": "confirmed", "executed": True,
+                                 "commit_evidence": "executor_commit_acknowledged"})
+            evidence.update({"verification_scope": "committed_draft_snapshot" if evidence["executed"] else "current_draft_snapshot",
+                             "current_matches_candidate": True})
+            receipt = {**evidence, **receipt,
+                       "scope": "committed_draft_snapshot" if evidence["executed"] else "current_draft_snapshot"}
+            db.execute("INSERT INTO transaction_evidence VALUES (?,?) ON CONFLICT(transaction_id) DO UPDATE SET payload_json=excluded.payload_json",
+                       (transaction_id, json.dumps(receipt, ensure_ascii=False)))
             message = {"saved_verification": receipt}
             if transaction["message"]:
                 message["previous_message"] = transaction["message"]
@@ -711,6 +748,12 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError("会话已结束或当前事务已改变。")
             now = datetime.now().isoformat(timespec="seconds")
             db.execute("UPDATE transactions SET state=?,message=?,updated_at=? WHERE id=?", (outcome, message, now, transaction_id))
+            try:
+                evidence = json.loads(message)
+            except (TypeError, ValueError):
+                evidence = None
+            if isinstance(evidence, dict) and evidence.get("schema_version") == 1:
+                self._record_execution_observation(db, dict(transaction), evidence)
             db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status IN ('ready','blocked','frozen')", (transaction["session_id"],))
             db.execute("UPDATE sessions SET state=?,updated_at=? WHERE id=?", ("verified" if outcome == "saved" else outcome, now, transaction["session_id"]))
 
@@ -742,6 +785,44 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         if not row:
             raise StateError(f"Transaction {transaction_id!r} was not found")
         return row
+
+    def execution_observation(self, transaction_id: str) -> dict[str, Any] | None:
+        with self._connection() as db:
+            row = db.execute("SELECT payload_json FROM transaction_evidence WHERE transaction_id=?", (transaction_id,)).fetchone()
+        try:
+            value = json.loads(row[0]) if row else None
+        except (TypeError, ValueError):
+            return None
+        from .execution_evidence import _observation
+        return _observation(value)
+
+    @staticmethod
+    def _record_execution_observation(db, transaction, evidence):
+        """Retain attribution independently of mutable status/message fields."""
+        from .execution_evidence import execution_evidence
+        row = db.execute("SELECT payload_json FROM transaction_evidence WHERE transaction_id=?", (transaction["id"],)).fetchone()
+        try:
+            previous = json.loads(row[0]) if row else None
+        except (TypeError, ValueError):
+            previous = None
+        old = execution_evidence(transaction, observation=previous)
+        fresh = execution_evidence(transaction, observation=evidence)
+        # Snapshot observations can update the current match flags but cannot
+        # invent a commit or erase a previously confirmed executor receipt.
+        if previous is not None or old["executed"]:
+            for key in ("execution_outcome", "executed", "commit_evidence"):
+                fresh[key] = old[key]
+        db.execute("INSERT INTO transaction_evidence VALUES (?,?) ON CONFLICT(transaction_id) DO UPDATE SET payload_json=excluded.payload_json",
+                   (transaction["id"], json.dumps(fresh, ensure_ascii=False)))
+        return fresh
+
+    def record_execution_observation(self, transaction_id: str, evidence: dict[str, Any]) -> dict[str, Any]:
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            transaction = db.execute("SELECT * FROM transactions WHERE id=?", (transaction_id,)).fetchone()
+            if not transaction:
+                raise StateError("Transaction was not found")
+            return self._record_execution_observation(db, dict(transaction), evidence)
 
     def session_transactions(self, session_id: str) -> list[dict[str, Any]]:
         with self._connection() as db:

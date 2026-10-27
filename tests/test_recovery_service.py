@@ -4,9 +4,9 @@ from __future__ import annotations
 import tempfile
 import unittest
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import Mock, patch
 
-from tests.helpers import baseline, transaction
+from tests.helpers import baseline, transaction, editor_config
 from gxp_editor.approval import save_artifact, transaction_binding_hash
 from gxp_editor.execution_lock import ExecutionBusyError
 from gxp_editor.service import EditorService
@@ -19,7 +19,8 @@ class RecoveryServiceTests(unittest.TestCase):
         self.addCleanup(temporary.cleanup)
         self.root = Path(temporary.name)
         self.store = StateStore(self.root / "state.sqlite3")
-        self.session = self.store.create_session(baseline(), "backup", "compiler")
+        self.binding = transaction()["compiler_evidence"]["compiler_binding"]
+        self.session = self.store.create_session(baseline(relations=[]), "backup", self.binding["compiler_binding_sha256"])
         plan = self.store.create_plan(self.session["id"], "plan.json", "old", "new", "compiler")
         self.artifact = transaction()
         self.artifact.update(session_id=self.session["id"], plan_id=plan, transaction_id="recovery-tx")
@@ -29,7 +30,17 @@ class RecoveryServiceTests(unittest.TestCase):
         self.tx = self.store.create_transaction(self.session["id"], plan, "write", str(self.path), transaction_id="recovery-tx")
         self.service = object.__new__(EditorService)
         self.service.state = self.store
-        self.enterContext(patch.object(self.service, "_components", side_effect=AssertionError("No business connection")))
+        self.repository = Mock()
+        from contextlib import nullcontext
+        self.db_session = object()
+        self.repository.database.read_session.side_effect = lambda: nullcontext(self.db_session)
+        self.repository.load_draft_by_id.return_value = baseline()
+        self.repository._relations.return_value = []
+        self.repository.grant_status.return_value = {"safe": True, "grants_sha256": "c" * 64}
+        self.compiler = Mock()
+        self.compiler.compiler_binding.return_value = self.binding
+        self.components = self.enterContext(patch.object(self.service, "_components",
+            return_value=(editor_config(), object(), self.repository, self.compiler, object())))
         self.startup = self.enterContext(patch("gxp_editor.ui_launch.inspect_window_startup", return_value={
             "window_opened": False, "window_starting": False, "startup_status": "not_started"}))
         self.launch = self.enterContext(patch.object(self.service, "_launch_approval", return_value={

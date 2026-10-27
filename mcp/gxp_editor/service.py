@@ -13,6 +13,7 @@ from .approval import load_artifact, save_artifact
 from .action_context import action_context, publication_target, queue_publication_targets
 from .backup import BackupStore
 from .compiler import CompilerBridge, CompilerError
+from .baseline_comparison import compare_baseline, require_baseline_match, BaselineComparisonError
 from .telemetry import stage, add_external, timed
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
 from .db import EditorDatabase
@@ -24,7 +25,7 @@ from .state import ACTIVE_STATES, StateError, StateStore, saved_verification, as
 from .review_response import evidence_summary, review_page, review_response
 from .post_write import look_graph_review
 from .workflow_guidance import write_status_guidance
-from .transaction import build_transaction_artifact, validate_transaction_artifact
+from .transaction import build_transaction_artifact, validate_transaction_artifact, principal_verification
 from .reference_repair import build_repair, inspection_projection, scan_references
 from .recovery import archive_edit_session, recover_session
 from .logic_review import (
@@ -83,6 +84,39 @@ class EditorService:
             return None
         return {key: session.get(key) for key in ("id", "state", "action_code", "action_name", "design_id", "ref_id", "transaction_id", "conversation_id", "owner_revision")}
 
+    @staticmethod
+    def _evidence_error(code, message, details=None):
+        error = EditorServiceError(message)
+        error.code, error.details = code, details or {}
+        return error
+
+    def _baseline_snapshot(self, session, repository, *, artifact=None, require=True):
+        """Read the draft and complete relation set in the same bounded DB view."""
+        current, relations, read_error = None, None, None
+        try:
+            with repository.database.read_session() as db_session:
+                current = repository.load_draft_by_id(session["design_id"], session=db_session)
+                relations = repository._relations(session["design_id"], db_session)
+        except Exception:
+            read_error = "current_snapshot_unavailable"
+        comparison = compare_baseline(session.get("baseline"), current, relations, artifact=artifact,
+            expected_identity={"design_id": session["design_id"], "ref_id": session["ref_id"]},
+            read_error=read_error, session_id=session["id"], backup_id=session.get("backup_id", ""))
+        if require:
+            try:
+                require_baseline_match(comparison)
+            except BaselineComparisonError as exc:
+                raise self._evidence_error(exc.code, str(exc), exc.details) from exc
+        return current, relations, comparison
+
+    def _require_compiler_binding(self, session, binding, message):
+        if binding.get("compiler_binding_sha256") != session.get("compiler_hash"):
+            raise self._evidence_error("compiler_binding_changed", message,
+                {"session_id": session["id"], "backup_id": session.get("backup_id"),
+                 "expected_sha256": session.get("compiler_hash"),
+                 "current_sha256": binding.get("compiler_binding_sha256"),
+                 "next_step": "Inspect cancellation scope, confirm cancellation, then create a new plan from the current draft."})
+
     def create_conversation(self, label: str = "") -> dict[str, str]:
         return self.state.create_conversation(label)
 
@@ -132,9 +166,22 @@ class EditorService:
             attached = self.state.transfer_session(session_id, self.conversation_id,
                 expected_owner=session.get("conversation_id", ""), expected_revision=session.get("owner_revision", 0),
                 expected_transaction_id=session.get("transaction_id"), executor_idle=True)
+        # Transfer has already succeeded. A failed diagnostic must not pretend
+        # ownership was left unchanged or prevent handling an obsolete flow.
+        try:
+            diagnostic_session = self.state.get_session(session_id)
+        except Exception:
+            diagnostic_session = attached
+        try:
+            _, _, comparison = self._baseline_snapshot(diagnostic_session, self._components()[2], require=False)
+        except Exception:
+            comparison = compare_baseline(expected_identity={"design_id": attached["design_id"], "ref_id": attached["ref_id"]},
+                session_id=session_id, backup_id=attached.get("backup_id", ""), read_error="current_snapshot_unavailable")
         return {"attached": True, "session_id": session_id, "conversation_id": self.conversation_id,
                 "owner_revision": attached["owner_revision"], "transaction_id": attached.get("transaction_id"),
-                "session": self._session_summary(attached), "write_executed": False}
+                "session": self._session_summary(attached), "write_executed": False,
+                "baseline_status": "current" if comparison["status"] == "match" else comparison["status"],
+                "baseline_checked_at": comparison["checked_at"], "baseline_comparison": comparison}
 
     def _components(self):
         request = _COMPONENT_REQUEST.get()
@@ -387,7 +434,12 @@ class EditorService:
                 "Database account safety gate is not ready: "
                 + json.dumps(grants, ensure_ascii=False)
             )
+        principal = grants.get("authenticated_principal")
+        if grants.get("principal_verified") is not True or not isinstance(principal, str) or not principal:
+            raise EditorServiceError("Authenticated database principal is unavailable; no new approval can be created")
         return {
+            "authenticated_principal": principal,
+            "database_scope": environment_scope(config.database),
             "account_mode": config.database.account_mode,
             "grants_sha256": grants["grants_sha256"],
             "shared_account": config.database.account_mode != "dedicated",
@@ -647,10 +699,10 @@ class EditorService:
             return {**failure, "reason_code": "session_retry_mismatch",
                     "message": "现有流程的目标、模式、队列或状态与本次请求不同，请检查现有会话后继续。"}
         _, _, repository, _, _ = self._components()
-        if (draft["content_hash"] != session["baseline"]["content_hash"]
-                or relation_snapshot_hash(repository.load_relations(session["design_id"])) !=
-                relation_snapshot_hash(session["baseline"].get("relations") or [])):
+        _, _, comparison = self._baseline_snapshot(session, repository, require=False)
+        if comparison["status"] != "match":
             return {**failure, "reason_code": "session_baseline_changed",
+                    "baseline_comparison": comparison,
                     "message": "草稿或关系已变化，现有流程需要核对结果；未创建新会话或继承审批。"}
         if handoff is not None and handoff["status"] == "matched":
             registry, binding = compiler.registry_and_binding()
@@ -705,15 +757,9 @@ class EditorService:
         if session["state"] not in {"locked", "planned", "awaiting_approval"}:
             raise EditorServiceError("Node discovery requires an active edit session")
         _, _, repository, compiler, _ = self._components()
-        current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != session["baseline"]["content_hash"]:
-            raise EditorServiceError("Draft changed after the edit session began; node discovery is stale")
-        current_relations = repository.load_relations(session["design_id"])
-        if relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
-            raise EditorServiceError("Draft relations changed after the edit session began; node discovery is stale")
+        current, current_relations, comparison = self._baseline_snapshot(session, repository)
         registry, binding = compiler.registry_and_binding()
-        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
-            raise EditorServiceError("Frontend compiler binding changed; node discovery is stale")
+        self._require_compiler_binding(session, binding, "Frontend compiler binding changed; node discovery is stale")
         result = find_baseline_nodes(self._compiler_design(session["baseline"]), registry, kind=kind,
                                     query=query, group_key=group_key, element_key=element_key, offset=offset, limit=limit)
         latest = self._owned_session(session_id, include_baseline=False)
@@ -756,15 +802,9 @@ class EditorService:
         if session["state"] not in {"locked", "planned", "awaiting_approval"}:
             raise EditorServiceError("Target inspection requires an active edit session")
         config, _, repository, compiler, _ = self._components()
-        current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != session["baseline"]["content_hash"]:
-            raise EditorServiceError("Draft changed after the edit session began; target evidence is stale")
-        current_relations = repository.load_relations(session["design_id"])
-        if relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
-            raise EditorServiceError("Draft relations changed after the edit session began; target evidence is stale")
+        current, current_relations, comparison = self._baseline_snapshot(session, repository)
         registry, binding = compiler.registry_and_binding()
-        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
-            raise EditorServiceError("Frontend compiler binding changed; target contracts are stale")
+        self._require_compiler_binding(session, binding, "Frontend compiler binding changed; target contracts are stale")
         result = build_edit_context(self._compiler_design(session["baseline"]), registry, targets,
                                     operation_cursor=operation_cursor, include_context=include_context,
                                     response_detail=response_detail, parameter_paths=parameter_paths)
@@ -870,12 +910,9 @@ class EditorService:
         if session.get("session_mode") != "reference_repair" or session["state"] not in {"locked", "planned"}:
             raise EditorServiceError("A locked or planned reference repair session is required")
         _, _, repository, compiler, _ = self._components()
-        current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != session["baseline"]["content_hash"]:
-            raise EditorServiceError("Draft changed after the repair session began")
+        self._baseline_snapshot(session, repository)
         registry, binding = compiler.registry_and_binding()
-        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
-            raise EditorServiceError("Frontend compiler binding changed after the repair session began")
+        self._require_compiler_binding(session, binding, "Frontend compiler binding changed after the repair session began")
         design = self._compiler_design(session["baseline"])
         return design, scan_references(design, registry), compiler
 
@@ -979,19 +1016,13 @@ class EditorService:
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned"}:
             raise StateError(f"Session state {session['state']!r} cannot be planned")
-        current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != session["baseline"]["content_hash"]:
-            raise EditorServiceError("Draft changed after the edit session began")
-        current_relations = repository.load_relations(session["design_id"])
-        if relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
-            raise EditorServiceError("Draft relation data changed after the edit session began")
+        current, current_relations, comparison = self._baseline_snapshot(session, repository)
         spec, checkpoint_sha = self._resolve_review_spec(session, review_spec)
         guarded = type(operations) is list and any(type(op) is dict and "guard_ref" in op for op in operations)
         if guarded:
             from .edit_guards import expand_guard_operations
             registry, binding = compiler.registry_and_binding()
-            if binding["compiler_binding_sha256"] != session["compiler_hash"]:
-                raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
+            self._require_compiler_binding(session, binding, "Frontend compiler source or bridge changed after the edit session began")
             operations = expand_guard_operations(session, self.conversation_id, self._compiler_design(session["baseline"]),
                                                   operations, approval_secret(config))
         if repaired is None:
@@ -1001,8 +1032,7 @@ class EditorService:
             return self._no_changes_response(session)
         if not guarded:
             registry, binding = compiler.registry_and_binding()
-        if binding["compiler_binding_sha256"] != session["compiler_hash"]:
-            raise EditorServiceError("Frontend compiler source or bridge changed after the edit session began")
+        self._require_compiler_binding(session, binding, "Frontend compiler source or bridge changed after the edit session began")
         generation_baseline = {
             "baseline_design": self._compiler_design(session["baseline"]),
             "baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"]),
@@ -1230,36 +1260,136 @@ class EditorService:
                 **({"approval_window_error": result["window_error"]} if result.get("window_error") else {}),
                 **({"already_open": True} if result.get("already_open") else {})}
 
-    def _launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
-        from .execution_lock import approval_queue_lock, approval_window_lock
+    def _approval_preflight(self, transaction, session, artifact):
+        """Read-only applicability check; the writer still repeats every final gate."""
+        config, _, repository, compiler, _ = self._components()
+        try:
+            diagnostic_session = self.state.get_session(session["id"])
+        except (ValueError, TypeError):
+            diagnostic_session = session
+        _, _, comparison = self._baseline_snapshot(diagnostic_session, repository, artifact=artifact)
+        binding = artifact["database_safety"]
+        grants = repository.grant_status(account_mode=config.database.account_mode,
+            expected_grants_sha256=config.database.expected_grants_sha256)
+        if (not grants.get("safe") or binding.get("account_mode") != config.database.account_mode
+                or binding.get("grants_sha256") != grants.get("grants_sha256")):
+            raise self._evidence_error("database_safety_changed", "Database account or grants changed; create a new plan")
+        principal = principal_verification(binding, grants.get("authenticated_principal"))
+        from .handoff_store import environment_scope
+        if binding.get("database_scope") and binding["database_scope"] != environment_scope(config.database):
+            raise self._evidence_error("database_scope_changed", "Database target changed; create a new plan")
+        evidence = artifact.get("compiler_evidence") or {}
+        if transaction["kind"] == "write":
+            actual = compiler.compiler_binding()
+            expected = evidence.get("compiler_binding")
+            if (not self._compiler_binding_matches(expected, actual)
+                    or actual.get("compiler_binding_sha256") != session.get("compiler_hash")):
+                raise self._evidence_error("compiler_binding_changed", "Compiler binding changed; create a new plan")
+        checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
+            owner_revision=session.get("owner_revision", 0))
+        if transaction["kind"] == "write" and checkpoint and sha256_json(checkpoint["spec"]) != sha256_json(artifact["business_review"]["spec"]):
+            raise self._evidence_error("review_requirements_changed", "Review requirements changed; create a new plan")
+        plan = self.state.get_plan(transaction["plan_id"]) if transaction.get("plan_id") else None
+        if transaction["kind"] == "write" and plan and (session.get("plan_id") != plan["id"] or artifact.get("plan_id") != plan["id"]):
+            raise self._evidence_error("approval_pointer_changed", "Current plan changed during approval")
+        return {"baseline_comparison": comparison, "principal_verification": principal, "read_only": True}
+
+    def _launch_approval(self, transaction_id: str, *, owner_revision: int | None = None,
+                         approval_fingerprint: str | None = None) -> dict[str, Any]:
+        from contextlib import ExitStack
+        from .execution_lock import approval_queue_lock, approval_window_lock, execution_lock
         from .ui_launch import launch_window
+        from .queue_protocol import queue_snapshot, reserve_launch, release_launch, TOKEN_ENV, GENERATION_ENV
         transaction = self.state.get_transaction(transaction_id)
         session = self._owned_session(transaction["session_id"], include_baseline=False)
         revision = session.get("owner_revision", 0)
         if owner_revision is not None and owner_revision != revision:
             raise EditorServiceError("会话归属已变化，原请求不能打开审批。")
         queue_id = self._approval_queue_id(session)
+        reservation, queue_view, extra_env, checked_artifacts = None, None, None, {}
+        if not queue_id and approval_fingerprint is None:
+            approved = load_artifact(transaction["artifact_path"])
+            validate_transaction_artifact(approved)
+            require_write_business_review(approved)
+            self._approval_preflight(transaction, session, approved)
+            approval_fingerprint = sha256_json(approved)
         if queue_id:
-            with approval_queue_lock(queue_id):
-                pass
-        with approval_window_lock(transaction["artifact_path"]):
-            if transaction["state"] != "awaiting_approval":
-                raise EditorServiceError("只有尚未执行的审批可以打开。")
+            from .ui_launch import inspect_window_startup
+            startup = inspect_window_startup(self._approval_launch_key(session, transaction_id))
+            if startup.get("process_state") == "alive" or startup.get("window_opened") or startup.get("window_starting"):
+                return startup
+            if startup.get("startup_status") != "not_started" and startup.get("process_state") != "exited":
+                raise self._evidence_error("queue_process_unknown", "Queue process identity is unknown; reconcile it before reopening")
+            queue_view = queue_snapshot(self.state, queue_id, self.conversation_id)
+            for item in queue_view["items"]:
+                if item["conversation_id"] != self.conversation_id or item["owner_revision"] != item["queued_owner_revision"]:
+                    continue
+                if item.get("transaction_state") == "awaiting_approval":
+                    candidate_tx = self.state.get_transaction(item["transaction_id"])
+                    candidate_session = self._owned_session(item["id"], include_baseline=False)
+                    candidate = load_artifact(candidate_tx["artifact_path"])
+                    validate_transaction_artifact(candidate)
+                    require_write_business_review(candidate)
+                    if (candidate.get("transaction_id") != candidate_tx["id"]
+                            or candidate.get("session_id") != item["id"] or candidate.get("design_id") != candidate_session["design_id"]
+                            or candidate.get("execution_started") or candidate.get("executed")):
+                        raise self._evidence_error("execution_result_uncertain", "Queue candidate identity or execution markers changed")
+                    self._approval_preflight(candidate_tx, candidate_session, candidate)
+                    checked_artifacts[candidate_tx["artifact_path"]] = sha256_json(candidate)
+        # Lock order: queue lifetime probe -> transaction window -> execution ->
+        # short SQLite control. No business reads or user waits under control.
+        with ExitStack() as locks:
+            if queue_id:
+                locks.enter_context(approval_queue_lock(queue_id))
+                for item in sorted(queue_view["items"], key=lambda row: row.get("artifact_path") or ""):
+                    if item.get("artifact_path"):
+                        locks.enter_context(approval_window_lock(item["artifact_path"]))
+                        locks.enter_context(execution_lock(item["artifact_path"]))
+            else:
+                locks.enter_context(approval_window_lock(transaction["artifact_path"]))
+                locks.enter_context(execution_lock(transaction["artifact_path"]))
+            latest = self._owned_session(session["id"], include_baseline=False)
+            current_tx = self.state.get_transaction(transaction_id)
+            candidate = load_artifact(current_tx["artifact_path"])
+            if (current_tx["state"] != "awaiting_approval" or latest.get("transaction_id") != transaction_id
+                    or latest.get("owner_revision", 0) != revision or candidate.get("execution_started") or candidate.get("executed")):
+                raise EditorServiceError("审批状态已变化；请核对结果，不能再次执行。")
+            if (candidate.get("transaction_id") != transaction_id or candidate.get("session_id") != session["id"]
+                    or candidate.get("design_id") != session["design_id"]
+                    or approval_fingerprint is not None and sha256_json(candidate) != approval_fingerprint):
+                raise self._evidence_error("approval_artifact_changed", "Approval artifact changed during preflight")
+            if queue_id:
+                for artifact_path, expected_hash in checked_artifacts.items():
+                    if sha256_json(load_artifact(artifact_path)) != expected_hash:
+                        raise self._evidence_error("queue_candidate_changed", "Queue candidate changed during preflight")
+                reservation = reserve_launch(self.state, queue_id, self.conversation_id, queue_view,
+                    previous_exited={"generation": startup.get("queue_generation"),
+                        "launch_token_sha256": startup.get("queue_launch_token_sha256")}
+                        if startup.get("process_state") == "exited" else False)
+                extra_env = {TOKEN_ENV: reservation["launch_token"], GENERATION_ENV: str(reservation["generation"])}
         plugin_root = Path(__file__).resolve().parents[2]
         script = plugin_root / "scripts" / "approval_app.py"
         python = Path(sys.executable)
         pythonw = python.with_name("pythonw.exe")
         executable = pythonw if pythonw.exists() else python
         arguments = ["--queue", queue_id, self.conversation_id] if queue_id else [transaction_id, self.conversation_id, str(revision)]
-        return launch_window(executable=executable, script=script, arguments=arguments, cwd=plugin_root,
+        result = launch_window(executable=executable, script=script, arguments=arguments, cwd=plugin_root,
                              launch_key=self._approval_launch_key(session, transaction_id),
                              recovery_kind="queue" if queue_id else "approval",
-                             recovery_artifact_path=None if queue_id else transaction["artifact_path"])
+                             recovery_artifact_path=None if queue_id else transaction["artifact_path"], extra_env=extra_env)
+        if reservation and (result.get("process_state") == "exited" or result.get("reason_code") in {
+                "ui_host_required", "plugin_runtime_path_missing", "plugin_runtime_resource_changed", "ui_host_isolation_unverified"}):
+            release_launch(self.state, reservation)
+        return result
 
-    def _try_launch_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
+    def _try_launch_approval(self, transaction_id: str, *, owner_revision: int | None = None,
+                             approval_fingerprint: str | None = None) -> dict[str, Any]:
         from .execution_lock import ApprovalWindowBusyError
         try:
-            result = self._launch_approval(transaction_id, owner_revision=owner_revision)
+            kwargs = {"owner_revision": owner_revision}
+            if approval_fingerprint is not None:
+                kwargs["approval_fingerprint"] = approval_fingerprint
+            result = self._launch_approval(transaction_id, **kwargs)
             return self._approval_launch_response(result)
         except ApprovalWindowBusyError as exc:
             from .ui_launch import inspect_window_startup
@@ -1270,8 +1400,9 @@ class EditorService:
             return {**response, "already_open": True, "message": str(exc),
                     **({"approval_window_error": "已有窗口占用，但未确认其可用；请关闭原审批窗口后处理旧流程。"}
                        if not response["approval_window_opened"] and not response["approval_window_starting"] else {})}
-        except OSError as exc:
+        except (OSError, RuntimeError) as exc:
             return {"approval_window_opened": False, "approval_window_starting": False, "approval_window_error": str(exc),
+                    "reason_code": getattr(exc, "code", "approval_reopen_unavailable"), "error_details": getattr(exc, "details", {}),
                     "message": "审批记录已创建，窗口未能启动；可调用 reopen_approval 重开或取消未执行审批。"}
 
     @component_request
@@ -1301,17 +1432,9 @@ class EditorService:
         database_safety = self._database_safety_binding(config, repository, verified_grants=status.get("grants"))
         if plan["status"] != "ready" or session["state"] != "planned" or session.get("plan_id") != plan_id:
             raise EditorServiceError("Only the current ready plan can enter approval")
-        with stage("database.load_draft"):
-            current = repository.load_draft_by_id(session["design_id"])
-        if (
-            current["content_hash"] != artifact.get("base_content_hash")
-            or plan.get("base_hash") != artifact.get("base_content_hash")
-        ):
-            raise EditorServiceError("Draft changed after the plan was generated")
-        with stage("database.load_relations"):
-            current_relations = repository.load_relations(session["design_id"])
-        if (artifact.get("generation") or artifact.get("generation_selection")) and relation_snapshot_hash(current_relations) != relation_snapshot_hash(session["baseline"].get("relations") or []):
-            raise EditorServiceError("Draft relation data changed after generation planning")
+        current, current_relations, comparison = self._baseline_snapshot(session, repository)
+        if plan.get("base_hash") != artifact.get("base_content_hash") or current["content_hash"] != artifact.get("base_content_hash"):
+            raise self._evidence_error("draft_baseline_changed", "Draft changed after the plan was generated", comparison)
         registry, binding = compiler.registry_and_binding()
         if (
             plan.get("compiler_hash") != artifact.get("compiler_hash")
@@ -1319,7 +1442,7 @@ class EditorService:
             or binding["compiler_binding_sha256"] != artifact.get("compiler_hash")
             or not self._compiler_binding_matches(artifact.get("compiler_binding"), binding)
         ):
-            raise EditorServiceError("Frontend compiler source, rules, registry, or bridge changed after planning")
+            raise self._evidence_error("compiler_binding_changed", "Frontend compiler source, rules, registry, or bridge changed after planning", {"session_id": session["id"], "backup_id": session.get("backup_id")})
         desired = artifact.get("desired")
         if not isinstance(desired, dict):
             raise EditorServiceError("Plan artifact is missing the desired ActionDesign")
@@ -1452,6 +1575,7 @@ class EditorService:
 
     def get_write_status(self, transaction_id: str) -> dict[str, Any]:
         from .ui_launch import inspect_window_startup
+        from .execution_evidence import execution_evidence
         transaction = self.state.get_transaction(transaction_id)
         session = self._owned_session(transaction["session_id"], include_baseline=False, check_database=False)
         artifact_error = None
@@ -1474,7 +1598,15 @@ class EditorService:
             session.get("transaction_id") == transaction_id and transaction["state"] == "saved"
             and session["state"] == "finished") else []
         window_startup = inspect_window_startup(self._approval_launch_key(session, transaction_id))
+        evidence = execution_evidence(transaction, artifact if validation_error is None else None,
+                                      self.state.execution_observation(transaction_id))
+        evidence["last_observed_matches"] = {"baseline": evidence.get("current_matches_baseline"),
+                                             "candidate": evidence.get("current_matches_candidate")}
+        evidence.update({"current_draft_rechecked": False, "current_matches_baseline": None,
+                         "current_matches_candidate": None,
+                         "verification_scope": "historical_committed_snapshot" if evidence["executed"] else "historical_snapshot_only"})
         return {
+            **evidence,
             "transaction_id": transaction_id,
             "kind": transaction["kind"],
             "state": transaction["state"],
@@ -1489,7 +1621,6 @@ class EditorService:
             **write_status_guidance(transaction, session, window_startup, artifact_valid=validation_error is None),
             "statement_count": len(artifact["statements"]) if isinstance(artifact.get("statements"), list) else 0,
             "approved_count": len(artifact["approvals"]) if isinstance(artifact.get("approvals"), dict) else 0,
-            "executed": bool(artifact.get("executed")) or transaction["state"] == "saved",
             "verified": (session.get("transaction_id") == transaction_id
                          and transaction["state"] == "saved"
                          and session["state"] in {"verified", "finished"}),
@@ -1505,6 +1636,7 @@ class EditorService:
             "look_graph_review": self._graph_review(session, transaction),
         }
 
+    @component_request
     def reopen_approval(self, transaction_id: str, *, owner_revision: int | None = None) -> dict[str, Any]:
         transaction = self.state.get_transaction(transaction_id)
         session = self._owned_session(transaction["session_id"], include_baseline=False)
@@ -1531,11 +1663,21 @@ class EditorService:
         except Exception as exc:
             return {**failure, "reason_code": "approval_artifact_unavailable",
                     "approval_window_error": str(exc), "retry_requires_new_plan": True}
+        try:
+            preflight = self._approval_preflight(transaction, session, artifact)
+        except Exception as exc:
+            return {**failure, "reason_code": getattr(exc, "code", "approval_preflight_unknown"),
+                    "preflight_status": "unknown" if not getattr(exc, "code", None) or getattr(exc, "code", "") == "baseline_evidence_unavailable" else "stale",
+                    "approval_window_error": str(exc), "error_details": getattr(exc, "details", {}),
+                    "execution_enabled": False, "retry_requires_new_plan": True}
         from .ui_launch import inspect_window_startup, recover_stalled_window
         launch_key = self._approval_launch_key(session, transaction_id)
         startup = inspect_window_startup(launch_key)
         recovery = {}
         if startup.get("startup_status") in {"startup_timeout", "heartbeat_timeout"}:
+            if self._approval_queue_id(session):
+                return {**failure, "reason_code": "stalled_queue_recovery_refused",
+                        "approval_window_error": "队列仍存活或身份未核实；确认无执行后请明确关闭原窗口，再按流程恢复。"}
             def verify_unexecuted(bound_path):
                 latest_tx = self.state.get_transaction(transaction_id)
                 latest = self._owned_session(session["id"], include_baseline=False)
@@ -1551,8 +1693,9 @@ class EditorService:
             if not recovery.get("window_recovered"):
                 return {**failure, "reason_code": "stalled_window_recovery_refused", "window_recovery": recovery,
                         "approval_window_error": recovery.get("window_error", "窗口恢复未完成，请检查当前流程状态。")}
-        window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
-        return {**failure, **window, **({"window_recovery": recovery} if recovery else {})}
+        window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0),
+            approval_fingerprint=sha256_json(artifact))
+        return {**failure, **window, "preflight": preflight, **({"window_recovery": recovery} if recovery else {})}
 
     def recover_edit_session(self, session_id: str) -> dict[str, Any]:
         from .execution_lock import ExecutionBusyError
@@ -1640,19 +1783,26 @@ class EditorService:
             return self._verify_saved_draft(session_id)
 
     def _verify_saved_draft(self, session_id: str) -> dict[str, Any]:
+        from .execution_evidence import draft_target_state, execution_evidence
         session = self._owned_session(session_id)
         transaction = self.state.get_transaction(session["transaction_id"])
+        observation = self.state.execution_observation(transaction["id"])
+        evidence = execution_evidence(transaction, observation=observation)
         receipt = saved_verification(session, transaction)
         if receipt:
-            return {"verified": True, "design_id": session["design_id"], "ref_id": session["ref_id"],
+            evidence["last_observed_matches"] = {"baseline": evidence.get("current_matches_baseline"),
+                                                 "candidate": evidence.get("current_matches_candidate")}
+            evidence.update(current_matches_baseline=None, current_matches_candidate=None)
+            return {**evidence, "verified": True, "design_id": session["design_id"], "ref_id": session["ref_id"],
                     "content_hash": receipt["content_hash"], "relation_hash": receipt["relation_hash"],
                     "saved_verification": receipt, "current_draft_rechecked": False,
+                    "verification_scope": "historical_committed_snapshot" if evidence["executed"] else "historical_snapshot_only",
                     "session_released": True, "transaction_kind": transaction["kind"],
                     "runtime_finalized": False, "manual_publication_required": True,
                     "look_graph_review": self._graph_review(session, transaction),
                     "publication_targets": [action_context(session["baseline"])]}
         if session["state"] == "finished" and transaction["state"] == "saved":
-            return {"verified": True, "session_released": True, "design_id": session["design_id"],
+            return {**evidence, "verified": True, "session_released": True, "design_id": session["design_id"],
                     "ref_id": session["ref_id"], "verification_scope": "previously_finished_session",
                     "current_draft_rechecked": False, "runtime_finalized": False,
                     "manual_publication_required": True,
@@ -1662,22 +1812,39 @@ class EditorService:
         if transaction["state"] != "saved":
             raise EditorServiceError(f"Transaction is not fully saved: {transaction['state']}")
         artifact = load_artifact(transaction["artifact_path"])
-        current = repository.load_draft_by_id(session["design_id"])
-        if current["content_hash"] != artifact["new_content_hash"]:
-            raise EditorServiceError("Saved draft hash does not match the approved transaction")
-        relations = repository.load_relations(session["design_id"])
-        relation_hash = relation_snapshot_hash(relations)
-        if relation_hash != artifact["expected_relation_hash"]:
-            raise EditorServiceError("Saved relation snapshot does not match the approved transaction")
+        validate_transaction_artifact(artifact)
+        if artifact["session_id"] != session_id or artifact["design_id"] != session["design_id"]:
+            raise EditorServiceError("Saved transaction identity does not match the session")
+        with repository.database.write_transaction() as database_session:
+            current = repository.load_draft_by_id(session["design_id"], for_update=True, session=database_session)
+            target_state = draft_target_state(current, session["design_id"], session["ref_id"])
+            if target_state != "active_unpublished":
+                raise self._evidence_error("current_draft_identity_unverified" if target_state == "unknown" else "draft_baseline_changed",
+                    "Saved target is no longer a verified active unpublished draft", {"session_id": session_id, "target_state": target_state})
+            if current["content_hash"] != artifact["new_content_hash"]:
+                raise EditorServiceError("Saved draft hash does not match the approved transaction")
+            relations = repository._relations(session["design_id"], database_session, for_update=True)
+            relation_hash = relation_snapshot_hash(relations)
+            if relation_hash != artifact["expected_relation_hash"]:
+                raise EditorServiceError("Saved relation snapshot does not match the approved transaction")
+        evidence = execution_evidence(transaction, artifact, observation)
+        evidence.update({"verification_scope": "current_draft_snapshot", "current_matches_candidate": True,
+                         "current_matches_baseline": current["content_hash"] == artifact["old_content_hash"]
+                         and relation_hash == artifact.get("old_relation_hash"),
+                         "content_hash": current["content_hash"], "relation_hash": relation_hash,
+                         "design_id": session["design_id"]})
+        self.state.record_execution_observation(transaction["id"], evidence)
         self.state.update_session(session_id, "verified", conversation_id=self.conversation_id,
                                   owner_revision=session.get("owner_revision", 0), expected_states=("saved", "verified"),
                                   expected_transaction_id=transaction["id"])
         return {
+            **evidence,
             "verified": True,
             "design_id": session["design_id"],
             "ref_id": session["ref_id"],
             "content_hash": current["content_hash"],
             "relation_hash": relation_hash,
+            "current_draft_rechecked": True,
             "transaction_kind": transaction["kind"],
             "runtime_finalized": False,
             "runtime_mode": "existing_backend_lazy_compile_after_manual_publish",
@@ -1685,16 +1852,31 @@ class EditorService:
         }
 
     def finish_edit_session(self, session_id: str) -> dict[str, Any]:
+        from .execution_evidence import execution_evidence
         session = self._owned_session(session_id)
         if session["state"] not in {"verified", "finished"}:
             raise EditorServiceError("Session must be verified before it can be finished")
-        if session["state"] == "verified":
-            self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
-                                      owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
-                                      expected_transaction_id=session.get("transaction_id"))
-        completed = {**session, "state": "finished"}
         transaction = self.state.get_transaction(session["transaction_id"]) if session.get("transaction_id") else {}
+        observation = self.state.execution_observation(transaction["id"]) if transaction else None
+        evidence = execution_evidence(transaction, observation=observation)
+        if session["state"] == "verified":
+            if (transaction.get("state") == "saved" and isinstance(observation, dict)
+                    and observation.get("content_hash") and observation.get("relation_hash")):
+                self.state.finish_verified_save(transaction["id"], content_hash=observation["content_hash"],
+                    relation_hash=observation["relation_hash"], conversation_id=self.conversation_id,
+                    owner_revision=session.get("owner_revision", 0))
+            else:
+                self.state.update_session(session_id, "finished", conversation_id=self.conversation_id,
+                                          owner_revision=session.get("owner_revision", 0), expected_states=("verified",),
+                                          expected_transaction_id=session.get("transaction_id"))
+        completed = {**session, "state": "finished"}
+        evidence["last_observed_matches"] = {"baseline": evidence.get("current_matches_baseline"),
+                                             "candidate": evidence.get("current_matches_candidate")}
+        evidence.update({"current_draft_rechecked": False, "current_matches_baseline": None,
+                         "current_matches_candidate": None,
+                         "verification_scope": "historical_committed_snapshot" if evidence["executed"] else "historical_snapshot_only"})
         return {
+            **evidence,
             "finished": True,
             "look_graph_review": self._graph_review(completed, transaction),
             "publication_targets": [action_context(session["baseline"])],

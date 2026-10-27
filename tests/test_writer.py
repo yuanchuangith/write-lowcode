@@ -78,13 +78,16 @@ class FakeDatabase:
 
 class FakeRepository:
     def __init__(self, current, saved, relations=None, grants_sha256="c" * 64, current_relations=None,
-                 committed=None, committed_relations=None):
+                 committed=None, committed_relations=None, authenticated_principal="synthetic-editor@localhost",
+                 writer_principal=None):
         self.current = current
         self.saved = saved
         self.relations = list(relations or [])
         self.current_relations = list(self.relations if current_relations is None else current_relations)
         self.relation_reads = []
         self.grants_sha256 = grants_sha256
+        self.principal = authenticated_principal
+        self.writer_principal = authenticated_principal if writer_principal is None else writer_principal
         self.loads = 0
         self.committed = saved if committed is None else committed
         self.committed_relations = self.relations if committed_relations is None else committed_relations
@@ -94,7 +97,11 @@ class FakeRepository:
             "safe": True,
             "account_mode": account_mode,
             "grants_sha256": self.grants_sha256,
+            "authenticated_principal": self.principal,
         }
+
+    def authenticated_principal(self, session):
+        return self.writer_principal
 
     def load_draft_by_id(self, design_id, *, for_update=False, session=None):
         self.loads += 1
@@ -140,6 +147,7 @@ class WriterTests(unittest.TestCase):
             patch("gxp_editor.writer.StateStore", return_value=self.state), \
             patch("gxp_editor.writer.EditorDatabase", return_value=FakeDatabase(session)), \
             patch("gxp_editor.writer.EditorRepository", return_value=repository), \
+            patch("gxp_editor.writer.CompilerBridge.compiler_binding", return_value=(self.artifact.get("compiler_evidence") or {}).get("compiler_binding")), \
             patch("gxp_editor.approval.approval_secret", return_value="test-secret"):
             yield
 

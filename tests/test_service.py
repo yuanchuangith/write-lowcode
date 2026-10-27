@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import tempfile
 import unittest
+from contextlib import nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -19,6 +20,9 @@ class FakeState:
 
 
 class FakeDatabase:
+    def read_session(self):
+        return nullcontext(object())
+
     def status(self):
         return {"connected": True}
 
@@ -36,6 +40,8 @@ class FakeRepository:
             "fingerprint_configured": True,
             "fingerprint_matches": True,
             "grants_sha256": "c" * 64,
+            "authenticated_principal": "fixture_editor@localhost",
+            "principal_verified": True,
         }
 
 
@@ -80,6 +86,9 @@ class UnavailableRuntimeValidator:
 
 class RecordingPlanState:
     def __init__(self, session, plan=None):
+        if isinstance(session.get("baseline"), dict):
+            session.setdefault("ref_id", session["baseline"]["ref_id"])
+            session["baseline"].setdefault("relations", [])
         self.session = session
         self.plan = plan
         self.plan_created = False
@@ -110,13 +119,18 @@ class RecordingPlanState:
 
 class PlanRepository(FakeRepository):
     def __init__(self, draft):
+        draft.setdefault("relations", [])
         self.draft = draft
+        self.database = FakeDatabase()
 
-    def load_draft_by_id(self, design_id):
+    def load_draft_by_id(self, design_id, *, session=None):
         return dict(self.draft)
 
     def load_relations(self, design_id):
         return list(self.draft.get("relations") or [])
+
+    def _relations(self, design_id, session):
+        return self.load_relations(design_id)
 
 
 class BlockingPlanCompiler(FakeCompiler):
@@ -161,9 +175,12 @@ class ServiceStatusTests(unittest.TestCase):
         service.state.get_session.return_value = {"id": "session-1", "design_id": artifact["design_id"],
             "state": "awaiting_approval", "transaction_id": "transaction-1", "conversation_id": "", "owner_revision": 0}
         with patch("gxp_editor.service.load_artifact", return_value=artifact), patch.object(service, "_launch_approval",
-                return_value={"window_opened": True, "window_starting": False}) as launch:
+                return_value={"window_opened": True, "window_starting": False}) as launch, \
+                patch.object(service, "_approval_preflight", return_value={"status": "match"}):
             self.assertTrue(service.reopen_approval("transaction-1")["approval_window_opened"])
-            launch.assert_called_once_with("transaction-1", owner_revision=0)
+            self.assertEqual(launch.call_args.args, ("transaction-1",))
+            self.assertEqual(launch.call_args.kwargs["owner_revision"], 0)
+            self.assertRegex(launch.call_args.kwargs["approval_fingerprint"], r"^[0-9a-f]{64}$")
             service.state.create_transaction.assert_not_called()
             service.state.get_transaction.return_value["state"] = "executing"
             result = service.reopen_approval("transaction-1")

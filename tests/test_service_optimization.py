@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import unittest
+from contextlib import nullcontext
 from unittest.mock import Mock, patch
 
 from tests.helpers import baseline, editor_config
@@ -14,8 +15,9 @@ from gxp_editor.service import EditorService, component_request
 class ServiceOptimizationTests(unittest.TestCase):
     def test_noop_checks_original_value_without_native_process_or_new_plan(self):
         canvas = fixture()
-        draft = baseline(data=json.dumps(canvas), data_json=canvas)
+        draft = baseline(data=json.dumps(canvas), data_json=canvas, relations=[])
         session = {"id": "s", "design_id": draft["id"], "baseline": draft,
+                   "ref_id": draft["ref_id"],
                    "state": "locked", "conversation_id": ""}
         service = object.__new__(EditorService)
         service.state = Mock()
@@ -24,6 +26,8 @@ class ServiceOptimizationTests(unittest.TestCase):
         repository, compiler, runtime = Mock(), Mock(), Mock()
         repository.load_draft_by_id.return_value = draft
         repository.load_relations.return_value = []
+        repository.database.read_session.side_effect = lambda: nullcontext(object())
+        repository._relations.return_value = []
         spec = {"schema_version": 1, "revision": "r1", "scope_policy": "manual_review", "requirements": []}
         with patch.object(service, "_components", return_value=(editor_config(), object(), repository, compiler, runtime)):
             response = service.plan_canvas_patch("s", [operation()], spec)

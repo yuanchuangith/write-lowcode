@@ -13,6 +13,8 @@ class GrantSession:
 
     def query(self, sql, max_rows=50):
         self.asserted_sql = sql
+        if sql == "SELECT CURRENT_USER() AS authenticated_principal":
+            return [{"authenticated_principal": "synthetic-editor@localhost"}]
         return [{"grant": item} for item in self.grants]
 
 

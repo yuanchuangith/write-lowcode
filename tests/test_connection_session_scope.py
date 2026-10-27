@@ -148,7 +148,8 @@ class ConnectionSessionScopeTests(unittest.TestCase):
         with patch("gxp_editor.service.BackupStore") as backup, \
                 patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
                 patch.object(service, "editor_status", return_value={"planning_ready": True,
-                    "write_ready": True, "production_ready": False, "gates": {}}), \
+                    "write_ready": True, "production_ready": False,
+                    "compiler": {"compiler_binding_sha256": "b" * 64}, "gates": {"compiler": {"ready": True}}}), \
                 patch("gxp_editor.handoff_import.discover_handoffs", return_value={}):
             backup.return_value.create.return_value = {"backup_id": "new-backup", "files": {}}
             result = service.begin_edit_session("ActionOne")

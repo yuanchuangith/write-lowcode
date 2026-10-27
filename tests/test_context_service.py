@@ -5,7 +5,7 @@ import copy
 import json
 import tempfile
 import unittest
-from contextlib import ExitStack
+from contextlib import ExitStack, nullcontext
 from pathlib import Path
 from unittest.mock import Mock, patch
 
@@ -28,7 +28,7 @@ class ContextServiceTests(unittest.TestCase):
             {"key": "query", "elementKey": "GetData", "title": "查询", "depth": [],
              "paramsValue": {"inputParams": {"status": "active", "deleted": 0, "kind": "old"},
                              "outputParams": {"result": "rows"}}}]}], "globalVariables": []}
-        self.draft = baseline(data=json.dumps(self.canvas))
+        self.draft = baseline(data=json.dumps(self.canvas), relations=[])
         self.draft["data_json"] = copy.deepcopy(self.canvas)
         self.binding = {"compiler_binding_sha256": "a" * 64}
         self.session = self.state.create_session(self.draft, "backup-context", self.binding["compiler_binding_sha256"],
@@ -37,6 +37,9 @@ class ContextServiceTests(unittest.TestCase):
         self.repository = Mock()
         self.repository.load_draft_by_id.return_value = copy.deepcopy(self.draft)
         self.repository.load_relations.return_value = []
+        self.db_session = object()
+        self.repository.database.read_session.side_effect = lambda: nullcontext(self.db_session)
+        self.repository._relations.side_effect = lambda design_id, db_session: self.repository.load_relations(design_id)
         self.compiler = Mock()
         self.compiler.describe_registry.return_value = self.registry
         self.compiler.compiler_binding.return_value = self.binding
@@ -95,7 +98,8 @@ class ContextServiceTests(unittest.TestCase):
         self.assertEqual(self.state.get_session(self.session["id"]), before)
         self.assertEqual(self.state.session_transactions(self.session["id"]), [])
         self.compiler.compile_patch.assert_not_called()
-        self.repository.load_draft_by_id.assert_called_once_with(self.draft["id"])
+        self.repository.load_draft_by_id.assert_called_once_with(self.draft["id"], session=self.db_session)
+        self.repository._relations.assert_called_once_with(self.draft["id"], self.db_session)
 
     def test_cross_conversation_context_is_rejected_before_component_loading(self):
         self.service._conversation_id = self.other_owner
@@ -104,7 +108,7 @@ class ContextServiceTests(unittest.TestCase):
         self.components.assert_not_called()
 
     def test_changed_draft_rejects_stale_context_before_registry_read(self):
-        self.repository.load_draft_by_id.return_value["content_hash"] = "b" * 64
+        self.repository.load_draft_by_id.return_value["js_code"] = "changed-js"
         with self.assertRaisesRegex(EditorServiceError, "stale"):
             self.service.inspect_edit_context(self.session["id"], self.targets)
         self.compiler.describe_registry.assert_not_called()

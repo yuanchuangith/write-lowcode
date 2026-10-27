@@ -34,7 +34,7 @@ class RecoveryTests(unittest.TestCase):
         self.tx = self.store.create_transaction(self.session['id'], plan, 'write', str(self.path), transaction_id='transaction-1')
         self.store.claim_transaction(self.tx)
         self.repo = Mock()
-        self.repo.load_draft_by_id.return_value = {'content_hash': self.artifact['new_content_hash']}
+        self.repo.load_draft_by_id.return_value = self.snapshot(self.artifact['new_content_hash'])
         self.repo._relations.return_value = []
         self.database_session = Mock()
         self.repo.database.write_transaction.return_value.__enter__ = Mock(return_value=self.database_session)
@@ -45,6 +45,14 @@ class RecoveryTests(unittest.TestCase):
             'gxp_editor.recovery.EditorRepository', return_value=self.repo
         ):
             return recover_session(self.session['id'], state=self.store, **kwargs)
+
+    def snapshot(self, content_hash):
+        row = baseline()
+        if content_hash == self.artifact['new_content_hash']:
+            row.update(self.artifact['desired_design'])
+            row['last_modification_time'] = self.artifact['desired_last_modification_time']
+        row['content_hash'] = content_hash
+        return row
 
     def test_lost_commit_acknowledgement_recovers_committed_result(self):
         self.store.update_transaction(self.tx, 'failed', 'commit acknowledgement lost')
@@ -112,14 +120,14 @@ class RecoveryTests(unittest.TestCase):
             window.root.destroy()
 
     def test_verified_original_releases_occupancy_without_reusing_approval(self):
-        self.repo.load_draft_by_id.return_value = {'content_hash': self.artifact['old_content_hash']}
+        self.repo.load_draft_by_id.return_value = self.snapshot(self.artifact['old_content_hash'])
         self.assertEqual(self.recover()['outcome'], 'not_applied')
         self.assertIsNone(self.store.active_session())
         with self.assertRaises(StateError):
             self.store.claim_transaction(self.tx)
 
     def test_changed_data_requires_manual_choice_to_keep_and_close(self):
-        self.repo.load_draft_by_id.return_value = {'content_hash': 'external-change'}
+        self.repo.load_draft_by_id.return_value = self.snapshot('external-change')
         self.assertEqual(self.recover()['outcome'], 'changed')
         self.assertIsNotNone(self.store.active_session())
         self.assertEqual(self.recover(close_changed=True)['outcome'], 'closed_changed')
@@ -138,7 +146,7 @@ class RecoveryTests(unittest.TestCase):
 
     def test_previously_committed_data_reverted_is_not_classified_unwritten(self):
         self.store.update_transaction(self.tx, 'saved')
-        self.repo.load_draft_by_id.return_value = {'content_hash': self.artifact['old_content_hash']}
+        self.repo.load_draft_by_id.return_value = self.snapshot(self.artifact['old_content_hash'])
         self.assertEqual(self.recover()['outcome'], 'changed')
 
     def test_unexecuted_restore_can_be_cancelled_and_retried(self):

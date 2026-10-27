@@ -123,7 +123,7 @@ class NodeDiscoveryServiceTests(unittest.TestCase):
 
     def test_every_page_rechecks_draft_relations_and_compiler_version(self):
         self.service.find_edit_nodes(self.session["id"], limit=1)
-        self.repository.load_draft_by_id.return_value["content_hash"] = "b" * 64
+        self.repository.load_draft_by_id.return_value["js_code"] = "changed-js"
         with self.assertRaisesRegex(EditorServiceError, "Draft changed.*stale"):
             self.service.find_edit_nodes(self.session["id"], offset=1, limit=1)
         self.repository.load_draft_by_id.return_value = copy.deepcopy(self.draft)

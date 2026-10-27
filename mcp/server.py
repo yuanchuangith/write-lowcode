@@ -269,14 +269,14 @@ def record_graph_review(
 @mcp.tool()
 @traced_tool
 def reopen_approval(transaction_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Reopen an existing unexecuted approval window without creating or executing a transaction."""
+    """Recheck the pending artifact, coherent draft/relations, account/grants and compiler before reopening. Dead queues use generation-bound launch reservations; unknown/live-stalled queues cannot restart. ui_host_required needs an explicitly user-started external host; never install/start it automatically. No new transaction, approval or execution."""
     return service(conversation_id).reopen_approval(transaction_id)
 
 
 @mcp.tool()
 @traced_tool
 def recover_edit_session(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Check an interrupted/uncertain result against database hashes and reconcile local state; no business writes."""
+    """Compare an interrupted result with original/candidate snapshots and reconcile local state. verification_scope/current_matches_baseline/candidate describe snapshot evidence; execution_outcome/commit_evidence describe causal proof. executed=false with unknown does not mean never executed; never retry that transaction. No business writes."""
     return service(conversation_id).recover_edit_session(session_id)
 
 

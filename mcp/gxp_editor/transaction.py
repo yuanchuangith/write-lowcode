@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import hmac
 import math
 import re
 import uuid
@@ -16,6 +17,20 @@ from .logic_review import LogicReviewError, require_write_business_review, valid
 
 class TransactionPlanError(RuntimeError):
     pass
+
+
+def principal_verification(database_safety: dict[str, Any], current_principal: Any) -> str:
+    """Compare against the original signed actor; never backfill old artifacts."""
+    if "authenticated_principal" not in database_safety:
+        return "legacy_grants_only"
+    expected = database_safety["authenticated_principal"]
+    for principal in (expected, current_principal):
+        if (not isinstance(principal, str) or not principal or len(principal) > 512
+                or any(ord(character) < 32 or ord(character) == 127 for character in principal)):
+            raise TransactionPlanError("Database authenticated principal evidence is unavailable or invalid")
+    if not hmac.compare_digest(expected.encode("utf-8"), current_principal.encode("utf-8")):
+        raise TransactionPlanError("Database authenticated principal changed after approval planning")
+    return "bound_principal_match"
 
 
 UPDATE_DESIGN_SQL = (
@@ -295,6 +310,12 @@ def build_transaction_artifact(
         "executed": False,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
+    # Optional for historic artifacts. New prepares freeze the actual actor
+    # inside the existing signed container without changing its hash algorithm.
+    if "authenticated_principal" in database_safety:
+        artifact["database_safety"]["authenticated_principal"] = database_safety["authenticated_principal"]
+    if "database_scope" in database_safety:
+        artifact["database_safety"]["database_scope"] = database_safety["database_scope"]
     if business_review is not None:
         artifact["business_review"] = business_review
         if not restore:
@@ -618,6 +639,15 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         raise TransactionPlanError("Transaction shared account binding is inconsistent")
     if bool(database_safety.get("privileged_shared_override")) != (account_mode == "shared_unrestricted"):
         raise TransactionPlanError("Transaction privileged shared-account binding is inconsistent")
+    if "authenticated_principal" in database_safety:
+        # Structural validation only; runtime comparison uses a freshly read
+        # authenticated actor rather than this value compared with itself.
+        principal = database_safety["authenticated_principal"]
+        if (not isinstance(principal, str) or not principal or len(principal) > 512
+                or any(ord(character) < 32 or ord(character) == 127 for character in principal)):
+            raise TransactionPlanError("Transaction authenticated principal binding is invalid")
+    if "database_scope" in database_safety and not re.fullmatch(r"[0-9a-f]{64}", str(database_safety["database_scope"])):
+        raise TransactionPlanError("Transaction database scope binding is invalid")
     statements = artifact.get("statements")
     if not isinstance(statements, list) or not statements:
         raise TransactionPlanError("Transaction artifact has no statements")

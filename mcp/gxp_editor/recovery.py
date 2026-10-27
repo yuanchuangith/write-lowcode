@@ -7,6 +7,7 @@ from .approval import load_artifact
 from .config import load_config, runtime_root
 from .db import EditorDatabase
 from .execution_lock import execution_lock
+from .execution_evidence import draft_target_state, execution_evidence
 from .hashing import relation_snapshot_hash
 from .repository import EditorRepository
 from .state import StateStore, StateError, assert_session_database_scope
@@ -48,7 +49,7 @@ def archive_edit_session(session_id: str, *, state=None, conversation_id: str = 
 
 def recover_session(session_id: str, *, state=None, close_changed: bool = False, conversation_id: str | None = "", owner_revision: int | None = None) -> dict:
     state = state or StateStore()
-    session = state.get_session(session_id)
+    session = state.get_session(session_id, include_baseline=False)
     state._assert_owner(session, conversation_id, owner_revision)
     config = load_config()
     assert_session_database_scope(session, config.database)
@@ -71,21 +72,38 @@ def recover_session(session_id: str, *, state=None, close_changed: bool = False,
             current = repository.load_draft_by_id(session["design_id"], for_update=True, session=database_session)
             relations = repository._relations(session["design_id"], database_session)
             relation_hash = relation_snapshot_hash(relations)
-            matches_candidate = (current["content_hash"] == artifact["new_content_hash"]
+            target_state = draft_target_state(current, session["design_id"], session["ref_id"])
+            matches_candidate = (target_state == "active_unpublished" and current["content_hash"] == artifact["new_content_hash"]
                                  and relation_hash == artifact["expected_relation_hash"])
             old_relation_hash = artifact.get("old_relation_hash")
             if not old_relation_hash and transaction["kind"] == "write":
-                baseline = session["baseline"]
+                try:
+                    baseline = state.get_session(session_id)["baseline"]
+                except (ValueError, TypeError, KeyError):
+                    baseline = {}
                 if baseline.get("content_hash") == artifact["old_content_hash"] and "relations" in baseline:
                     old_relation_hash = relation_snapshot_hash(baseline["relations"])
-            matches_original = (transaction["state"] not in {"saved", "saved_state_pending"}
-                                and current["content_hash"] == artifact["old_content_hash"]
+            matches_original = (target_state == "active_unpublished" and current["content_hash"] == artifact["old_content_hash"]
                                 and bool(old_relation_hash) and relation_hash == old_relation_hash)
-            result = {"session_id": session_id, "transaction_id": transaction["id"],
+            evidence = execution_evidence(transaction, artifact, state.execution_observation(transaction["id"]))
+            evidence.update({"verification_scope": "current_draft_snapshot",
+                             "current_matches_baseline": matches_original,
+                             "current_matches_candidate": matches_candidate})
+            result = {**evidence, "session_id": session_id, "transaction_id": transaction["id"],
                       "content_hash": current["content_hash"], "relation_hash": relation_hash,
-                      "business_data_written": False, "verified": matches_candidate}
-            outcome = "saved" if matches_candidate else "not_applied" if matches_original else "changed"
+                      "business_data_written": False, "verified": matches_candidate,
+                      "target_state": target_state}
+            if target_state == "unknown":
+                result.update(current_matches_baseline=None, current_matches_candidate=None)
+                state.record_execution_observation(transaction["id"], result)
+                return {**result, "outcome": "unknown", "session_released": False,
+                        "reason_code": "current_draft_identity_unverified",
+                        "message": "当前草稿身份或发布、删除状态无法核实；不标记成功，也不重试执行。"}
+            outcome = ("saved" if matches_candidate else "not_applied"
+                       if matches_original and transaction["state"] not in {"saved", "saved_state_pending"}
+                       and not evidence["executed"] else "changed")
             if outcome == "changed" and not close_changed:
+                state.record_execution_observation(transaction["id"], result)
                 return {**result, "outcome": outcome, "session_released": False,
                         "message": "当前数据与审批前后均不一致。可在处理窗口明确选择保留当前数据并结束会话；不会恢复或覆盖数据库。"}
             if outcome == "changed":
