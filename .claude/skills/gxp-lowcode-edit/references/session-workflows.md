@@ -5,6 +5,16 @@ compiler, backup, ownership, concurrency and human approval gates in SKILL.md.
 A previously authorized same-dialogue, same-draft workflow may continue without
 repeating explicit skill invocation; no section authorizes a new edit target.
 
+## Conversation editing and approval
+
+Keep the existing dialogue workflow: register the conversation, back up and
+inspect the draft, prepare and review one plan, then call `prepare_write` to open
+the human approval window directly. The user approves the actual SQL and confirms
+saving; verify the result and release the session before reporting completion.
+No separate terminal, UI host or background-service setup is a prerequisite.
+Keep the tool connection available while review is pending. Closing a window
+does not itself cancel its pending transaction or authorize another save.
+
 ## Blocked session entry
 
 Without an explicitly requested queue, a dialogue owns at most one active
@@ -169,11 +179,12 @@ does not imply that the original canvas is valid.
   Unknown required evidence disables reopening; it is not proof of no change.
 - `plugin_runtime_path_missing` and `plugin_runtime_resource_changed` identify
   a broken instance resource and require a connection to an intact runtime.
-  Default approval/recovery windows open directly from the active conversation;
-  no external terminal or host is required. Keep the tool connection available
-  until review finishes. Do not reinstall, modify the installed cache or restart
-  the MCP without the user's separate instruction. An older instance returning
-  `ui_host_required` needs the updated connection, not a manually started host.
+  Approval/recovery windows open directly from the active conversation. Do not
+  ask the user to start a host in another terminal. If an older instance reports
+  `ui_host_required`, report that incompatible instance behavior while retaining
+  the pending flow and let the user decide the next step. Do not reinstall,
+  update the plugin, modify the installed cache or restart the MCP without the
+  user's separate instruction.
   Retain the pending transaction; repeated `prepare_write` is not recovery.
 - Each startup has its own journal. Launcher PID/exit and claimed UI PID/exit
   are separate evidence. `process_state=unknown` and a missing heartbeat cannot

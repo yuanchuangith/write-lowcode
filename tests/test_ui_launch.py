@@ -5,6 +5,7 @@ import importlib.util
 import hashlib
 import json
 import os
+import subprocess
 import sys
 import tempfile
 import time
@@ -40,6 +41,9 @@ class WindowStartupTests(unittest.TestCase):
             while (record_path.exists() and not json.loads(record_path.read_text(encoding="utf-8")).get("launcher_exit_at")
                    and time.monotonic() < deadline):
                 time.sleep(.02)
+            while (record_path.exists() and json.loads(record_path.read_text(encoding="utf-8")).get("monitor_state") != "stopped"
+                   and time.monotonic() < deadline):
+                time.sleep(.02)
 
     def launch(self, source, *, key="test-window", timeout=2, mode="direct"):
         script = self.root / "child.py"
@@ -53,7 +57,7 @@ class WindowStartupTests(unittest.TestCase):
     def test_default_auto_opens_from_conversation_without_external_host(self):
         with patch("gxp_editor.runtime_package.assert_runtime_resources") as resources, \
              patch("gxp_editor.runtime_package.assert_python_interpreter") as interpreter, \
-             patch("gxp_editor.ui_host.submit_request", side_effect=AssertionError("No host required")):
+             patch.dict(sys.modules, {"gxp_editor.ui_host": None, "gxp_editor.ui_observer": None}):
             result = self.launch("report_window_startup('ready')\ntime.sleep(.3)\nreport_window_startup('closed')\n", mode="auto")
         self.assertTrue(result["window_opened"], result)
         self.assertEqual(result["isolation_mode"], "conversation_bound")
@@ -74,6 +78,19 @@ class WindowStartupTests(unittest.TestCase):
             self.assertEqual(result["reason_code"], code)
             self.assertEqual(result["process_state"], "exited")
             self.assertFalse(result["window_opened"])
+
+    def test_completed_window_stops_monitor_without_starting_another_process(self):
+        with patch("gxp_editor.ui_launch.subprocess.Popen", wraps=subprocess.Popen) as spawn:
+            result = self.launch("report_window_startup('ready')\ntime.sleep(.3)\nreport_window_startup('closed')\n")
+        self.assertTrue(result["window_opened"], result)
+        self.assertEqual(spawn.call_count, 1)
+        self.wait_for_fixture_children()
+        record_path = self.startup / "attempts" / (result["startup_id"] + ".json")
+        record = json.loads(record_path.read_text(encoding="utf-8"))
+        self.assertEqual(record["monitor_state"], "stopped")
+        self.assertEqual(record["process_state"], "exited")
+        self.assertEqual(record["status"], "closed")
+        self.assertNotIn("observer_pid", record)
 
     def wait_for_status(self, key, status):
         deadline = time.monotonic() + 3

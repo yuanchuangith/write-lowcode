@@ -16,13 +16,14 @@ from typing import Any
 
 from .config import runtime_root
 from .execution_lock import _os_lock, ApprovalWindowBusyError, approval_window_lock, execution_lock
-from .ui_lifecycle import lifecycle_event, process_identity
+from .ui_lifecycle import ProcessHandle, lifecycle_event, process_identity
 
 _RECORD_ENV = "GXP_EDITOR_UI_STARTUP_RECORD"
 _ID_ENV = "GXP_EDITOR_UI_STARTUP_ID"
 _STATUSES = {"starting", "ready", "failed", "already_open", "closed"}
 STARTUP_STALL_SECONDS = 30
 HEARTBEAT_STALL_SECONDS = 15
+UI_CLAIM_GRACE_SECONDS = 1
 _UI_LEASE = None
 _UI_CLAIM = None
 
@@ -91,7 +92,7 @@ def _result(record=None, *, status=None, error="") -> dict[str, Any]:
         **{key: record[key] for key in ("generation", "event_sequence", "process_state", "visible",
             "review_ready", "preview_pending", "exit_code", "exit_at", "exit_source", "reason_code",
             "launcher_pid", "launcher_token", "launcher_exit_code", "ui_pid", "ui_token",
-            "observer_pid", "observer_token", "observer_process_state", "isolation_mode", "runtime_binding",
+            "observer_pid", "observer_token", "observer_process_state", "monitor_state", "isolation_mode", "runtime_binding",
             "queue_generation", "queue_launch_token_sha256") if key in record},
         **({"window_error": error or record["error"]} if error or record.get("error") else {}),
         **({"window_log_path": record["log_path"]} if record.get("log_path") else {}),
@@ -121,6 +122,8 @@ def inspect_window_startup(launch_key: str, *, startup_root: str | Path | None =
         if status in {"starting", "ready"} and pid and process_state == "exited":
             actual_claim = _read(path.with_suffix(".claim.json")) or {}
             if not record.get("ui_pid") and actual_claim.get("startup_id") != record.get("startup_id"):
+                if time.time() - record.get("created_at", 0) < UI_CLAIM_GRACE_SECONDS:
+                    return {**_result(record), "process_state": "unknown"}
                 lifecycle_event(path, record["startup_id"], "unclaimed_launcher_disappeared", source="inspection", updates={
                     "status": "failed", "process_state": "unknown", "exit_source": "unclaimed_ui",
                     "reason_code": "ui_never_claimed", "error": "Window launcher exited before a real UI process identity was recorded"})
@@ -131,7 +134,7 @@ def inspect_window_startup(launch_key: str, *, startup_root: str | Path | None =
                 "error": "Window process exited before it could remain available"})
             return _result(_read(path), status="failed")
         if status in {"starting", "ready"} and not pid and time.time() - record.get("created_at", 0) > 10:
-            return {**_result(record, status="process_unknown", error="Window launcher has not supplied a verifiable process identity; its pending host request must be reconciled before retry"),
+            return {**_result(record, status="process_unknown", error="Window launcher has not supplied a verifiable process identity; reconcile this startup before retry"),
                     "process_state": "unknown", "window_recovery_available": False}
         process_running = process_state == "alive"
         if status == "failed" and record.get("process_state") == "unknown" and not record.get("ui_pid"):
@@ -265,6 +268,80 @@ def report_window_startup(status: str, *, error: str = "", phase: str | None = N
         return False
 
 
+def _monitor_window_process(process, path: Path, startup_id: str) -> None:
+    """Observe this conversation's UI in a daemon thread; create no service."""
+    ui = None
+    launcher_recorded = False
+    try:
+        lifecycle_event(path, startup_id, "monitor_started", source="mcp_thread",
+                        updates={"monitor_state": "running"})
+        while True:
+            if ui is None:
+                claim = _read(path.with_suffix(".claim.json")) or {}
+                if claim.get("startup_id") == startup_id:
+                    handle = ProcessHandle(claim.get("pid"))
+                    state = handle.state()
+                    if (state != "unknown" and handle.token and handle.token == claim.get("process_token")) or (
+                            os.name != "nt" and state != "unknown"):
+                        ui = handle
+                        lifecycle_event(path, startup_id, "ui_observed", source="mcp_thread", updates={
+                            "ui_pid": claim["pid"], "ui_token": claim.get("process_token")})
+                    else:
+                        handle.close()
+                        lifecycle_event(path, startup_id, "ui_identity_unverified", source="mcp_thread", updates={
+                            "process_state": "unknown", "reason_code": "ui_identity_unverified"})
+                        return
+            code = process.poll()
+            if code is not None and not launcher_recorded:
+                launcher_recorded = True
+                lifecycle_event(path, startup_id, "launcher_exited", source="mcp_thread", updates={
+                    "launcher_pid": process.pid, "launcher_exit_code": code, "launcher_exit_at": time.time()})
+            if ui is not None:
+                state = ui.state()
+                if state == "exited":
+                    current = _read(path) or {}
+                    normal = current.get("normal_close_requested") is True
+                    status = "closed" if normal else current.get("status") if current.get("status") in {
+                        "failed", "already_open", "closed"} else "failed"
+                    lifecycle_event(path, startup_id, "ui_exited", source="mcp_thread", updates={
+                        "status": status, "process_state": "exited", "exit_code": ui.exit_code(), "exit_at": time.time(),
+                        "exit_source": "retained_ui_handle" if os.name == "nt" else "process_observation",
+                        **({} if normal or current.get("reason_code") else {
+                            "reason_code": "ui_process_exited", "error": "Window process exited before review completed"})})
+                    return
+                if state == "unknown":
+                    lifecycle_event(path, startup_id, "ui_identity_unverified", source="mcp_thread", updates={
+                        "process_state": "unknown", "reason_code": "ui_identity_unverified"})
+                    return
+            elif code is not None:
+                current = _read(path) or {}
+                if time.time() - current.get("created_at", 0) >= UI_CLAIM_GRACE_SECONDS:
+                    lifecycle_event(path, startup_id, "unclaimed_launcher_exited", source="mcp_thread", updates={
+                        "status": "failed", "process_state": "unknown", "reason_code": "ui_never_claimed",
+                        "exit_source": "unclaimed_ui", "error": "Window launcher exited before an actual UI identity was claimed"})
+                    return
+            time.sleep(.025)
+    except (OSError, RuntimeError, ValueError):
+        # Failure to observe cannot establish execution or authorize another UI.
+        try:
+            lifecycle_event(path, startup_id, "monitor_failed", source="mcp_thread", updates={"monitor_state": "unknown"})
+        except (OSError, RuntimeError):
+            pass
+    finally:
+        if ui is not None:
+            ui.close()
+        # Reap our launcher too (the venv launcher may outlive its real UI by
+        # a few milliseconds). This daemon never delays MCP shutdown.
+        try:
+            process.wait()
+        except OSError:
+            pass
+        try:
+            lifecycle_event(path, startup_id, "monitor_stopped", source="mcp_thread", updates={"monitor_state": "stopped"})
+        except (OSError, RuntimeError):
+            pass
+
+
 def launch_window(*, executable: str | Path, script: str | Path, arguments: list[str],
                   cwd: str | Path, launch_key: str, timeout_seconds: float = 8.0,
                   startup_root: str | Path | None = None,
@@ -278,7 +355,7 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
         raise ValueError("Approval recovery requires its bound artifact path")
     directory.mkdir(parents=True, exist_ok=True)
     timeout_seconds = max(0.0, min(float(timeout_seconds), 8.0))
-    if lifecycle_mode not in {"auto", "direct", "external_host"}:
+    if lifecycle_mode not in {"auto", "direct"}:
         raise ValueError("Invalid lifecycle mode")
     extra_env = extra_env or {}
     if any(key not in {"GXP_EDITOR_QUEUE_LAUNCH_TOKEN", "GXP_EDITOR_QUEUE_GENERATION"}
@@ -305,7 +382,7 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
             if extra_env:
                 record.update({"queue_generation": int(extra_env["GXP_EDITOR_QUEUE_GENERATION"]),
                     "queue_launch_token_sha256": hashlib.sha256(extra_env["GXP_EDITOR_QUEUE_LAUNCH_TOKEN"].encode("utf-8")).hexdigest()})
-            if lifecycle_mode in {"auto", "external_host"}:
+            if lifecycle_mode == "auto":
                 from .runtime_package import runtime_binding
                 try:
                     binding = runtime_binding(cwd)
@@ -321,7 +398,7 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
             _write(path, record)
             _write(directory / (key_hash + ".json"), {"startup_id": startup_id})
             lifecycle_event(path, startup_id, "created", source="mcp")
-            if lifecycle_mode in {"auto", "external_host"}:
+            if lifecycle_mode == "auto":
                 from .runtime_package import assert_runtime_resources, assert_python_interpreter
                 try:
                     assert_runtime_resources(Path(cwd))
@@ -333,32 +410,6 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
                         "error": "UI runtime preflight failed; reconnect to a complete fixed runtime"})
                     return {**inspect_window_startup(launch_key, startup_root=directory),
                             "error_details": getattr(exc, "details", {}), "reconnect_required": True}
-            if os.name == "nt" and lifecycle_mode == "external_host":
-                from .ui_host import submit_request
-                from .runtime_package import runtime_binding
-                request = {"startup_id": startup_id, "record_path": str(path.resolve()),
-                    "executable": str(Path(executable).resolve()), "script": str(Path(script).resolve()),
-                    "arguments": arguments, "cwd": str(Path(cwd).resolve()),
-                    "environment": {**{key: value for key, value in os.environ.items() if key.startswith("GXP_EDITOR_RUNTIME_")
-                        or key in {"GXP_EDITOR_PYTHON_IDENTITY", "GXP_LOWCODE_EDITOR_STATE", "GXP_LOWCODE_EDITOR_CONFIG"}}, **extra_env}}
-                if not submit_request(request, directory):
-                    lifecycle_event(path, startup_id, "host_required", source="mcp", updates={
-                        "status": "failed", "reason_code": "ui_host_required",
-                        "process_state": "exited",
-                        "error": "Start the local UI host explicitly outside the MCP client, then retry"})
-                    host_executable = Path(executable)
-                    if host_executable.name.lower() == "pythonw.exe":
-                        host_executable = host_executable.with_name("python.exe")
-                    return {**inspect_window_startup(launch_key, startup_root=directory),
-                        "ui_host_required": True, "ui_host_command": [str(host_executable),
-                            str(Path(cwd) / "scripts" / "ui_host.py"), "--runtime-root", str(Path(cwd).resolve())],
-                        "runtime_binding": runtime_binding(cwd)}
-                deadline = time.monotonic() + timeout_seconds
-                while True:
-                    result = inspect_window_startup(launch_key, startup_root=directory)
-                    if not result["window_starting"] or time.monotonic() >= deadline:
-                        return result
-                    time.sleep(.025)
             try:
                 with log.open("ab") as stderr:
                     process = subprocess.Popen(
@@ -368,37 +419,30 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
                         creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
                         start_new_session=os.name != "nt",
                     )
-                _write(path.with_suffix(".pid.json"), {"pid": process.pid, "process_token": _process_info(process.pid)[1],
-                                                       "startup_id": startup_id})
-                lifecycle_event(path, startup_id, "launcher_started", source="mcp", updates={
-                    "launcher_pid": process.pid, "launcher_token": _process_info(process.pid)[1],
-                    "isolation_mode": "conversation_bound" if lifecycle_mode == "auto" else (
-                        "posix_session" if os.name != "nt" else "explicit_direct_fixture")})
-                # Default UI follows the active conversation's process tree.
-                def wait_launcher():
-                    code = process.wait()
-                    lifecycle_event(path, startup_id, "launcher_exited", source="launcher_wait", updates={
-                        "launcher_pid": process.pid, "launcher_exit_code": code, "launcher_exit_at": time.time()})
-                threading.Thread(target=wait_launcher, daemon=True, name="gxp-window-wait").start()
             except OSError as exc:
                 lifecycle_event(path, startup_id, "launch_failed", source="mcp", updates={
                     "status": "failed", "process_state": "exited", "reason_code": "ui_launch_failed",
                     "error": str(exc)[:2000]})
                 return inspect_window_startup(launch_key, startup_root=directory)
+            try:
+                launcher_token = _process_info(process.pid)[1]
+                _write(path.with_suffix(".pid.json"), {"pid": process.pid, "process_token": launcher_token,
+                                                       "startup_id": startup_id})
+                lifecycle_event(path, startup_id, "launcher_started", source="mcp", updates={
+                    "launcher_pid": process.pid, "launcher_token": launcher_token,
+                    "isolation_mode": "conversation_bound" if lifecycle_mode == "auto" else (
+                        "posix_session" if os.name != "nt" else "explicit_direct_fixture")})
+            except (OSError, RuntimeError):
+                # Popen succeeded. A missing diagnostic receipt cannot prove
+                # the UI was never started or authorize another launch.
+                pass
+            threading.Thread(target=_monitor_window_process, args=(process, path, startup_id),
+                             daemon=True, name="gxp-window-monitor").start()
             deadline = time.monotonic() + timeout_seconds
             while True:
                 result = inspect_window_startup(launch_key, startup_root=directory)
                 if not result["window_starting"]:
                     return result
-                exit_code = process.poll()
-                if exit_code is not None:
-                    current = _read(path) or record
-                    claim = _read(path.with_suffix(".claim.json")) or {}
-                    if claim.get("startup_id") != startup_id:
-                        lifecycle_event(path, startup_id, "unclaimed_launcher_exited", source="mcp", updates={
-                            "status": "failed", "process_state": "unknown", "reason_code": "ui_never_claimed",
-                            "error": "Window launcher exited before an actual UI identity was claimed"})
-                        return inspect_window_startup(launch_key, startup_root=directory)
                 if time.monotonic() >= deadline:
                     return {**result, "window_error": "Window is still starting; no visible-window receipt has arrived"}
                 time.sleep(min(0.05, max(0, deadline - time.monotonic())))

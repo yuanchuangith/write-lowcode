@@ -25,7 +25,7 @@ MANIFEST_SCHEMA = 1
 RUNTIME_SCRIPT_NAMES = {
     "approval_app.py", "abort_session_app.py", "configure_connection.py",
     "database_settings.py", "preview_component_canvas.py", "preview_saved_approval.py",
-    "start_mcp.ps1", "start_mcp.cmd", "ui_host.py", "ui_observer.py",
+    "start_mcp.ps1", "start_mcp.cmd",
 }
 _REQUIRED = {"mcp/server.py", "mcp/gxp_editor/runtime_package.py",
              "scripts/approval_app.py", "scripts/abort_session_app.py",

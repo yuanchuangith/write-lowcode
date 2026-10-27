@@ -1,33 +1,29 @@
 # UI 生命周期与对话启动
 
-从 0.1.51 起，Windows 的审批/处理窗口恢复为由当前对话直接打开，无需另开终端或预先启动 UI host。默认 `auto` 路径保留完整 runtime manifest 和冻结解释器校验、实际 UI claim、去重及原审批/执行守卫，回执标记 `isolation_mode=conversation_bound`。保持工具连接直到审批结束；一次性 MCP 客户端退出可能连带关闭窗口，不能宣称默认路径实现断线存活。业务执行未知时仍先核对，不能重复保存。
+## 业务流程
 
-独立 host 保留为显式 `external_host` 后端，用于已有隔离测试和维护；正式工具默认不选择它，也不要求用户手动启动服务。以下独立宿主说明仅适用于这个可选后端。
+用户在对话中提出编辑需求，工具建立会话与备份、定位并规划、完成编译和业务复核，再由 `prepare_write` 直接打开审批窗口。用户审批实际 SQL 并确认保存，工具核对保存结果、释放会话后报告完成。处理、恢复和队列窗口也由当前对话打开；用户无需另开终端、启动 UI host 或管理服务。
 
-## 启动与版本
+窗口由 MCP 直接创建。MCP 内的 daemon 线程监测本次实际 UI，窗口退出后结束监测；没有独立 host、独立 observer 进程或额外常驻服务。单事务保存完成并核对释放后关闭窗口；显式多动作队列按既有流程等待后续准备项，不逐项关闭。用户关闭待审批窗口不会自动取消事务、释放会话或证明尚未执行。对话重试继续使用现有事务和正式恢复入口。
 
-当工具返回 `ui_host_required=true` 时，`ui_host_command` 是精确 argv 列表。用户从独立终端执行该命令，再重试原工具。命令使用固定 runtime package 中的 `scripts/ui_host.py --runtime-root <package>`；不应从 MCP 的子进程树启动。host 校验完整 manifest 和冻结 Python 身份，持有独立版本/解释器租约。UI 和 observer 分别持有自己的租约，MCP 退出不会释放它们。
+保持工具连接直到审批结束。工具通信异常结束时窗口可能随进程树退出；不承诺窗口脱离对话继续存活。遇到未知执行状态先核对证据，不能重复保存。
 
-生产 host 必须通过实际 `IsProcessInJob` 检查确认不在任何 Windows Job 内；不可读或仍在 Job 内时返回 `ui_host_isolation_unverified`，要求从独立终端启动。显式启动本身不构成已隔离的证据。首版不尝试放宽 SDK Job、不使用未验证的 breakaway、不自动切换版本。
+## 启动与生命周期证据
 
-host 在当前用户私有目录内轮询固定 schema 请求，校验随机 host nonce、startup ID、固定包目录、解释器、脚本、参数、日志和回执位置。仅接受 `approval_app.py` 的单事务/队列/计划报告及 `abort_session_app.py`；不提供任意进程、SQL 或审批入口。旧单事务的空 conversation scope 仍受现有业务校验。队列的 generation/token 仅通过两个固定环境字段传递。
-
-## 生命周期证据
+启动前验证完整 runtime manifest、固定快照和冻结的 Python 身份。保留实际 UI claim、会话所有权、窗口去重、执行锁及队列 generation/token 和 revision 守卫；恢复操作不自动批准或执行。
 
 每次尝试有独立 startup ID，按 launch key 增加 generation；旧 attempt 不被新窗口覆盖。每个 attempt 保留：
 
 - 最新 JSON 快照与 append-only `.events.jsonl` 关键事件，受同一 OS receipt 锁控制；序号单调递增，重复 heartbeat 只更新最新值。日志固定 schema，关键事件不含异常正文、设计、参数或凭据，单 attempt 事件预算 256 KiB。
 - 固定 runtime 的版本、manifest 摘要、实例 ID 和 Python 身份摘要。
-- launcher 与 actual UI 各自的 PID/创建 token，observer 身份、可见/审阅状态、phase、心跳、正常关闭标记和真实退出证据。
+- launcher 与 actual UI 各自的 PID/创建 token、可见和审阅状态、phase、心跳、正常关闭标记和实际退出证据。
 
-observer 由 host 启动，独立于 MCP；它在 UI claim 后持有真实 UI 进程 handle，即使 venv 转发导致 launcher 与 UI PID 不同也分别记录。Windows 用 `WaitForSingleObject` 判断是否退出，再取 `GetExitCodeProcess`，真实退出码 `259` 不被误认为仍在运行。launcher 的退出码永远不作为 UI 退出码。只能确认 launcher 已消失但 UI 未 claim、身份不可读或监测丢失时，UI 状态保持 `unknown`，不能据此重开或认定未执行。
+后台监测在线程内持有真实 UI 进程 handle；venv 转发导致 launcher 与 UI PID 不同时分别记录。Windows 用 `WaitForSingleObject` 判断是否退出，再取 `GetExitCodeProcess`，真实退出码 `259` 不被误认为仍在运行。launcher 的退出码不能作为 UI 退出码。UI 未 claim、身份不可读或监测丢失时，状态保持 `unknown`，不能据此重开或认定未执行。
 
-`ready` 保持“窗口已可见且进入事件循环”语义，同步写当前 phase、`visible`、`review_ready` 和 `preview_pending`，避免上一条 loading 心跳被当成当前状态。关闭与异常是不同事件，迟到 ready/heartbeat/close 不能把终态失败改回成功。心跳停滞与进程退出分别报告。
+`ready` 表示窗口已可见且进入事件循环，同步记录当前 phase、`visible`、`review_ready` 和 `preview_pending`。迟到 ready/heartbeat/close 不能把终态失败改回成功；心跳停滞与进程退出分别报告。完成保存仍以验证和会话释放回执为准。
 
-## 无业务验收
+## 验证与交付边界
 
-`tests/test_ui_lifecycle.py` 与 `tests/fixtures/ui_lifecycle_sdk_stub.py` 使用本机已安装 venv 的实际 MCP SDK；只运行临时 heartbeat/sleep 夹具，不导入业务服务、不创建真实会话、不访问业务数据库。夹具 host 仅允许测试父进程预先指定的一个 stub，有固定生存上限并清理。测试父进程直接持有 SDK 真实 Job handle，核对各进程的 Job 成员关系。
+离线回归使用临时 UI 夹具，不导入业务服务、不创建真实编辑会话、不访问业务数据库。重点验证对话可直接打开窗口、无独立服务依赖、已有窗口不重复创建、UI 退出后监测结束、来源或解释器漂移仍阻断，以及 unknown 身份和迟到事件不会导致重复执行。测试通过不代表真实业务保存或生产运行已经验证。
 
-覆盖旧直接启动路径在 SDK 超时清理时 UI 消失，以及独立 host 在持续连接、正常 EOF、服务端超时、客户端异常退出、嵌套 Job 和断线后 UI 自行异常退出时的行为。检查 host/observer/UI 均不属于 SDK teardown Job，venv PID 转发、正常退出码 0、异常退出码 7 与退出码 259。另测 unknown 身份、迟到事件、ready phase、请求限制和生产 Job 隔离拒绝。
-
-这组复现证明可选独立宿主在当前 Windows/SDK 的行为，不代表默认对话路径的断线存活，也不倒推历史现场的具体终止者。`lifecycle_mode=direct` 继续用于有限隔离夹具，正式工具通过 `auto` 直接打开窗口。默认路径回归另验证无宿主即可打开、来源或解释器漂移仍拒绝启动，以及已有窗口不重复创建。
+本次恢复只修改仓库源码、文档及技能镜像并进行离线验证。不会安装或更新插件、改写安装缓存、重启现有 MCP 或操作业务草稿；后续部署由用户另行提出。历史独立宿主实验和交付报告保持原样，不能作为当前流程规范或安装已经生效的证明。

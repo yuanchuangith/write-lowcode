@@ -79,7 +79,7 @@ _FIELDS = {"status", "pid", "process_token", "parent_pid", "launcher_pid", "laun
            "exit_source", "launcher_exit_code", "launcher_exit_at", "phase", "visible",
            "review_ready", "preview_pending", "heartbeat_at", "executing", "ready_at",
            "normal_close_requested", "error", "reason_code", "process_state", "isolation_mode",
-           "observer_process_state", "ui_in_job", "observer_in_job", "recovered_unexecuted_window",
+           "observer_process_state", "monitor_state", "ui_in_job", "observer_in_job", "recovered_unexecuted_window",
            "queue_generation", "queue_launch_token_sha256"}
 
 
@@ -188,21 +188,3 @@ class ProcessHandle:
 
     def __exit__(self, *args):
         self.close()
-
-
-def in_windows_job(pid=None):
-    if os.name != "nt":
-        return False
-    from ctypes import wintypes as w
-    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
-    kernel.IsProcessInJob.argtypes = (w.HANDLE, w.HANDLE, ctypes.POINTER(w.BOOL))
-    kernel.IsProcessInJob.restype = w.BOOL
-    kernel.GetCurrentProcess.restype = w.HANDLE
-    handle = ProcessHandle(pid) if pid else None
-    try:
-        target = handle.handle if handle else kernel.GetCurrentProcess()
-        result = w.BOOL()
-        return bool(result.value) if target and kernel.IsProcessInJob(target, None, ctypes.byref(result)) else None
-    finally:
-        if handle:
-            handle.close()

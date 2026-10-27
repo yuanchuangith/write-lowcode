@@ -269,7 +269,7 @@ def record_graph_review(
 @mcp.tool()
 @traced_tool
 def reopen_approval(transaction_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Recheck the pending artifact, coherent draft/relations, account/grants and compiler before reopening. Dead queues use generation-bound launch reservations; unknown/live-stalled queues cannot restart. ui_host_required needs an explicitly user-started external host; never install/start it automatically. No new transaction, approval or execution."""
+    """Recheck the pending artifact, coherent draft/relations, account/grants and compiler before reopening directly in this conversation. Dead queues use generation-bound launch reservations; unknown/live-stalled queues cannot restart. No external terminal or service is required. No new transaction, approval or execution."""
     return service(conversation_id).reopen_approval(transaction_id)
 
 
