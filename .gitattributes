@@ -1,0 +1,2 @@
+# Frozen evidence hashes refer to exact bytes, including line endings.
+docs/evaluation-2026-10-27/*.json -text whitespace=cr-at-eol,-blank-at-eof

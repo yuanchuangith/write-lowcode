@@ -1,0 +1,1030 @@
+{
+  "condition": "B",
+  "trial": 1,
+  "mode": "offline_route_replay",
+  "cases": [
+    {
+      "id": "U01",
+      "next_actions": [
+        {
+          "tool": "search_actions",
+          "arguments": {
+            "query": "证照续期"
+          },
+          "reason": "只有业务名称，先做有界定位；使用给定的两条候选结果。"
+        }
+      ],
+      "conclusion_status": "needs_clarification",
+      "conclusion": "尚未确定目标动作。公共动作 lic-ren-a／r-lic-public 与表单动作 lic-ren-b／r-lic-form（pg-factory-lic）同名，不能默认第一个。规则已明确：负责人空报错、非空带出。",
+      "missing_evidence": [
+        "需要用户确认动作类型、页面或其中一个 code／RefId。"
+      ],
+      "stop_reason": "动作身份未消歧，停止读取具体设计；不进入编辑。"
+    },
+    {
+      "id": "U02",
+      "next_actions": [
+        {
+          "tool": "search_pages",
+          "arguments": {
+            "query": "复核单"
+          },
+          "reason": "按页面名称检索一次，用用户已给 Route 消歧。"
+        },
+        {
+          "tool": "list_page_actions",
+          "arguments": {
+            "page_identifier": "/sup/receipt-review"
+          },
+          "reason": "选 pg-supplier-review／out-supplier，不选同名质量页面。"
+        },
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "sup-rvw-71"
+          },
+          "reason": "锁定开发环境当前运行发布 pd-u02，草稿 dd-u02 与之同步。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "sup-rvw-71",
+            "design_id": "pd-u02",
+            "node_key": "n-date",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "目标节点已经明确，只精读该节点完整参数。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "静态规则符合。表单动作 sup-rvw-71／复核提交，RefId r-supplier-review，页面 pg-supplier-review，发布 pd-u02：初始化／g-main，画布2／索引1，n-date／收件日期必填（NullCondition），receiptDate 空返回错误、非空继续。同步仅证明副本内容一致；未执行真实提交。",
+      "missing_evidence": [],
+      "stop_reason": "请求仅限当前发布静态复核，相关完整证据已足够，无需源码、历史或编辑。"
+    },
+    {
+      "id": "U03",
+      "next_actions": [
+        {
+          "tool": "resolve_action",
+          "arguments": {
+            "identifier": "recv-w36"
+          },
+          "reason": "复用精确动作编号。"
+        },
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "recv-w36"
+          },
+          "reason": "固定当前发布 pd-u03，不用草稿代替运行配置。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "recv-w36",
+            "design_id": "pd-u03",
+            "include_params": false,
+            "include_generated_csharp": false,
+            "focus_fields": [
+              "receivedDate"
+            ]
+          },
+          "reason": "先按字段和组件定位同名节点。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "recv-w36",
+            "design_id": "pd-u03",
+            "node_key": "n-received",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "确认目标 c-received／receivedDate 后读取该节点完整参数。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "已定位收件登记 recv-w36／r-recv-w36 的发布 pd-u03：初始化／g-main，画布7／索引6，n-received／带入值（SetVariable），目标 c-received.receivedDate，条件 page_mode=new 且 source_not_null=true，赋值 page.receivedDate，其余 preserve；静态符合仅新增且来源非空带入。画布3的 n-issued 对应 c-issued／issuedDate，不能混用。草稿与发布同步，运行未验证。",
+      "missing_evidence": [],
+      "stop_reason": "已完成目标节点的静态核对；不扩大为全部事件入口或运行验收。"
+    },
+    {
+      "id": "U04",
+      "next_actions": [
+        {
+          "tool": "trace_dynamic_exception",
+          "arguments": {
+            "identifier": "timer-e42",
+            "at_time": "2026-10-27T09:20:00+08:00",
+            "line": 88,
+            "response_detail": "summary"
+          },
+          "reason": "以异常时点过滤发布候选，不按得分直接定案。"
+        },
+        {
+          "tool": "trace_dynamic_exception",
+          "arguments": {
+            "identifier": "timer-e42",
+            "at_time": "2026-10-27T09:20:00+08:00",
+            "line": 88,
+            "response_detail": "summary",
+            "cursor": "u04-c1"
+          },
+          "reason": "摘要元数据不完整，沿原查询的 next_cursor 有界续读。"
+        },
+        {
+          "tool": "trace_dynamic_exception",
+          "arguments": {
+            "identifier": "timer-e42",
+            "at_time": "2026-10-27T09:20:00+08:00",
+            "line": 88,
+            "response_detail": "summary",
+            "cursor": "u04-c2"
+          },
+          "reason": "按同一指纹连续 offset 0→159→319 拼接 envelope JSON；continuation_complete 仅结束元数据。"
+        },
+        {
+          "tool": "trace_dynamic_exception",
+          "arguments": {
+            "identifier": "timer-e42",
+            "at_time": "2026-10-27T09:20:00+08:00",
+            "line": 88,
+            "response_detail": "full",
+            "detail_cursor": "u04-detail-b"
+          },
+          "reason": "恢复的 omitted／next_read 明确还缺 B 的行上下文，只精读该详细候选。"
+        }
+      ],
+      "conclusion_status": "candidate",
+      "conclusion": "按时点，09:20 以前最新的发布候选是 pd-u04-b（09:00），不能因 pd-u04-a 得分较高而改选。timer-e42／到期检查，RefId r-timer-e42，第88行 return cutoff.Value.AddDays(1);；画布候选为初始化／g-main，画布6／索引5，n-cutoff／计算截止时间（AddDateTime）。exact_source_map=false，节点归属仍是候选，尚不能断言 cutoff 为空或根因。最终 full 回执完整；has_more=false 本身不足以替代这些核对。",
+      "missing_evidence": [
+        "原始异常类型、完整栈和当时输入或执行记录；若要确认画布归属还需节点完整参数与相邻生成行。",
+        "当前草稿与当前发布的独立同步状态未提供，不能与历史候选混比。"
+      ],
+      "stop_reason": "三次必要补读已完成；不再自动扩展或编辑，不虚构实际失败值。"
+    },
+    {
+      "id": "U05",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "filter-k58"
+          },
+          "reason": "固定当前发布 pd-u05。"
+        },
+        {
+          "tool": "inspect_component_filters",
+          "arguments": {
+            "identifier": "filter-k58",
+            "component": "c-batch",
+            "response_detail": "summary"
+          },
+          "reason": "审计同组件全部 writers，不能只看初始过滤。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "filter-k58",
+            "design_id": "pd-u05",
+            "group_key": "g-change",
+            "node_key": "n-reset",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "按 next_read 读取被省略的第二个 writer 和父条件。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "filter-k58",
+            "design_id": "pd-u05",
+            "group_key": "g-main",
+            "node_key": "n-load",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "待执行的最小补查：初始 writer 的完整过滤及 parent_conditions 仍被省略，不能把摘要当完整证据。"
+        }
+      ],
+      "conclusion_status": "candidate",
+      "conclusion": "不能认为全部入口正确。摘要 writer_count=2，尽管 has_more=false，envelope_complete／response_complete／evidence_complete 均为 false。已读到车间变更／g-change，画布5／索引4，n-reset／重新过滤（DataFilter）只有 workshop=currentWorkshop，缺有效性条件；其父条件 AllowReset(event) 静态为 unknown，因此属于条件性风险，未证明该次交互实际走到此处。",
+      "missing_evidence": [
+        "n-load 的完整过滤和父条件；给定 fixture 没有最后一条补查的结果。",
+        "AllowReset(event) 的真实输入、命中证据、最终过滤和无匹配时行为。"
+      ],
+      "stop_reason": "只报部分审计与条件性风险，未确认全部相关父条件前不下全部正确或确定覆盖结论，不给操作性修改。"
+    },
+    {
+      "id": "U06",
+      "next_actions": [
+        {
+          "tool": "inspect_edit_context",
+          "arguments": {
+            "session_id": "ss-u06",
+            "targets": [
+              {
+                "group_key": "g-main",
+                "node_key": "n-note"
+              }
+            ],
+            "parameter_paths": [
+              "/inputParams"
+            ],
+            "conversation_id": "cv-u06"
+          },
+          "reason": "已显式启用且仅授权读说明，复用当前会话，不创建或修改。"
+        },
+        {
+          "tool": "read_edit_value",
+          "arguments": {
+            "session_id": "ss-u06",
+            "group_key": "g-main",
+            "node_key": "n-note",
+            "path": "/inputParams",
+            "offset": 0,
+            "conversation_id": "cv-u06"
+          },
+          "reason": "摘要截断，按返回提示读取决策所需完整说明。"
+        },
+        {
+          "tool": "read_edit_value",
+          "arguments": {
+            "session_id": "ss-u06",
+            "group_key": "g-main",
+            "node_key": "n-note",
+            "path": "/inputParams",
+            "offset": 13,
+            "conversation_id": "cv-u06"
+          },
+          "reason": "沿 next_offset 续读，核对 context_binding 与 value_sha256 相同，以 Unicode 码点拼接 JSON。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "完整说明包含“留空时保留原值”。两页在相同 cv-u06／ss-u06／修订2／dd-u06 和相同值指纹下拼成：remark=“📦收到后留空时保留原值；仅新增来源非空才写入。”，mode=new。末页 complete=false、truncated=true 不否定文本结束；continuation_complete=true 表示片段收集完成。位置：初始化／g-main，画布4／索引3，n-note／填写说明（SetVariable）。",
+      "missing_evidence": [],
+      "stop_reason": "仅回答说明内容；不计划、不审批、不写草稿，不把说明当实际业务执行证明。"
+    },
+    {
+      "id": "U07",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "release-p23"
+          },
+          "reason": "保存未发布时必须比较当前两个副本。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "release-p23",
+            "design_id": "pd-u07",
+            "node_key": "n-release",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "先核对当前运行发布。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "release-p23",
+            "design_id": "dd-u07",
+            "node_key": "n-release",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "确认草稿目标差异，不能用它替代发布。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "现在运行的规则尚未修好。release-p23／放行日期检查，r-release-p23，初始化／g-main，画布3／索引2，n-release／检查放行日期（NullCondition）：发布 pd-u07 的 releaseDate 空仍 continue；草稿 dd-u07 已改为 return_error，非空均 continue。存在未发布草稿改动，草稿保存不影响运行。",
+      "missing_evidence": [
+        "草稿完整编译及生成 C# 的证据未提供；发布后也仍需重新核对当前发布和真实样本。"
+      ],
+      "stop_reason": "已确认未发布边界，不执行发布，也不把草稿参数修正写成线上已修复。"
+    },
+    {
+      "id": "U08",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "hold-z68"
+          },
+          "reason": "确认当前发布和同步状态。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "hold-z68",
+            "design_id": "pd-u08",
+            "node_key": "n-hold",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "哈希一致后仍核对目标节点规则。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "发布副本静态符合：hold-z68／冻结检查，r-hold-z68，初始化／g-main，画布2／索引1，n-hold／冻结状态检查（IfCondition），status=hold 时 return_error，否则 continue。当前发布 pd-u08 与草稿 dd-u08 已同步。未提供真实提交样本，因此未执行运行验证。",
+      "missing_evidence": [
+        "冻结与其他状态的真实提交样本及结果。"
+      ],
+      "stop_reason": "请求的发布静态复核已完成；不把同步或节点符合升级为运行修复通过。"
+    },
+    {
+      "id": "U09",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "due-h91",
+            "include_history": true
+          },
+          "reason": "用户明确要求10:10历史异常，才读取历史。"
+        },
+        {
+          "tool": "trace_dynamic_exception",
+          "arguments": {
+            "identifier": "due-h91",
+            "at_time": "2026-10-27T10:10:00+08:00",
+            "line": 64,
+            "response_detail": "full"
+          },
+          "reason": "使用给定异常时间与精确行，排除当时尚未发布副本及草稿。"
+        }
+      ],
+      "conclusion_status": "candidate",
+      "conclusion": "10:10 对应的发布快照候选是 pd-u09-old（10:00），虽现已 isDeleted=1，仍是当时的历史运行证据。due-h91／到期回写，r-due-h91，第64行 owner.Name = source.Owner.Name;，可能涉及空对象，但尚不能确定哪个对象为空。画布候选：初始化／g-main，画布8／索引7，n-owner／回写负责人（SetVariable）；exact_source_map=false。当前11:00发布 pd-u09-new 与当前草稿 dd-u09 同步，不能用它解释10:10，也不能由同步证明运行正确。",
+      "missing_evidence": [
+        "10:10 原始执行输入、完整栈及节点参数／相邻生成行，用于确定空对象和画布归属。"
+      ],
+      "stop_reason": "已排除草稿与11:00后的发布；保留根因候选，不混用时间、不编辑。"
+    },
+    {
+      "id": "U10",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "scope-q14"
+          },
+          "reason": "锁定当前发布 pd-u10。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "scope-q14",
+            "design_id": "pd-u10",
+            "render": "tree_text"
+          },
+          "reason": "两层 IF 必须查闭合结构，不能凭相邻位置判反。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "scope-q14",
+            "design_id": "pd-u10",
+            "node_keys": [
+              "n-outer",
+              "n-scope",
+              "n-all",
+              "n-self"
+            ],
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "只精读已定位四个节点的完整条件和过滤。"
+        }
+      ],
+      "conclusion_status": "unverified",
+      "conclusion": "不能确认第二层 IF 写反。结构 valid：root_block=b-root，matched_branch=b-current，matched_end=n-end；树为 mode=select → IF HasScope(user) → n-all 全部候选／ELSE n-self 仅本人。初始化／g-main 的 n-scope／范围授权判断在画布2／索引1，HasScope(user) 静态 unknown；有范围、无范围、空范围三个场景均 actual=unknown，不能补成 true/false。n-all 的空过滤与 n-self 的 owner=currentUser 仅说明配置。",
+      "missing_evidence": [
+        "HasScope(user) 在本次点击中的实际返回及空范围语义；用户输入、实际事件和命中分支证据。",
+        "同组件其他过滤 writers、最终候选范围及最终持久化链（若本次操作写库）。"
+      ],
+      "stop_reason": "静态未知不足以判分支 Bug；不提供要求用户翻转 IF 的操作方案，不调用编辑。"
+    },
+    {
+      "id": "U11",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "ret-b72"
+          },
+          "reason": "定位当前运行发布 pd-u11。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "ret-b72",
+            "design_id": "pd-u11",
+            "render": "tree_text"
+          },
+          "reason": "Else／IfEnd 归属必须由结构工具核对。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "ret-b72",
+            "design_id": "pd-u11",
+            "include_params": false,
+            "include_generated_csharp": false
+          },
+          "reason": "仅定位相关节点，不用相邻节点猜配对。"
+        }
+      ],
+      "conclusion_status": "candidate",
+      "conclusion": "只能给结构候选／待确认，不能确定 Else 属于外层或建议删除。root_block=b-root，matched_branch=null，matched_end=null，structure_status=invalid；简树：IF review → IF returned → n-else ELSE [unresolved] → n-clear 清空原因 → [missing IFEND]。n-else／否则在初始化／g-main 画布5／索引4，n-clear／清空原因在画布6／索引5。ambiguous_else_owner 与 missing_end 未解决。",
+      "missing_evidence": [
+        "当前发布的完整闭合块和明确 Else／IfEnd 配对；有效结构下覆盖退回、正常、空原因的最小场景矩阵。"
+      ],
+      "stop_reason": "结构无效时不判逻辑 Bug、不判不可达、不输出画布删除位置；用户仅授权审查。"
+    },
+    {
+      "id": "U12",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "age-t29"
+          },
+          "reason": "使用当前发布 pd-u12。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "age-t29",
+            "design_id": "pd-u12",
+            "render": "tree_text"
+          },
+          "reason": "核对嵌套结构与完整最小分支、空值及18边界场景。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "age-t29",
+            "design_id": "pd-u12",
+            "node_keys": [
+              "n-mode",
+              "n-age",
+              "n-adult",
+              "n-skip",
+              "n-edit"
+            ],
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "用完整参数确认 null_result=false，而非节点名称猜测。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "确认当前发布存在空年龄的静态分支缺陷。age-t29／年龄规则校验，r-age-t29，初始化／g-main，画布2／索引1，n-age／是否成年（IfCondition）为 age>=18 且 null_result=false；新增 age=null 因此走 n-skip／跳过审查（画布5／索引4），期望却是报错。结构 valid，root_block=b-root／matched_branch=b-current／matched_end=n-end；树：mode=new → age>=18 ? n-adult : n-skip；编辑 → n-edit。矩阵同时给出17→skip、18→adult、编辑空值→edit_original，只有新增空值与明确规则冲突。建议在新增路径补明确空值拒绝，保留其余规则；这只是静态修复方向。",
+      "missing_evidence": [
+        "真实业务执行未做；若需可操作画布修改方案，还需完整邻接可见节点与当前草稿核对。"
+      ],
+      "stop_reason": "已具备静态判定分支 Bug 的必要证据；不执行业务、不启动 Write。"
+    },
+    {
+      "id": "U13",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "slot-v48"
+          },
+          "reason": "固定当前运行发布 pd-u13。"
+        },
+        {
+          "tool": "inspect_component_filters",
+          "arguments": {
+            "identifier": "slot-v48",
+            "component": "c-slot",
+            "response_detail": "full"
+          },
+          "reason": "聚合同组件全部两个 writer，核对入口、顺序、父条件和完整过滤。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "确认站点限制在变更入口丢失的静态缺陷。slot-v48／r-slot-v48，pd-u13：初始化／g-main，画布2／索引1，n-init／初始过滤包含 site=currentSite AND enabled=true；变更事件／g-event，画布4／索引3，n-broaden／候选过滤在 site_changed 阶段后执行，只保留 enabled=true，且无父条件，最终范围可扩展到其他站点。完整回执确认全部2个 writer 已读。两者均仍限制 enabled=true，故“停用槽位也能选”的运行症状尚不能由这些配置解释。",
+      "missing_evidence": [
+        "停用槽位实际返回／选择的请求响应、记录状态与本次事件轨迹；无匹配留空的实际页面验收。"
+      ],
+      "stop_reason": "可确认站点条件缺失；不把静态配置扩展成停用槽位的确定根因或运行通过，无需扫描源码。"
+    },
+    {
+      "id": "U14",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "mode-c63"
+          },
+          "reason": "锁定发布 pd-u14。"
+        },
+        {
+          "tool": "inspect_component_filters",
+          "arguments": {
+            "identifier": "mode-c63",
+            "component": "c-slot",
+            "response_detail": "full"
+          },
+          "reason": "核对全部2个 writer 的完整参数、入口顺序和互斥父条件。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "mode-c63",
+            "design_id": "pd-u14",
+            "render": "tree_text"
+          },
+          "reason": "涉及 Else 归属和互斥路径，必须验证闭合块。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "不能把后面的空过滤说成必然覆盖新增过滤。mode-c63／r-mode-c63，初始化／g-main：n-new／候选过滤在画布3／索引2，只在 mode=new 分支执行，filter=site=currentSite AND enabled=true；n-edit／候选过滤在画布6／索引5，空过滤仅在互斥编辑分支执行。结构 valid，root_block=b-root，matched_branch=b-current，matched_end=n-end；树：IF mode=new → n-new；ELSE → n-edit；IFEND。矩阵 new 只写 n-new，edit 只写 n-edit；与新增限制、编辑查看历史的已确认规则一致。",
+      "missing_evidence": [
+        "无匹配新增留空及真实页面交互尚未执行运行验收。"
+      ],
+      "stop_reason": "全部相关 writers 与互斥结构已核实，停止静态复核，不提出删掉编辑空过滤的修改。"
+    },
+    {
+      "id": "U15",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "value-r85"
+          },
+          "reason": "把用户提供轨迹绑定到当前发布 pd-u15。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "value-r85",
+            "design_id": "pd-u15",
+            "include_params": true,
+            "node_keys": [
+              "n-note-init",
+              "n-note-event"
+            ],
+            "include_generated_csharp": false
+          },
+          "reason": "核对初始化与类别事件两处赋值，不只看第一次带出。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "value-r85",
+            "design_id": "pd-u15",
+            "render": "tree_text"
+          },
+          "reason": "核对事件条件和结构。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "该次已给用户轨迹证实最后写 memo 的是类别变化／g-category，画布5／索引4，n-note-event／重置备注（SetVariable）：category!=null 时写空字符串。先前初始化／g-main 画布2／索引1 的 n-note-init／带出备注已写入“保留说明”，轨迹第二步选 category=A 后才变空，与“只更新分类、不清备注”冲突。value-r85／r-value-r85，发布 pd-u15；结构 valid，root_block=b-root／matched_branch=b-current／matched_end=n-end，简树：初始化→n-note-init；类别变化 IF category!=null→n-note-event memo=\"\"。这是用户提供的一次最小复现证据，business_write_triggered=false。",
+      "missing_evidence": [
+        "没有持久化写库证据，不能声称数据库备注被清空或覆盖其他交互；如需修改步骤还需当前草稿及邻接证据。"
+      ],
+      "stop_reason": "已定位本次页面模型最后写入，不调用 runtime_evidence_fixture 作为真实工具，不触发业务或编辑。"
+    },
+    {
+      "id": "U16",
+      "next_actions": [
+        {
+          "tool": "describe_table",
+          "arguments": {
+            "table": "qa_complaint"
+          },
+          "reason": "先核对已有开发库表列和唯一索引，不能根据生产问题文字改变环境。"
+        },
+        {
+          "tool": "get_records",
+          "arguments": {
+            "table": "qa_complaint",
+            "filters": {
+              "complaint_no": "CPL-SYN-884"
+            },
+            "columns": [
+              "id",
+              "complaint_no",
+              "status",
+              "closed_by",
+              "lastModificationTime"
+            ],
+            "limit": 5
+          },
+          "reason": "复用唯一业务编号做小列集索引等值查询；结果只属于开发。"
+        }
+      ],
+      "conclusion_status": "unverified",
+      "conclusion": "不能判断生产记录丢失。已提供结果只说明开发环境 qa_complaint 中 CPL-SYN-884 查询为空，不是生产证据，也不能证明10月26日生产状态或关闭人。",
+      "missing_evidence": [
+        "请用户在目标生产执行本阶段一批只读查询并保留空结果／错误：① SHOW COLUMNS FROM qa_complaint; ② SHOW INDEX FROM qa_complaint; ③ 核对列存在后 SELECT id, complaint_no, status, closed_by, lastModificationTime FROM qa_complaint WHERE complaint_no = 'CPL-SYN-884' LIMIT 5;。用途依次为生产结构、编号唯一性、当前状态和关闭人。",
+        "10月26日当时状态还需该时点的受控历史／审计证据；当前记录不能代替历史。"
+      ],
+      "stop_reason": "当前连接未确认为生产；一次列齐当前阶段取证需求，不读取连接设置、不索要密码、不用开发空结果断言生产丢失。"
+    },
+    {
+      "id": "U17",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "calc-f46"
+          },
+          "reason": "确认本机发布和草稿身份及同步，不把它重标生产部署。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "calc-f46",
+            "design_id": "pd-u17",
+            "node_key": "n-calc",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "核对当前低代码表达式，结合已给静态源码和本地编译回执判断证据层级。"
+        }
+      ],
+      "conclusion_status": "unverified",
+      "conclusion": "不能确认生产 DLL 更新或运行修复。开发发布 pd-u17 与草稿 dd-u17 已同步，初始化／g-main 画布4／索引3，n-calc／计算数量为 quantity ?? 0；所给 Services/CalculationService.cs:82 静态源码也有保护，本地 C# complete_pass 只证明本地开发编译。source_evidence_fixture／compiler_receipt_fixture 是被动证据，不当作真实能力调用。deployment_manifest、生产异常时间和栈均缺失，runtime_verified／browser_verified 均为 false。",
+      "missing_evidence": [
+        "生产部署清单／实际 DLL 版本或内容指纹及其与目标源码、发布快照的对应；生产错误时间和完整栈；对应真实请求与结果。"
+      ],
+      "stop_reason": "保持静态、编译、部署、运行证据边界；不动服务器，不以更多本地编译代替生产证据。"
+    },
+    {
+      "id": "U18",
+      "next_actions": [
+        {
+          "tool": "get_bridge_status",
+          "arguments": {},
+          "reason": "只检查已授权范围，不能因 paired=true 访问其他 Origin。"
+        }
+      ],
+      "conclusion_status": "blocked",
+      "conclusion": "目标 https://release.qa-example.invalid/review 虽已开在 Chrome，但授权仅包含 https://dev.qa-example.invalid；target_origin_authorized=false。不能读取目标网络、控制台或选择该页取证。",
+      "missing_evidence": [
+        "用户需将目标相关页签开关设为 ON，并从扩展生成精确目标 Origin 的六位一次性码，以 $connect-js-reverse 123456 形式提供；本例未给码。"
+      ],
+      "stop_reason": "在精确 Origin 授权前停止连接步骤；不猜码、不配对其他站点、不启动新浏览器、不使用9222，也不调用真实连接工具。"
+    },
+    {
+      "id": "U19",
+      "next_actions": [
+        {
+          "tool": "search_business_logic_graph",
+          "arguments": {
+            "query": "qty-j34"
+          },
+          "reason": "先查本地历史线索；准确记录 SQLITE_BUSY 后不重复同一失败路径。"
+        },
+        {
+          "tool": "resolve_action",
+          "arguments": {
+            "identifier": "qty-j34"
+          },
+          "reason": "图缓存故障不阻断正常只读定位。"
+        },
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "qty-j34"
+          },
+          "reason": "锁定开发当前发布 pd-u19。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "qty-j34",
+            "design_id": "pd-u19",
+            "node_key": "n-qty",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "针对已明确节点核对完整数量条件。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "数量规则在当前发布静态符合。qty-j34／数量下限校验，r-qty-j34，初始化／g-main，画布2／索引1，n-qty／数量下限（IfCondition）：qty<0 返回错误，否则继续；负数拒绝，零与正数继续。发布 pd-u19 与草稿 dd-u19 同步。图查询 SQLITE_BUSY 只是本地缓存锁超时，不是业务 Bug，不影响该静态结论。",
+      "missing_evidence": [
+        "运行未验证；图留证本次不可用，不能宣称写入图谱成功。"
+      ],
+      "stop_reason": "相关低代码证据已足够，无需源码或编辑；不双写旧 JSON、不刷新全平台、不为缓存故障启动 Write。"
+    },
+    {
+      "id": "U20",
+      "next_actions": [
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "label-u57"
+          },
+          "reason": "保留已知需求，取得当前发布 pd-u20。"
+        },
+        {
+          "tool": "inspect_control_flow",
+          "arguments": {
+            "identifier": "label-u57",
+            "design_id": "pd-u20",
+            "render": "tree_text"
+          },
+          "reason": "采用可用结构化入口定位新增和编辑互斥路径，不重复 focus_fields 不支持的请求。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "label-u57",
+            "design_id": "pd-u20",
+            "group_key": "g-main",
+            "node_keys": [
+              "n-label",
+              "n-keep"
+            ],
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "通过替代定位取得的精确节点读取参数。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "可用证据支持当前静态配置符合：label-u57／r-label-u57，发布 pd-u20，初始化／g-main，n-label／新增标签在画布2／索引1，写 label=\"\"；n-keep／编辑保留在画布4／索引3，为 NoOp preserve label。结构 valid，root_block=b-root／matched_branch=b-current／matched_end=n-end；树：IF mode=new→n-label；ELSE→n-keep；IFEND。原错误 TOOL_ARGUMENT_UNSUPPORTED 表示该服务不支持 focus_fields，不是业务缺陷；无需用户重述。",
+      "missing_evidence": [
+        "未提供真实页面或完整场景执行；不声称运行验收通过。"
+      ],
+      "stop_reason": "替代结构化路线已成功回答静态问题；不重复失败参数、不改用 SQL 或扫描源码。"
+    },
+    {
+      "id": "U21",
+      "next_actions": [
+        {
+          "tool": "search_business_logic_graph",
+          "arguments": {
+            "query": "review-d82"
+          },
+          "reason": "把旧案例当历史线索，不能当当前结论。"
+        },
+        {
+          "tool": "resolve_action",
+          "arguments": {
+            "identifier": "review-d82"
+          },
+          "reason": "确认稳定 RefId。"
+        },
+        {
+          "tool": "get_design_versions",
+          "arguments": {
+            "identifier": "review-d82"
+          },
+          "reason": "复核当前发布已变为 pd-u21-now。"
+        },
+        {
+          "tool": "inspect_action",
+          "arguments": {
+            "identifier": "review-d82",
+            "design_id": "pd-u21-now",
+            "node_key": "n-reviewer",
+            "include_params": true,
+            "include_generated_csharp": false
+          },
+          "reason": "重读当前完整参数再判断静态修复。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "当前发布静态已符合。review-d82／r-review-d82，初始化／g-main，画布2／索引1，n-reviewer／复核人必填（NullCondition）在 pd-u21-now 配置 reviewer 空 return_error、非空 continue，草稿同步。旧 old-review-d82 依赖 pd-u21-old 且已 stale，不能继续用“空复核人跳过”覆盖新证据。尚未执行运行验证。",
+      "missing_evidence": [
+        "若更新旧图案，须先按 case_key 精确读取完整 case_snapshot、检查 complete／replacement_safe、重核所有有效支持并带 expected_case_snapshot 合并提交；现有关键词条目不足以安全整案替换。"
+      ],
+      "stop_reason": "本轮静态复核已完成；不虚构图更新成功，不把用户口头已改好当作唯一依据。"
+    },
+    {
+      "id": "U22",
+      "next_actions": [
+        {
+          "tool": "inspect_table_schema",
+          "arguments": {
+            "table": "lab_sample"
+          },
+          "reason": "查看当前本机可信关系和否决状态，用户未要求恢复。"
+        }
+      ],
+      "conclusion_status": "blocked",
+      "conclusion": "不能自动关联。lab_sample.owner_id → personnel.id 的 rel-u22 当前 policy_status=rejected，policy_revision=4，原因 USER_CONFIRMED_INCORRECT；没有声明外键。该本机否决立即阻断推断关系使用。",
+      "missing_evidence": [
+        "如用户以后明确恢复该关系，恢复后必须重新数据验证；本轮没有恢复授权。"
+      ],
+      "stop_reason": "仅报告当前状态，不调用 restore_table_relation、不重验、不重建、不自动重新否决。"
+    },
+    {
+      "id": "U23",
+      "next_actions": [
+        {
+          "tool": "resolve_table_relation",
+          "arguments": {
+            "source_table": "visit",
+            "source_column": "host_key",
+            "target_table": "staff",
+            "target_column": "staff_key"
+          },
+          "reason": "精确目标验证只用于核对 staff，不把它当完整同组唯一性证明。"
+        },
+        {
+          "tool": "resolve_table_relation",
+          "arguments": {
+            "source_table": "visit",
+            "source_column": "host_key",
+            "force_live": true
+          },
+          "reason": "待执行最小补证：验证整个当前候选组，覆盖 contractor 并检查策略、唯一键、阈值、完整性和是否唯一通过。"
+        }
+      ],
+      "conclusion_status": "unverified",
+      "conclusion": "当前不能自动选。staff.staff_key 在 explicit_target 范围内目标唯一、类型兼容、36个不同非空来源键且100%匹配，足以说明该指定目标 data_verified；但 candidate_group_complete=false，contractor.contractor_key 尚未验证，故不能宣称 staff 是全组唯一可信关系。",
+      "missing_evidence": [
+        "全候选组实时验证结果，尤其 contractor 的唯一键、类型、不同来源键数、匹配率和否决状态；必须完整、无截断／未决且仅一个通过。"
+      ],
+      "stop_reason": "新增同组验证尚无 fixture 回执，停止在待验证；不自动选择、不虚构竞争候选失败。"
+    },
+    {
+      "id": "U24",
+      "next_actions": [
+        {
+          "tool": "inspect_table_schema",
+          "arguments": {
+            "table": "source"
+          },
+          "reason": "恢复回执已给出，不重复恢复；读取当前关系修订并废弃旧验证。"
+        },
+        {
+          "tool": "resolve_table_relation",
+          "arguments": {
+            "source_table": "source",
+            "source_column": "owner_key",
+            "force_live": true
+          },
+          "reason": "A恢复及同组B恢复使旧唯一性失效，使用整个候选组实时重验。"
+        }
+      ],
+      "conclusion_status": "unverified",
+      "conclusion": "仍不能自动选择。A 的恢复使旧 policy_revision=5 的唯一结论失效；当前实时候选组完整、无截断：rel-u24-a 为 revision8，目标唯一且类型兼容、匹配率1，但只有12个不同非空来源键，status=insufficient_sample；rel-u24-b 为 revision9，target_unique=false／target_not_unique。B不通过并不能补足A至少20个不同来源键的门槛。这里是实时数据库验证，不是旧快照。",
+      "missing_evidence": [
+        "A满足至少20个不同非空来源键且全量100%匹配的充分现有数据验证；不能为满足门槛制造业务数据。"
+      ],
+      "stop_reason": "实时结果已足以判定当前证据不满足自动选用要求；不重复旧验证、不反复刷新、不改业务数据。"
+    },
+    {
+      "id": "U25",
+      "next_actions": [
+        {
+          "tool": "read_plan_review",
+          "arguments": {
+            "plan_id": "pl-u25",
+            "section": "scenarios",
+            "item_id": "sc-edit",
+            "conversation_id": "cv-u25"
+          },
+          "reason": "只读失败条目的证据，报告指纹须与原计划一致，不开独立预览。"
+        },
+        {
+          "tool": "inspect_edit_context",
+          "arguments": {
+            "session_id": "ss-u25",
+            "targets": [
+              {
+                "group_key": "g-main",
+                "node_key": "n-memo"
+              }
+            ],
+            "response_detail": "full",
+            "conversation_id": "cv-u25"
+          },
+          "reason": "待执行：从同一不可变基线读取目标完整原生参数、父条件和安全 guards，定位修复所需操作，不能凭报告猜参数。"
+        }
+      ],
+      "conclusion_status": "blocked",
+      "conclusion": "pl-u25 已生成但处于失败阻断状态，不能 prepare_write。sc-edit 固定期望是编辑模式保留“原备注”，候选却写成空；目标为初始化／g-main，画布3／索引2，n-memo／带入备注（SetVariable）。同一对话 cv-u25／ss-u25 的显式激活和授权继续有效，无需重启技能、重新确认同一规则或先做 Look 交接。修复时保留编辑保留、新建来源非空才带入、来源空保留的全部要求及场景，从不可变基线重提完整修正批次。",
+      "missing_evidence": [
+        "目标完整当前备份参数、有效原生操作与原批次内容；最后一条读取没有给定回执，因此尚不能构造可执行修复。"
+      ],
+      "stop_reason": "保持原 review_spec／strict范围和失败期望，不删场景、不放宽规则、不改生成模式规避失败，不开预览或审批。"
+    },
+    {
+      "id": "U26",
+      "next_actions": [
+        {
+          "tool": "prepare_write",
+          "arguments": {
+            "plan_id": "pl-u26",
+            "conversation_id": "cv-u26"
+          },
+          "reason": "配置与强制编译检查通过，ready_for_approval／write_ready=true；SDK模拟器不支持导致的 unverified 不等同失败，直接进入正式人工审批。"
+        }
+      ],
+      "conclusion_status": "human_review",
+      "conclusion": "正式审批窗口已由给定回执确认就绪，tx-u26 处于 awaiting_human_approval。仅 n-banner 文案的配置核对通过，canvas valid、精确生成与完整 C# 编译通过且无新增阻断诊断；本地 runner 不支持 SDK tooltip registration，业务运行仍 unverified，browser_verified／runtime_verified=false。可以人工审查，但不能称为运行通过或已保存。",
+      "missing_evidence": [
+        "人工在正式窗口核对实际 SQL／绑定参数并批准、最终确认执行；随后须取得 verified=true 且 session_released=true 的回执。",
+        "真实 SDK／页面上的显示行为仍待手工验收。"
+      ],
+      "stop_reason": "next_action=await_human_review，停止轮询并交还人工；不另开预览、不代签SQL、不因非阻断模拟限制强行拒绝审批。"
+    },
+    {
+      "id": "U27",
+      "next_actions": [
+        {
+          "tool": "plan_canvas_patch",
+          "arguments": {
+            "session_id": "ss-u27",
+            "conversation_id": "cv-u27",
+            "response_detail": "summary"
+          },
+          "reason": "回放本次最新请求的既有计划结果；保持同一会话及原期望。"
+        }
+      ],
+      "conclusion_status": "confirmed",
+      "conclusion": "本次返回 no_changes=true、plan_id=null，说明要求的“已接收”已匹配当前会话候选，没有创建新计划或审批。existing_plan_id=pl-u27-old、existing_plan_status=ready 仅说明旧计划被保留，不授权把它当本次新计划提交。尚不能据此称草稿已保存、已发布或会话已释放。",
+      "missing_evidence": [],
+      "stop_reason": "立即结束本次规划路径，不调用 prepare_write，不自动提交、取消或替换旧计划。"
+    },
+    {
+      "id": "U28",
+      "next_actions": [],
+      "conclusion_status": "needs_clarification",
+      "conclusion": "用户已确认 guard-n33／r-guard-n33 的具体草稿修改范围：dd-u28，提交前校验／g-main，画布2，n-date／日期检查，从空日期 continue 改为 return_error，仅现有草稿且不发布。该范围确认不需要重复，但 write_skill_activated=false；按本条件技能首次激活门禁，仍需用户在当前消息显式调用 $gxp-lowcode-edit 或插件限定形式，才能走编辑工具路径。",
+      "missing_evidence": [
+        "首次显式技能调用；已确认的具体方案无需再批准一次。"
+      ],
+      "stop_reason": "在显式激活前不调用任何业务编辑工具，包括 editor_status／create_conversation／审批；prior_readonly_proposal 是会话被动证据，不是真实工具。"
+    },
+    {
+      "id": "U29",
+      "next_actions": [
+        {
+          "tool": "prepare_write",
+          "arguments": {
+            "plan_id": "pl-u29",
+            "conversation_id": "cv-u29"
+          },
+          "reason": "同一已授权会话，计划 passed 且双ready为真，直接打开正式审批，不另开预览。"
+        },
+        {
+          "tool": "get_write_status",
+          "arguments": {
+            "transaction_id": "tx-u29",
+            "conversation_id": "cv-u29"
+          },
+          "reason": "按启动回执 poll_after_ms=800 等待后只查询同一事务；window_starting 不是重复开窗的理由。"
+        }
+      ],
+      "conclusion_status": "human_review",
+      "conclusion": "tx-u29 的正式窗口现已就绪，phase=awaiting_human_review，0／1条SQL获批，verified=false、session_released=false。计划为 full、strict，仅 n-label 文本参数，强制编译检查通过；这些证据允许进入人工审批，不代表已执行或保存。",
+      "missing_evidence": [
+        "人工窗口中的实际SQL审批和最终执行确认；后续 verified=true、session_released=true 的保存核验。"
+      ],
+      "stop_reason": "next_action=await_human_review、poll_after_ms=null，交还人工并停止连续查询，不再次 prepare_write、不 reopen 第二窗口、不代批。"
+    },
+    {
+      "id": "U30",
+      "next_actions": [
+        {
+          "tool": "get_write_status",
+          "arguments": {
+            "transaction_id": "tx-u30",
+            "conversation_id": "cv-u30"
+          },
+          "reason": "先确认不确定提交状态，不以COMMIT确认丢失推断未写入。"
+        },
+        {
+          "tool": "recover_edit_session",
+          "arguments": {
+            "session_id": "ss-u30",
+            "conversation_id": "cv-u30"
+          },
+          "reason": "按 next_action 只读比较数据库与候选／原快照，不修改业务数据。"
+        },
+        {
+          "tool": "inspect_session_cancellation",
+          "arguments": {
+            "session_id": "ss-u30",
+            "conversation_id": "cv-u30"
+          },
+          "reason": "恢复因 DATABASE_UNAVAILABLE 失败后，检查独立本地释放范围，而非强清占用。"
+        }
+      ],
+      "conclusion_status": "needs_clarification",
+      "conclusion": "旧保存结果仍不确定：tx-u30 为 saved_state_pending／COMMIT_ACK_LOST，恢复因数据库不可用未核验，也未释放。不能取消为“未执行”，cancellable=false。已检视可选择的本地释放：入库备注 memo-x49／r-memo-x49，ss-u30、pl-u30、tx-u30，fingerprint=release-scope-u30-v4；当前执行器与审批程序均不运行。释放的具体含义是保留当前数据库数据、仅释放本地会话并使待处理计划／审批失效，归档为unverified、保留备份审计，不证明保存成功或从未写入。",
+      "missing_evidence": [
+        "需在展示以上具体范围和含义后，取得用户对本地释放的明确同意并引用实际回复；当前泛称“清占用”未覆盖已检视的未知提交归档范围。",
+        "若选择继续核验，则需数据库恢复后重新读取并恢复；新计划必须重读草稿、重新生成并重新人工审批。"
+      ],
+      "stop_reason": "等待具体本地释放同意前不调用 release_local_session／cancel_unexecuted_session，不清锁、不建新计划，不编造保存或释放成功。"
+    }
+  ]
+}
+

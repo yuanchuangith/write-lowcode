@@ -75,6 +75,12 @@ git diff --check
 
 ## 技能镜像维护
 
+### 来源绑定与有限补查
+
+新编译器实例先取得本请求的 Git 来源和 Node 身份，再完整读取来源字节后消费 registry 缓存；有效热命中只扫描一次，真实 Node 调用仍保留调用前后校验。来源信息只在 registry 接纳成功后提交，已有实例不能重新绑定；不使用跨请求的新鲜度缓存。Git root/HEAD/branch 合并为一次调用，status/diff 原始字节和工作区绑定哈希不变。
+
+`evidence_gaps`、`fallback` 仅添加到公开传输响应，不写入业务复核工件、签名或审批绑定。失败/未验证摘要给出精确报告读取建议，`failed` 仍阻断，`unverified` 仍保留现有人工复核路径。跨工具补查由技能执行同问题累计3次/30秒的固定只读退路，不能放松完整旧值、来源、编译或审批检查；详见[有限补查](skills/gxp-lowcode-edit/references/diagnostic-fallback.md)。
+
 只编辑 `skills/`；`.claude/skills/` 是受跟踪镜像。编辑后执行：
 
 ```powershell

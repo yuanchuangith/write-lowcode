@@ -106,6 +106,51 @@ class RuleCacheTests(unittest.TestCase):
             bridge.compiler_binding()
         self.assertEqual(sources.call_count, 2)
 
+    def test_new_request_warm_registry_needs_one_scan_after_external_probes(self):
+        original = self.prepare_bridge()
+        fresh = self.bridge()
+        events = []
+        node_identity = fresh._node_identity
+        provenance = fresh.source_provenance
+        source_key = fresh._source_key
+        with patch.object(fresh, "_node_identity", side_effect=lambda: (events.append("node"), node_identity())[1]), \
+             patch.object(fresh, "source_provenance", side_effect=lambda: (events.append("git"), provenance())[1]), \
+             patch.object(fresh, "_source_key", side_effect=lambda: (events.append("source"), source_key())[1]) as scan, \
+             patch.object(fresh, "_call", side_effect=AssertionError("Warm registry must not run Node")):
+            result = fresh.describe_registry()
+        self.assertEqual(scan.call_count, 1)
+        self.assertLess(events.index("node"), events.index("source"))
+        self.assertLess(events.index("git"), events.index("source"))
+        self.assertEqual(result["registry_hash"], original._registry["registry_hash"])
+
+    def test_failed_registry_attempt_does_not_commit_provenance_for_retry(self):
+        bridge = self.bridge()
+        before = {**bridge.source_provenance(), "commit": "b" * 40}
+        after = {**before, "commit": "c" * 40}
+        with patch.object(bridge, "source_provenance", side_effect=[before, after]) as provenance, \
+             patch.object(bridge, "_verify_native_sources", side_effect=[CompilerError("source drift"), "a" * 64, "a" * 64]), \
+             patch.object(bridge, "_call", return_value=helpers.registry("one")) as call:
+            with self.assertRaisesRegex(CompilerError, "source drift"):
+                bridge.describe_registry()
+            self.assertIsNone(bridge._provenance)
+            self.assertIsNone(bridge._registry)
+            result = bridge.describe_registry()
+        self.assertEqual(provenance.call_count, 2)
+        self.assertEqual(call.call_count, 1)
+        self.assertEqual(result["source_provenance"], after)
+
+    def test_existing_instance_does_not_rebind_to_another_cached_runtime(self):
+        original = self.prepare_bridge()
+        old_key = original._registry_key_value
+        newer = self.bridge()
+        newer._node_identity = lambda: ("node", "v23.0.0")
+        with patch.object(newer, "_call", return_value=helpers.registry("two")):
+            newer.describe_registry()
+        original._node_identity = newer._node_identity
+        with self.assertRaisesRegex(CompilerError, "runtime binding changed"):
+            original.describe_registry()
+        self.assertEqual(original._registry_key_value, old_key)
+
     def test_each_independent_command_still_checks_all_contents_before_and_after(self):
         bridge = self.prepare_bridge()
         with patch.object(bridge, "_verify_native_sources", wraps=bridge._verify_native_sources) as sources, \

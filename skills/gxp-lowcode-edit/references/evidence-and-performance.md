@@ -4,6 +4,8 @@ Read this reference when reusing dialogue findings or optional readonly records.
 
 ## Check available evidence first
 
+For missing evidence, tool errors or bounded automatic alternate reads, use [diagnostic-fallback.md](diagnostic-fallback.md). It defines the shared 3-call/30-second fallback budget and stop conditions without changing edit or approval gates.
+
 Write works independently. Look may leave evidence and data for later reuse, but Look use, a formal handoff, `handoff_ref` and a complete diagnosis or fix are optional. First check the current dialogue and available records against the requested problem: are the findings relevant, sufficient for the next decision and applicable to the current draft? Reuse adequate material and avoid repeating searches that would add no evidence.
 
 When material is missing, stale or contradictory, investigate the affected question directly or use available Look readonly tools. The user does not need to start another Look task or arrange a complete handoff. Keep supported findings, but revise an earlier cause, excluded explanation or proposed fix when new evidence warrants it; explain the basis and preserve the user's confirmed scope and business requirements. Evidence reuse must not block necessary investigation. Tool checks still establish current draft identity and target parameters before edits.

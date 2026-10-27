@@ -8,6 +8,7 @@ import uuid
 from contextlib import contextmanager
 from contextvars import ContextVar
 from functools import wraps
+from .evidence_guidance import guidance
 
 _ACTIVE = ContextVar("gxp_performance_trace", default=None)
 _ORIGIN = ContextVar("gxp_performance_origin", default=None)
@@ -109,6 +110,10 @@ def traced_tool(function):
             result = {**result,
                       "failure_stage": details.get("phase") or failed,
                       "error_code": result.get("error_code") or details.get("reason_code") or "request_failed"}
+            if "evidence_gaps" not in result:
+                result.update(guidance(result["error_code"], "requested_conclusion",
+                    next_read=result.get("next_read"), can_continue=("previously_confirmed_facts",),
+                    stop_reason="required_check_failed", attempted=(function.__name__,)))
         # Log only timing metadata, never payloads, diagnostics or exception text.
         _LOG.info("trace=%s elapsed_ms=%s stages=%s", trace["trace_id"], trace["total_elapsed_ms"], trace["timings"])
         return {**result, **trace} if isinstance(result, dict) else result

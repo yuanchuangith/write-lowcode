@@ -1,0 +1,35 @@
+[
+  {
+    "kind": "look",
+    "root": "C:\\Users\\yuanchuan\\.codex\\plugins\\cache\\look-lowcode-local\\gxp-lowcode-readonly\\0.5.6+codex.local-20261027-041613",
+    "initialize": true,
+    "ping": true,
+    "tool_count": 44,
+    "business_tool_calls": 0,
+    "source_files_equal": 62,
+    "comparison": "All Python/skill text matches, ignoring CRLF vs LF only; hashes below are installed raw bytes.",
+    "version": "0.5.6+codex.local-20261027-041613",
+    "important_hashes": {
+      "mcp/gxp_core/diagnostic_cache.py": "76c01401b54bddc2d83b82673ebab8353a0a7d4a88a0dae0fe6971d301d5e44a",
+      "mcp/gxp_core/schema_snapshot.py": "ad6bcef5b945a81ccbb118f4666225ad750aff61e6ba97578fcb154989d5ee96",
+      "skills/gxp-lowcode-debug/SKILL.md": "e0b26c9ff61e304273e9e6e6723ec007cb487be961345206c305f7431c22a9f3",
+      "skills/gxp-lowcode-debug/references/diagnostic-fallback.md": "589521a1efd19f8cce6213c601224de0a544fe4f4a51f3d8f135778bee5fb888"
+    }
+  },
+  {
+    "kind": "write",
+    "root": "C:\\Users\\yuanchuan\\.codex\\plugins\\cache\\bianpan-local\\gxp-lowcode-editor\\0.1.48+codex.local-20261027-fallback",
+    "initialize": true,
+    "ping": true,
+    "tool_count": 29,
+    "business_tool_calls": 0,
+    "source_files_equal": 69,
+    "comparison": "All Python/skill text matches, ignoring CRLF vs LF only; hashes below are installed raw bytes.",
+    "version": "0.1.48+codex.local-20261027-fallback",
+    "important_hashes": {
+      "mcp/gxp_editor/compiler.py": "62a332163a70397f6602af7800d6ea90d2e84b2213568307c55fb914c1aa88b4",
+      "skills/gxp-lowcode-edit/SKILL.md": "bf507e9c069bddd316fb9c923113c3b92161ce5f13e9161992ee33488616d164",
+      "skills/gxp-lowcode-edit/references/diagnostic-fallback.md": "17214a008cf540da56cc06bc413bbeeee86e1db02c7cc5dd1518d385d4628f8b"
+    }
+  }
+]

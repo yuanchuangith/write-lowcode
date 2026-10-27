@@ -4,6 +4,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from .value_transport import field_value, value_page, value_summary
+from .evidence_guidance import guidance
 
 
 def evidence_summary(evidence):
@@ -42,6 +43,14 @@ def review_response(review, plan_id, detail="summary"):
               "evidence_tool": "read_plan_review", "scope_policy": review["spec"].get("scope_policy", "legacy_manual_review")}
     if detail == "full":
         result["review_report"] = review
+    if review["status"] in {"failed", "unverified"}:
+        issue = issues[0] if issues else {"section": "summary", "index": 0}
+        result.update(guidance("business_review_" + review["status"], "business_verification",
+            next_read={"tool": "read_plan_review", "arguments": {"plan_id": plan_id,
+                "section": issue["section"], "offset": issue["index"], "limit": 1}},
+            can_continue=("focused_readonly_investigation", "human_review") if review["status"] == "unverified"
+                         else ("repair_from_immutable_baseline",),
+            stop_reason="failed_review_blocks_approval" if review["status"] == "failed" else "business_evidence_unverified"))
     return result
 
 
@@ -91,11 +100,18 @@ def review_page(review, section="summary", offset=0, limit=10, item_id="", *, de
             raise ValueError("item_id must identify exactly one report row")
         row = rows[offset]
         metadata = {"section": section, "item_id": row.get("id"), "row_offset": offset, "field_path": field_path}
-        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 128
+        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 768
         if max_output_bytes - overhead < 1024:
             raise ValueError("Byte budget is too small for this report field; request a larger max_output_bytes")
         page = value_page(field_value(row, field_path), offset=value_offset, max_output_bytes=max_output_bytes - overhead)
-        return {**metadata, **page, "max_output_bytes": max_output_bytes}
+        result = {**metadata, **page, "max_output_bytes": max_output_bytes}
+        if not page.get("complete"):
+            result.update(guidance("review_field_incomplete", "business_verification",
+                next_read={"tool": "read_plan_review", "arguments": {"value_offset": page.get("next_offset")},
+                           "reuse_original_arguments": True} if page.get("next_offset") is not None else None,
+                stop_reason="required_report_fragment_unread" if page.get("next_offset") is not None
+                            else "verify_fragment_assembly"))
+        return result
     page, size = [], 0
     for row in rows[offset:offset + limit]:
         if detail == "summary":

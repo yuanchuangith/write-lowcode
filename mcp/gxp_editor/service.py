@@ -812,7 +812,7 @@ class EditorService:
             "item_key": item_key, "context_binding": context["context_binding"],
             "guard_ref": create_guard_ref(session, self.conversation_id, operation, value, approval_secret(self._components()[0])),
             "read_only": True, "write_executed": False}
-        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 256
+        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 1024
         if max_output_bytes - overhead < 1024:
             raise EditorServiceError("Byte budget is too small for this target's exact binding; request a larger max_output_bytes")
         page = value_page(value, offset=offset, max_output_bytes=max_output_bytes - overhead)
@@ -820,7 +820,15 @@ class EditorService:
         if (latest.get("owner_revision", 0) != session.get("owner_revision", 0)
                 or latest["state"] not in {"locked", "planned", "awaiting_approval"}):
             raise EditorServiceError("Session ownership or active state changed while reading a value")
-        return {**metadata, **page, "max_output_bytes": max_output_bytes}
+        result = {**metadata, **page, "max_output_bytes": max_output_bytes}
+        if not page.get("complete"):
+            from .evidence_guidance import guidance
+            result.update(guidance("value_incomplete", "complete_old_value",
+                next_read={"tool": "read_edit_value", "arguments": {"offset": page.get("next_offset")},
+                           "reuse_original_arguments": True} if page.get("next_offset") is not None else None,
+                can_continue=("signed_guard_reference",), stop_reason="required_value_fragment_unread"
+                if page.get("next_offset") is not None else "verify_fragment_assembly"))
+        return result
 
     def read_plan_review(self, plan_id: str, *, section="summary", offset=0, limit=10, item_id="", detail="full",
                          field_path="", value_offset=0, max_output_bytes=16384):

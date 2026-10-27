@@ -1,0 +1,166 @@
+{
+  "schema_version": 1,
+  "corpus_id": "gxp-independent-unseen-2026-10-27-v1",
+  "frozen_at_utc": "2026-10-27T03:38:36.992Z",
+  "baseline_commits": {
+    "write": "c475db578d283b7c9e78487154fed1346a223fd9",
+    "look": "4986e2c3b71e74911aa6671a0061863e3c3b15d3"
+  },
+  "baseline_sources": [
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/SKILL.md",
+      "sha256": "bf507e9c069bddd316fb9c923113c3b92161ce5f13e9161992ee33488616d164",
+      "bytes": 11687
+    },
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/references/targeting-and-source.md",
+      "sha256": "b2d6be763ddadd6deccdc1b7b7f64385f6db088fa09f0bb38cb355f44b40550a",
+      "bytes": 10571
+    },
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/references/safety-contract.md",
+      "sha256": "db7f122a483dd5ed7e19519b13d5ba486ba0151d3f3436b6a0a9a7a20ccb05d3",
+      "bytes": 13560
+    },
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/references/business-review.md",
+      "sha256": "8cb813f97e61c952fd193a6828a4d059c548dd5064b66ffaf3792a4963d7a786",
+      "bytes": 14242
+    },
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/references/session-workflows.md",
+      "sha256": "464be4b077ae2a18a0381365f11722e0de354c6f9020da2b3b6eb26490deac72",
+      "bytes": 18236
+    },
+    {
+      "repository": "write",
+      "commit": "c475db578d283b7c9e78487154fed1346a223fd9",
+      "path": "skills/gxp-lowcode-edit/references/evidence-and-performance.md",
+      "sha256": "a823a3457b5332154af72d935fc32dd269955df8a4b65b39e9d1d1cd1c8e625d",
+      "bytes": 13152
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/SKILL.md",
+      "sha256": "2d12d17095bb315053dca442c3d1add850b2ccaee71a8445113eae5def5af206",
+      "bytes": 11914
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/diagnostic-output.md",
+      "sha256": "55601f4689dc2cd4cc33b062f177b2edae3d0a31993b4461d7ac21cb14979bcb",
+      "bytes": 3824
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/branch-verification.md",
+      "sha256": "ff54453b1c0497f9bdad7f87ffd27be44900852814b6a41f89036ec000a265aa",
+      "bytes": 2544
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/component-filter-audit.md",
+      "sha256": "70b9777319a3ab6c8da6b8bd5be5e7eaccd962fac5f55fec2392a1624345f680",
+      "bytes": 4827
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/schema-relations.md",
+      "sha256": "09a1005fc7f4d58f1f7bb9a23c81d31cc0ba27487eef73631abc19a37ad27b0f",
+      "bytes": 2395
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/platform-map.md",
+      "sha256": "7596054999ac9348d3bf92062a1c4188689283bc8f08f18e887832f0fbbf64d5",
+      "bytes": 6660
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/report-contract.md",
+      "sha256": "ba476daabf244c8e97b83fbc26e87c35f4fbf4a03bad821754ada1dffc55622b",
+      "bytes": 7951
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/runtime-browser-evidence.md",
+      "sha256": "c79e86e0cf03679e0daffef8bcfbd6e365995d3e6b110e8362aabc2f2d287ffe",
+      "bytes": 3274
+    },
+    {
+      "repository": "look",
+      "commit": "4986e2c3b71e74911aa6671a0061863e3c3b15d3",
+      "path": "skills/gxp-lowcode-debug/references/business-logic-graph.md",
+      "sha256": "b33d5e416d28a237faae21b4db951074a8a4fa61f9172ce11a052c3b7fab03c6",
+      "bytes": 16560
+    }
+  ],
+  "files": {
+    "corpus-inputs.json": {
+      "sha256": "9aaf04e3b827e7b1bad73e028a75bbec91eb114674c0f935518b6444ca9bb74e",
+      "bytes": 111232
+    },
+    "private-expectations.json": {
+      "sha256": "88fca8a7bbc974e49c3a551b91c41de9d58fb4d6ac47f5cd5e9113d9b558206f",
+      "bytes": 46649
+    }
+  },
+  "category_counts": {
+    "同名歧义": 3,
+    "摘要截断含envelope": 3,
+    "发布与草稿漂移": 3,
+    "嵌套分支unknown": 3,
+    "后续覆盖": 3,
+    "缺生产运行证据": 3,
+    "工具或缓存故障": 3,
+    "Schema否决与关系唯一性": 3,
+    "Write失败及unverified": 3,
+    "授权及审批边界": 3
+  },
+  "authorship_isolation": {
+    "read_only_sources": "git show of specified baseline skills/references; baseline tree listings only to locate those files.",
+    "did_not_read": [
+      "working-tree implementation diffs",
+      "candidate implementation plans",
+      "other agents output",
+      "credentials",
+      "business databases",
+      "existing evaluation cases"
+    ],
+    "synthetic_fixture_policy": "New synthetic identities, routes and samples authored independently from baseline skill contracts; fixture-only artifacts are supplied passive evidence, not required new capabilities.",
+    "expectations_fixed_before_replay": true,
+    "only_files_written": [
+      "corpus-inputs.json",
+      "private-expectations.json",
+      "freeze.json"
+    ]
+  },
+  "replay_plan": {
+    "baseline_repetitions": 3,
+    "candidate_repetitions": 3,
+    "cases_per_repetition": 30,
+    "total": 180,
+    "keep_private_expectations_from_runners": true,
+    "mask_version_labels": true,
+    "case_isolation": "Fresh conversation per case, skill version packet plus public case only.",
+    "tool_policy": "Do not call live business tools, connect a DB/browser or read secrets. Use synthetic fixtures only."
+  }
+}

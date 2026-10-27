@@ -164,7 +164,7 @@ def read_edit_value(
     session_id: str, group_key: str, node_key: str, path: str, conversation_id: str = "",
     item_key: dict[str, Any] | None = None, offset: int = 0, max_output_bytes: int = 16384,
 ) -> dict[str, Any]:
-    """Read one exact session-bound parameter/row. Large values use canonical JSON text pages with character offsets and a UTF-8 byte budget; keep binding/hash unchanged and follow next_offset. Fragments are not complete old values; use the signed guard_ref for parameter updates. Every page rechecks ownership/draft/relations/compiler. No writes."""
+    """Read one exact session-bound parameter/row. Large values use canonical JSON text pages with character offsets and a UTF-8 byte budget; keep binding/hash unchanged and follow next_offset. Fragments are not complete old values; use the signed guard_ref for parameter updates. evidence_gaps/fallback are unsigned continuation guidance, not a gate waiver. Every page rechecks ownership/draft/relations/compiler. No writes."""
     return service(conversation_id).read_edit_value(session_id, group_key, node_key, path, item_key=item_key,
                                                     offset=offset, max_output_bytes=max_output_bytes)
 
@@ -216,7 +216,7 @@ def read_plan_review(
     detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: int = 0,
     max_output_bytes: int = 16384,
 ) -> dict[str, Any]:
-    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. detail=full retains complete legacy rows."""
+    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. evidence_gaps/fallback guide bounded continuation without changing review status or signed evidence. detail=full retains complete legacy rows."""
     return service(conversation_id).read_plan_review(
         plan_id, section=section, offset=offset, limit=limit, item_id=item_id, detail=detail,
         field_path=field_path, value_offset=value_offset, max_output_bytes=max_output_bytes)

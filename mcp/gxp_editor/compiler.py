@@ -133,7 +133,13 @@ class CompilerBridge:
     def source_provenance(self) -> dict[str, Any]:
         if not self.frontend_repo.is_dir():
             raise CompilerError(f"Configured frontend repository was not found: {self.frontend_repo}")
-        root = Path(str(self._git("rev-parse", "--show-toplevel")).strip()).resolve()
+        # These three identities come from one Git invocation. Keep porcelain
+        # status and binary diff unchanged: their exact bytes bind the workspace.
+        identity = str(self._git("rev-parse", "--show-toplevel", "HEAD", "--abbrev-ref", "HEAD")).splitlines()
+        if len(identity) != 3 or any(not value.strip() for value in identity):
+            raise CompilerError("Configured frontend repository returned an invalid Git identity")
+        root_text, commit, branch = (value.strip() for value in identity)
+        root = Path(root_text).resolve()
         if root != self.frontend_repo:
             raise CompilerError(
                 f"Configured frontend repository must be its Git root: configured={self.frontend_repo}, root={root}"
@@ -142,10 +148,9 @@ class CompilerBridge:
             relative_bridge = self.path.resolve().relative_to(root)
         except ValueError as exc:
             raise CompilerError("ActionDesign compiler bridge must be inside the configured frontend repository") from exc
-        commit = str(self._git("rev-parse", "HEAD")).strip()
         if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
             raise CompilerError("Configured frontend repository returned an invalid commit id")
-        branch = str(self._git("branch", "--show-current")).strip() or "DETACHED"
+        branch = "DETACHED" if branch == "HEAD" else branch
         status = self._git("status", "--porcelain=v1", "-z", "--untracked-files=all", binary=True)
         diff = self._git("diff", "--no-ext-diff", "--binary", "HEAD", "--", binary=True)
         if not isinstance(status, bytes) or not isinstance(diff, bytes):
@@ -315,7 +320,10 @@ class CompilerBridge:
 
     def _registry_key(self):
         with stage("compiler.rule_binding"):
-            return (*self._source_key(), self._node_identity(), "compiler_protocol_v1")
+            # Node identity may launch a process. Verify source bytes afterwards
+            # so a warm registry never spans that external operation unchecked.
+            node_identity = self._node_identity()
+            return (*self._source_key(), node_identity, "compiler_protocol_v1")
 
     def describe_registry(self) -> dict[str, Any]:
         if self._registry is not None:
@@ -327,6 +335,11 @@ class CompilerBridge:
             if current_key != self._registry_key_value:
                 raise CompilerError("Compiler runtime binding changed; start a new validated compiler session")
         if self._registry is None:
+            # Refresh provenance for each new request instance, before the final
+            # source scan. Commit it only after the registry has been accepted;
+            # a failed attempt must not leave evidence for a later retry.
+            with stage("compiler.git_provenance"):
+                provenance = self.source_provenance()
             key = self._registry_key()
             result = _cached(_REGISTRY_CACHE, key)
             with stage("compiler.registry", cache_hit=result is not None) as tags:
@@ -342,6 +355,7 @@ class CompilerBridge:
                 if result is not None and not cache_valid:
                     result = None
                     tags["cache_hit"] = False
+                loaded = result is None
                 if result is None:
                     result = self._call({"command": "describe_registry"})
             if not isinstance(result, dict) or result.get("command") != "describe_registry":
@@ -359,18 +373,21 @@ class CompilerBridge:
                 "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
                 "append_node", "insert_in_block", "bind_component_event", "set_parameter", "set_array_item",
             ]
-            if self._registry_key() != key or result.get("rule_source_sha256") != key[4]:
+            # A valid cache hit has done only in-memory work since key's full
+            # byte scan. A cold/rebuilt registry crossed a real Node boundary
+            # and retains its final key check as well as _call's two scans.
+            if (loaded and self._registry_key() != key) or result.get("rule_source_sha256") != key[4]:
                 raise CompilerError("Compiler source or runtime binding changed while loading its registry")
             self._verified_call = None
             _remember(_REGISTRY_CACHE, key, result)
             self._registry = result
             self._registry_key_value = key
+            self._provenance = provenance
         return self._registry_snapshot()
 
     def _registry_snapshot(self):
         if self._provenance is None:
-            with stage("compiler.git_provenance"):
-                self._provenance = self.source_provenance()
+            raise CompilerError("Compiler registry has no accepted source provenance")
         self._registry["source_provenance"] = deepcopy(self._provenance)
         self._registry["compiler_binding_sha256"] = sha256_json(self._binding_fields(self._registry))
         return deepcopy(self._registry)

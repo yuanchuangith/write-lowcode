@@ -1,0 +1,79 @@
+{
+  "inputs_sha256": "9aaf04e3b827e7b1bad73e028a75bbec91eb114674c0f935518b6444ca9bb74e",
+  "baselines": {
+    "write": "c475db578d283b7c9e78487154fed1346a223fd9",
+    "look": "4986e2c3b71e74911aa6671a0061863e3c3b15d3"
+  },
+  "conditions": {
+    "A": {
+      "revision": "baseline",
+      "files": {
+        "look/skills/gxp-lowcode-debug/SKILL.md": "2d12d17095bb315053dca442c3d1add850b2ccaee71a8445113eae5def5af206",
+        "look/skills/gxp-lowcode-debug/references/branch-verification.md": "ff54453b1c0497f9bdad7f87ffd27be44900852814b6a41f89036ec000a265aa",
+        "look/skills/gxp-lowcode-debug/references/business-logic-graph.md": "b33d5e416d28a237faae21b4db951074a8a4fa61f9172ce11a052c3b7fab03c6",
+        "look/skills/gxp-lowcode-debug/references/component-filter-audit.md": "70b9777319a3ab6c8da6b8bd5be5e7eaccd962fac5f55fec2392a1624345f680",
+        "look/skills/gxp-lowcode-debug/references/conversation-contract.md": "15ee88d5256bd3e528a967d8c86716d8b738390c04945398fcfcbab65d1fe16e",
+        "look/skills/gxp-lowcode-debug/references/cpm-snapshot-routing.md": "ed81e025d39887fa3d1afcbfa90158c58d536fa17e770609a26cfd261db0ed05",
+        "look/skills/gxp-lowcode-debug/references/database-settings.md": "4b991ff5632aa873c472e1e2b026c9f2bfb77ebb0dc5db6dfa20818f1742f389",
+        "look/skills/gxp-lowcode-debug/references/diagnostic-output.md": "55601f4689dc2cd4cc33b062f177b2edae3d0a31993b4461d7ac21cb14979bcb",
+        "look/skills/gxp-lowcode-debug/references/edit-handoff.md": "2028840b3d01f6e024b52de600d155c3f02ac970771c034bd4ae8309fee9a75d",
+        "look/skills/gxp-lowcode-debug/references/platform-map.md": "7596054999ac9348d3bf92062a1c4188689283bc8f08f18e887832f0fbbf64d5",
+        "look/skills/gxp-lowcode-debug/references/report-contract.md": "ba476daabf244c8e97b83fbc26e87c35f4fbf4a03bad821754ada1dffc55622b",
+        "look/skills/gxp-lowcode-debug/references/runtime-browser-evidence.md": "c79e86e0cf03679e0daffef8bcfbd6e365995d3e6b110e8362aabc2f2d287ffe",
+        "look/skills/gxp-lowcode-debug/references/schema-relations.md": "09a1005fc7f4d58f1f7bb9a23c81d31cc0ba27487eef73631abc19a37ad27b0f",
+        "look/skills/gxp-lowcode-debug/references/source-code-evidence.md": "4e2b7e829f2b888868ba7f5c04aad12af43523be586a9e68bd2f43358d38def6",
+        "write/skills/gxp-lowcode-edit/SKILL.md": "bf507e9c069bddd316fb9c923113c3b92161ce5f13e9161992ee33488616d164",
+        "write/skills/gxp-lowcode-edit/references/batch-repair-and-performance.md": "c2adad38fbef20d19978391cc38314b3cddeeaa8c333742c7a94c1a0c8b66ac7",
+        "write/skills/gxp-lowcode-edit/references/business-review.md": "8cb813f97e61c952fd193a6828a4d059c548dd5064b66ffaf3792a4963d7a786",
+        "write/skills/gxp-lowcode-edit/references/database-settings.md": "b6e886e70eaf1f336c6fcfc79376a4b237a2127d79784618e6f049fea3664cc2",
+        "write/skills/gxp-lowcode-edit/references/evidence-and-performance.md": "a823a3457b5332154af72d935fc32dd269955df8a4b65b39e9d1d1cd1c8e625d",
+        "write/skills/gxp-lowcode-edit/references/frontend-compiler-contract.md": "780793a7a192a2fca8159a833d7e0ee5d01c70c33ae850ea6a682e80c02ea560",
+        "write/skills/gxp-lowcode-edit/references/patch-schema.md": "d0ef341044dff629b512f796f6262e4bb6bafba540003c5b5bf7b1ce8a7aa3a8",
+        "write/skills/gxp-lowcode-edit/references/post-write-graph-review.md": "9d094e6a0e7f3ad1624f94b7fe3aba1fdb0f150b0b6c87c1a7a20f1b497fa389",
+        "write/skills/gxp-lowcode-edit/references/safety-contract.md": "db7f122a483dd5ed7e19519b13d5ba486ba0151d3f3436b6a0a9a7a20ccb05d3",
+        "write/skills/gxp-lowcode-edit/references/session-workflows.md": "464be4b077ae2a18a0381365f11722e0de354c6f9020da2b3b6eb26490deac72",
+        "write/skills/gxp-lowcode-edit/references/targeting-and-source.md": "b2d6be763ddadd6deccdc1b7b7f64385f6db088fa09f0bb38cb355f44b40550a"
+      },
+      "manifest_sha256": "2540cd7cbfabaf81659c01a78e33067447efcf1faa28724717de561846bd7ac4"
+    },
+    "B": {
+      "revision": "candidate",
+      "files": {
+        "look/skills/gxp-lowcode-debug/SKILL.md": "e0b26c9ff61e304273e9e6e6723ec007cb487be961345206c305f7431c22a9f3",
+        "look/skills/gxp-lowcode-debug/references/branch-verification.md": "ff54453b1c0497f9bdad7f87ffd27be44900852814b6a41f89036ec000a265aa",
+        "look/skills/gxp-lowcode-debug/references/business-logic-graph.md": "b33d5e416d28a237faae21b4db951074a8a4fa61f9172ce11a052c3b7fab03c6",
+        "look/skills/gxp-lowcode-debug/references/component-filter-audit.md": "70b9777319a3ab6c8da6b8bd5be5e7eaccd962fac5f55fec2392a1624345f680",
+        "look/skills/gxp-lowcode-debug/references/conversation-contract.md": "0dcc8f8ec6a573cb0fc80a848231a60701705fd4c207953170096f12e9742f48",
+        "look/skills/gxp-lowcode-debug/references/cpm-snapshot-routing.md": "d26afff648e6fe0a86559244277576a8d65ef3c7e76e5bfc4547269a2ce234a4",
+        "look/skills/gxp-lowcode-debug/references/database-settings.md": "4b991ff5632aa873c472e1e2b026c9f2bfb77ebb0dc5db6dfa20818f1742f389",
+        "look/skills/gxp-lowcode-debug/references/diagnostic-fallback.md": "bda812967340465056bbd78bb4dfa3a4eddd5069c1acb431d69f0089bd684338",
+        "look/skills/gxp-lowcode-debug/references/diagnostic-output.md": "55601f4689dc2cd4cc33b062f177b2edae3d0a31993b4461d7ac21cb14979bcb",
+        "look/skills/gxp-lowcode-debug/references/edit-handoff.md": "2028840b3d01f6e024b52de600d155c3f02ac970771c034bd4ae8309fee9a75d",
+        "look/skills/gxp-lowcode-debug/references/platform-map.md": "7596054999ac9348d3bf92062a1c4188689283bc8f08f18e887832f0fbbf64d5",
+        "look/skills/gxp-lowcode-debug/references/report-contract.md": "66021451f1c086a30cf7f8b3e5cb2df39a5b2b0b2bf48cdb50efc3feef48d4a1",
+        "look/skills/gxp-lowcode-debug/references/runtime-browser-evidence.md": "c79e86e0cf03679e0daffef8bcfbd6e365995d3e6b110e8362aabc2f2d287ffe",
+        "look/skills/gxp-lowcode-debug/references/schema-relations.md": "a8371fbce1bb6c6a1114657bf09853beb985bde88cfa12e7eb588a56e6ce461a",
+        "look/skills/gxp-lowcode-debug/references/source-code-evidence.md": "985d27433d83eb5b4cea471eb9b49d980490df5d004444a0f93f13e118af2a04",
+        "write/skills/gxp-lowcode-edit/SKILL.md": "bf507e9c069bddd316fb9c923113c3b92161ce5f13e9161992ee33488616d164",
+        "write/skills/gxp-lowcode-edit/references/batch-repair-and-performance.md": "0e1fbad5fd71a08e29ca789a11ff78ad581f9eadc6c45b125ae0df7aab14f468",
+        "write/skills/gxp-lowcode-edit/references/business-review.md": "8cb813f97e61c952fd193a6828a4d059c548dd5064b66ffaf3792a4963d7a786",
+        "write/skills/gxp-lowcode-edit/references/database-settings.md": "b6e886e70eaf1f336c6fcfc79376a4b237a2127d79784618e6f049fea3664cc2",
+        "write/skills/gxp-lowcode-edit/references/diagnostic-fallback.md": "fcfd22e760acb34594e17410d4fdad4f50dfe0eb4d3659e3d31c9df0201da7d7",
+        "write/skills/gxp-lowcode-edit/references/evidence-and-performance.md": "28b9dc63b243bb33edc9eaa6bced6f068ee1f80c104ae7eb76feb2b9240d6161",
+        "write/skills/gxp-lowcode-edit/references/frontend-compiler-contract.md": "17cfded3a254e603918d4291213b6ade535d2753d37f69fe8cb3aab210b90e70",
+        "write/skills/gxp-lowcode-edit/references/patch-schema.md": "d0ef341044dff629b512f796f6262e4bb6bafba540003c5b5bf7b1ce8a7aa3a8",
+        "write/skills/gxp-lowcode-edit/references/post-write-graph-review.md": "8494ac0063418dfeb3810c1f84e0f90179e9b723a6fd78e8488a30ca42ca695d",
+        "write/skills/gxp-lowcode-edit/references/safety-contract.md": "db7f122a483dd5ed7e19519b13d5ba486ba0151d3f3436b6a0a9a7a20ccb05d3",
+        "write/skills/gxp-lowcode-edit/references/session-workflows.md": "3bd6864983ecf3bbbfef11bc850bcccc1f3abc0549f8a78b27c69f1b4b47a734",
+        "write/skills/gxp-lowcode-edit/references/targeting-and-source.md": "b2d6be763ddadd6deccdc1b7b7f64385f6db088fa09f0bb38cb355f44b40550a"
+      },
+      "manifest_sha256": "c60ebadcb2093acdf457e1a3b9c14f7291dcbc8d474c757f8fff60810a6b0164"
+    }
+  },
+  "runtime": "all trials inherit the same parent model/settings, no overrides",
+  "configured_model": "gpt-6.1-sol",
+  "backend_revision": "not exposed by collaboration runtime",
+  "trial_count_per_condition": 3,
+  "cases_per_trial": 30,
+  "protocol": "Independent fresh-context runners see only public inputs and one skill snapshot; no business tools execute."
+}

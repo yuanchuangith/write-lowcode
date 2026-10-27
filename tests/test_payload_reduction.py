@@ -223,6 +223,12 @@ class ValuePagingTests(unittest.TestCase):
         first = review_page(report, "changes", item_id="big", detail="summary", field_path="/before/text", max_output_bytes=4096)
         self.assertFalse(first["complete"])
         self.assertLessEqual(len(json.dumps(first, ensure_ascii=False).encode()), 4096)
+        self.assertEqual(first["next_offset"], first["evidence_gaps"][0]["next_read"]["arguments"]["value_offset"])
+        last = review_page(report, "changes", item_id="big", field_path="/before/text",
+                           value_offset=first["total_chars"] - 4, max_output_bytes=4096)
+        self.assertFalse(last["complete"])
+        self.assertIsNone(last["evidence_gaps"][0]["next_read"])
+        self.assertEqual("verify_fragment_assembly", last["fallback"]["stop_reason"])
         self.assertEqual(review_page(report, "changes", detail="full")["items"], [row])
         self.assertEqual(report, snapshot)
 

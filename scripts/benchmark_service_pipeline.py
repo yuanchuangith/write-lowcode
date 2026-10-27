@@ -10,6 +10,8 @@ import argparse
 from collections import Counter
 from contextlib import ExitStack, contextmanager
 from copy import deepcopy
+from datetime import datetime
+from itertools import count
 import json
 import os
 from pathlib import Path
@@ -17,6 +19,7 @@ import statistics
 import subprocess
 import sys
 import tempfile
+import uuid
 from unittest.mock import patch
 
 
@@ -25,9 +28,12 @@ def benchmark(args):
     sys.path.insert(0, str(implementation / "mcp"))
     from gxp_editor import compiler as compiler_module
     from gxp_editor import service as service_module
+    from gxp_editor import transaction as transaction_module
+    from gxp_editor.approval import transaction_binding_hash
     from gxp_editor.compiler import CompilerBridge
     from gxp_editor.config import DatabaseConfig, EditorConfig, RuntimeReferenceConfig
     from gxp_editor.hashing import design_content_hash, sha256_json
+    from gxp_editor.logic_review import plan_binding_hash
     from gxp_editor.runtime_validation import RuntimeCsharpValidator
     from gxp_editor.service import EditorService
     from gxp_editor.state import StateStore
@@ -96,7 +102,7 @@ def benchmark(args):
         "output_params": {"variableName": {**record(f"answer{i}"), "label": f"answer{i}"}}}
         for i in range(6)]
     template = CompilerBridge(config).compile_patch(empty, initial)["design"]
-    rows, candidate_hashes = [], {}
+    rows, candidate_hashes, evidence_hashes = [], {}, {}
     original_run = subprocess.run
 
     def subprocess_count(command, *positional, **kwargs):
@@ -117,6 +123,8 @@ def benchmark(args):
         # Persist only metadata, never operation values, reports or generated code.
         rows.append({**metadata, "tool": tool, "total_elapsed_ms": response["total_elapsed_ms"],
             "response_bytes": len(json.dumps(response, ensure_ascii=False).encode("utf-8")),
+            "response_sha256": sha256_json({key: value for key, value in response.items()
+                if key not in {"trace_id", "timings", "total_elapsed_ms"}}),
             "counts": dict(counts), "timings": response["timings"]})
         return response
 
@@ -157,7 +165,7 @@ def benchmark(args):
             draft["content_hash"] = design_content_hash(draft)
             first = canvas["actionData"][0]["data"][0]
             change = {**operation, "expected_old_value": deepcopy(first["paramsValue"]["inputParams"]["variableValue"]), "value": record("3")}
-            hashes = []
+            hashes, evidence = [], []
             repository = Repository(draft)
             with patch.object(service_module, "EditorRepository", return_value=repository):
                 for repeat in range(args.rounds):
@@ -168,25 +176,50 @@ def benchmark(args):
                                 compiler_module._REGISTRY_CACHE.clear()
                                 compiler_module._CONTRACT_CACHE.clear()
                         print(f"size={size} round={repeat + 1} cache={cache}", file=sys.stderr, flush=True)
-                        service = object.__new__(EditorService)
-                        service.state = State(Path(temporary) / f"{size}-{repeat}-{cache}.sqlite3")
-                        service._conversation_id = service.state.create_conversation()["conversation_id"]
-                        metadata = {"nodes": size, "round": repeat + 1, "initial_cache": cache}
-                        begun = measure(service, "begin_edit_session", ("ServiceBenchmark",), {}, metadata)
-                        session_id = begun["session_id"]
-                        measure(service, "find_edit_nodes", (session_id,), {"limit": 30}, {**metadata, "page": "first"})
-                        measure(service, "find_edit_nodes", (session_id,), {"offset": max(0, size - 30), "limit": 30}, {**metadata, "page": "last"})
-                        measure(service, "inspect_edit_context", (session_id, [{"group_key": "g0", "node_key": first["key"]}]), {}, metadata)
-                        spec = {"schema_version": 1, "revision": "offline", "scope_policy": "manual_review", "requirements": [],
-                                "scenarios": {"schema_version": 1, "cases": []}}
-                        planned = measure(service, "plan_canvas_patch", (session_id, [change]), {"review_spec": spec, "response_detail": "summary"}, metadata)
-                        plan = service.state.get_plan(planned["plan_id"])
-                        artifact = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
-                        hashes.append(artifact["hashes"])
-                        measure(service, "prepare_write", (planned["plan_id"],), {"response_detail": "summary"}, metadata)
+                        trial_root = Path(temporary) / f"{size}-{repeat}-{cache}"
+                        identifiers = count(1)
+
+                        class FixedTransactionTime(datetime):
+                            @classmethod
+                            def now(cls, tz=None):
+                                return cls(2026, 10, 27, 12, tzinfo=tz)
+
+                        # Only synthetic identity/time is fixed, so full public
+                        # responses and actual approval-binding hashes can be
+                        # compared without dropping candidate or SQL evidence.
+                        with patch.dict(os.environ, {"LOCALAPPDATA": str(trial_root)}), \
+                             patch("uuid.uuid4", side_effect=lambda: uuid.UUID(int=next(identifiers))), \
+                             patch.object(transaction_module, "datetime", FixedTransactionTime):
+                            service = object.__new__(EditorService)
+                            service.state = State(trial_root / "state.sqlite3")
+                            service._conversation_id = service.state.create_conversation()["conversation_id"]
+                            metadata = {"nodes": size, "round": repeat + 1, "initial_cache": cache}
+                            begun = measure(service, "begin_edit_session", ("ServiceBenchmark",), {}, metadata)
+                            session_id = begun["session_id"]
+                            measure(service, "find_edit_nodes", (session_id,), {"limit": 30}, {**metadata, "page": "first"})
+                            measure(service, "find_edit_nodes", (session_id,), {"offset": max(0, size - 30), "limit": 30}, {**metadata, "page": "last"})
+                            measure(service, "inspect_edit_context", (session_id, [{"group_key": "g0", "node_key": first["key"]}]), {}, metadata)
+                            spec = {"schema_version": 1, "revision": "offline", "scope_policy": "manual_review", "requirements": [],
+                                    "scenarios": {"schema_version": 1, "cases": []}}
+                            planned = measure(service, "plan_canvas_patch", (session_id, [change]), {"review_spec": spec, "response_detail": "summary"}, metadata)
+                            plan = service.state.get_plan(planned["plan_id"])
+                            artifact = json.loads(Path(plan["artifact_path"]).read_text(encoding="utf-8"))
+                            hashes.append(artifact["hashes"])
+                            prepared = measure(service, "prepare_write", (planned["plan_id"],), {"response_detail": "summary"}, metadata)
+                            transaction = service.state.get_transaction(prepared["transaction_id"])
+                            approval = json.loads(Path(transaction["artifact_path"]).read_text(encoding="utf-8"))
+                            if plan["new_hash"] != plan_binding_hash(artifact) or approval["transaction_hash"] != transaction_binding_hash(approval):
+                                raise RuntimeError("Plan or approval binding failed its own verification")
+                            evidence.append({"plan_artifact_sha256": sha256_json(artifact),
+                                "plan_binding_sha256": plan["new_hash"],
+                                "approval_artifact_sha256": sha256_json(approval),
+                                "approval_binding_sha256": approval["transaction_hash"]})
             if not all(item == hashes[0] for item in hashes):
                 raise RuntimeError("Synthetic candidate hash instability")
             candidate_hashes[str(size)] = hashes[0]
+            if not all(item == evidence[0] for item in evidence):
+                raise RuntimeError("Synthetic plan/approval evidence instability")
+            evidence_hashes[str(size)] = evidence[0]
     summary = []
     for size in args.sizes:
         for cache in ("cold", "warm"):
@@ -201,7 +234,9 @@ def benchmark(args):
         "implementation_root": str(implementation), "rounds": args.rounds, "sizes": args.sizes,
         "cache_semantics": "cold clears registry/contract cache before begin only; later tools in that pipeline are warm; Node identity and filesystem OS cache not reset",
         "unmeasured": ["real database/network", "model input tokens", "model latency", "real UI approval", "business C# compatibility"],
-        "candidate_hashes_stable": True, "candidate_hashes": candidate_hashes, "summary": summary, "samples": rows}
+        "determinism": "synthetic Python UUIDs and transaction timestamps fixed; public response hashes exclude only telemetry fields",
+        "candidate_hashes_stable": True, "candidate_hashes": candidate_hashes,
+        "evidence_hashes_stable": True, "evidence_hashes": evidence_hashes, "summary": summary, "samples": rows}
 
 
 def main():

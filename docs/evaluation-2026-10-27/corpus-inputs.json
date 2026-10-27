@@ -1,0 +1,3083 @@
+{
+  "cases": [
+    {
+      "id": "U01",
+      "input": "请检查“证照续期”的负责人带出规则：负责人为空时必须报错，非空时照常带出。我没有动作编号，先定位正确动作；页面也记不清。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "search_actions",
+            "arguments": {
+              "query": "证照续期"
+            },
+            "result": {
+              "count": 2,
+              "items": [
+                {
+                  "code": "lic-ren-a",
+                  "ref_id": "r-lic-public",
+                  "name": "证照续期",
+                  "kind": "public",
+                  "page_id": null
+                },
+                {
+                  "code": "lic-ren-b",
+                  "ref_id": "r-lic-form",
+                  "name": "证照续期",
+                  "kind": "form",
+                  "page_id": "pg-factory-lic"
+                }
+              ],
+              "complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U02",
+      "input": "检查页面“复核单” Route=/sup/receipt-review 的“复核提交”。规则：收件日期为空要阻止提交；有值正常。这里只做当前发布的静态复核。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "search_pages",
+            "arguments": {
+              "query": "复核单"
+            },
+            "result": {
+              "items": [
+                {
+                  "name": "复核单",
+                  "Route": "/qa/deviation-review",
+                  "Id": "pg-quality-review",
+                  "OutId": "out-quality"
+                },
+                {
+                  "name": "复核单",
+                  "Route": "/sup/receipt-review",
+                  "Id": "pg-supplier-review",
+                  "OutId": "out-supplier"
+                }
+              ],
+              "complete": true
+            }
+          },
+          {
+            "tool": "list_page_actions",
+            "arguments": {
+              "page_identifier": "/sup/receipt-review"
+            },
+            "result": {
+              "page_id": "pg-supplier-review",
+              "items": [
+                {
+                  "code": "sup-rvw-71",
+                  "ref_id": "r-supplier-review",
+                  "name": "复核提交",
+                  "kind": "form",
+                  "page_id": "pg-supplier-review"
+                }
+              ],
+              "complete": true
+            }
+          },
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "sup-rvw-71"
+            },
+            "result": {
+              "ref_id": "r-supplier-review",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u02",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u02",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "sup-rvw-71",
+              "design_id": "pd-u02",
+              "node_key": "n-date",
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "sup-rvw-71",
+                "ref_id": "r-supplier-review",
+                "name": "复核提交",
+                "kind": "form",
+                "page_id": "pg-supplier-review"
+              },
+              "design_id": "pd-u02",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-date",
+                  "node_name": "收件日期必填",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "NullCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "field": "receiptDate",
+                      "when_null": "return_error",
+                      "when_non_null": "continue"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U03",
+      "input": "在收件登记动作 recv-w36 查“带入值”：我要核对组件 c-received 的收件日期带入，不是组件 c-issued 的发件日期。规则是只在新增且来源非空时带入。只定位并静态核对。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "resolve_action",
+            "arguments": {
+              "identifier": "recv-w36"
+            },
+            "result": {
+              "action": {
+                "code": "recv-w36",
+                "ref_id": "r-recv-w36",
+                "name": "收件登记",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "resolved": true
+            }
+          },
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "recv-w36"
+            },
+            "result": {
+              "ref_id": "r-recv-w36",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u03",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u03",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "recv-w36",
+              "design_id": "pd-u03",
+              "include_params": false,
+              "focus_fields": [
+                "receivedDate"
+              ]
+            },
+            "result": {
+              "design_id": "pd-u03",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-issued",
+                  "node_name": "带入值",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "SetVariable",
+                  "component_key": "c-issued",
+                  "model_key": "issuedDate"
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-received",
+                  "node_name": "带入值",
+                  "canvas_row": 7,
+                  "canvas_index": 6,
+                  "elementKey": "SetVariable",
+                  "component_key": "c-received",
+                  "model_key": "receivedDate"
+                }
+              ],
+              "response_complete": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "recv-w36",
+              "design_id": "pd-u03",
+              "node_key": "n-received",
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u03",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-received",
+                  "node_name": "带入值",
+                  "canvas_row": 7,
+                  "canvas_index": 6,
+                  "elementKey": "SetVariable",
+                  "paramsValue": {
+                    "inputParams": {
+                      "target_component": "c-received",
+                      "target_field": "receivedDate",
+                      "condition": {
+                        "and": [
+                          {
+                            "page_mode": "new"
+                          },
+                          {
+                            "source_not_null": true
+                          }
+                        ]
+                      },
+                      "value": "page.receivedDate",
+                      "else": "preserve"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U04",
+      "input": "到期检查 timer-e42 在 09:20 报动态异常第88行。请核对最可能的运行发布快照；我只给了动作名和异常行，没有记录 ID。不要编辑。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "trace_dynamic_exception",
+            "arguments": {
+              "identifier": "timer-e42",
+              "at_time": "2026-10-27T09:20:00+08:00",
+              "line": 88,
+              "response_detail": "summary"
+            },
+            "result": {
+              "runtime_published_candidates": [
+                {
+                  "design_id": "pd-u04-a",
+                  "score": 0.9,
+                  "published_at": "2026-10-26T15:00:00+08:00",
+                  "line": 88
+                },
+                {
+                  "design_id": "pd-u04-b",
+                  "score": 0.85,
+                  "published_at": "2026-10-27T09:00:00+08:00",
+                  "line": 88
+                }
+              ],
+              "snapshot_fingerprint": "81727be313ed797b0273a0ff06ced4c1baae6b58533a23ec0e299730d743fbb9",
+              "has_more": true,
+              "next_cursor": "u04-c1",
+              "envelope_complete": false,
+              "response_complete": false,
+              "evidence_complete": false
+            }
+          },
+          {
+            "tool": "trace_dynamic_exception",
+            "arguments": {
+              "identifier": "timer-e42",
+              "at_time": "2026-10-27T09:20:00+08:00",
+              "line": 88,
+              "response_detail": "summary",
+              "cursor": "u04-c1"
+            },
+            "result": {
+              "envelope_value_page": {
+                "encoding": "json",
+                "snapshot_fingerprint": "81727be313ed797b0273a0ff06ced4c1baae6b58533a23ec0e299730d743fbb9",
+                "offset": 0,
+                "next_offset": 159,
+                "total_characters": 319,
+                "text": "{\"action\":{\"code\":\"timer-e42\",\"ref_id\":\"r-timer-e42\",\"name\":\"到期检查\",\"kind\":\"public\",\"page_id\":null},\"at_time\":\"2026-10-27T09:20:00+08:00\",\"candidate_count\":2,\"o",
+                "continuation_complete": false
+              },
+              "has_more": true,
+              "next_cursor": "u04-c2",
+              "response_complete": false,
+              "evidence_complete": false
+            }
+          },
+          {
+            "tool": "trace_dynamic_exception",
+            "arguments": {
+              "identifier": "timer-e42",
+              "at_time": "2026-10-27T09:20:00+08:00",
+              "line": 88,
+              "response_detail": "summary",
+              "cursor": "u04-c2"
+            },
+            "result": {
+              "envelope_value_page": {
+                "encoding": "json",
+                "snapshot_fingerprint": "81727be313ed797b0273a0ff06ced4c1baae6b58533a23ec0e299730d743fbb9",
+                "offset": 159,
+                "next_offset": 319,
+                "total_characters": 319,
+                "text": "mitted\":[\"runtime_published_candidates[1].line_context\"],\"next_read\":{\"tool\":\"trace_dynamic_exception\",\"response_detail\":\"full\",\"detail_cursor\":\"u04-detail-b\"}}",
+                "continuation_complete": true
+              },
+              "has_more": false,
+              "response_complete": false,
+              "evidence_complete": false
+            }
+          },
+          {
+            "tool": "trace_dynamic_exception",
+            "arguments": {
+              "identifier": "timer-e42",
+              "at_time": "2026-10-27T09:20:00+08:00",
+              "line": 88,
+              "response_detail": "full",
+              "detail_cursor": "u04-detail-b"
+            },
+            "result": {
+              "snapshot_fingerprint": "81727be313ed797b0273a0ff06ced4c1baae6b58533a23ec0e299730d743fbb9",
+              "runtime_published_candidates": [
+                {
+                  "action": {
+                    "code": "timer-e42",
+                    "ref_id": "r-timer-e42",
+                    "name": "到期检查",
+                    "kind": "public",
+                    "page_id": null
+                  },
+                  "design_id": "pd-u04-b",
+                  "published_at": "2026-10-27T09:00:00+08:00",
+                  "isDeleted": 0,
+                  "line_context": {
+                    "88": "return cutoff.Value.AddDays(1);"
+                  },
+                  "exact_source_map": false,
+                  "node_candidates": [
+                    {
+                      "group_key": "g-main",
+                      "group_name": "初始化",
+                      "node_key": "n-cutoff",
+                      "node_name": "计算截止时间",
+                      "canvas_row": 6,
+                      "canvas_index": 5,
+                      "elementKey": "AddDateTime"
+                    }
+                  ]
+                }
+              ],
+              "candidate_details_complete": true,
+              "has_more": false,
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U05",
+      "input": "静态核对 filter-k58 的组件 c-batch：只准选当前车间的有效批次，无匹配留空。摘要说只有一个过滤器，是否可以认为全部入口都正确？",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "filter-k58"
+            },
+            "result": {
+              "ref_id": "r-filter-k58",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u05",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u05",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_component_filters",
+            "arguments": {
+              "identifier": "filter-k58",
+              "component": "c-batch",
+              "response_detail": "summary"
+            },
+            "result": {
+              "design_id": "pd-u05",
+              "component_filters": {
+                "component": "c-batch",
+                "writer_count": 2
+              },
+              "writers": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-load",
+                  "node_name": "初始过滤",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "DataFilter",
+                  "params_summary": "当前车间 AND 有效"
+                }
+              ],
+              "has_more": false,
+              "envelope_complete": false,
+              "response_complete": false,
+              "evidence_complete": false,
+              "omitted": [
+                "writers[1]",
+                "writers[0].parent_conditions"
+              ],
+              "next_read": {
+                "tool": "inspect_action",
+                "design_id": "pd-u05",
+                "group_key": "g-change",
+                "node_keys": [
+                  "n-reset"
+                ]
+              }
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "filter-k58",
+              "design_id": "pd-u05",
+              "group_key": "g-change",
+              "node_key": "n-reset",
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u05",
+              "nodes": [
+                {
+                  "group_key": "g-change",
+                  "group_name": "车间变更",
+                  "node_key": "n-reset",
+                  "node_name": "重新过滤",
+                  "canvas_row": 5,
+                  "canvas_index": 4,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "component": "c-batch",
+                      "filters": [
+                        {
+                          "field": "workshop",
+                          "operator": "eq",
+                          "value": "currentWorkshop"
+                        }
+                      ]
+                    },
+                    "parent_conditions": {
+                      "expression": "AllowReset(event)",
+                      "static_result": "unknown"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U06",
+      "input": "$gxp-lowcode-edit 本轮只读取已有会话 ss-u06 中 n-note 的 /inputParams 说明，不修改、不规划、不审批。请告诉我完整说明是否提到“留空时保留原值”。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 已建立当前草稿会话；后续只读说明。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u06",
+            "session_id": "ss-u06",
+            "design_id": "dd-u06",
+            "revision": 2
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "inspect_edit_context",
+            "arguments": {
+              "session_id": "ss-u06",
+              "targets": [
+                {
+                  "group_key": "g-main",
+                  "node_key": "n-note"
+                }
+              ],
+              "parameter_paths": [
+                "/inputParams"
+              ],
+              "conversation_id": "cv-u06"
+            },
+            "result": {
+              "context_binding": {
+                "conversation_id": "cv-u06",
+                "session_id": "ss-u06",
+                "revision": 2,
+                "backup_sha256": "99d7541899fb20c06925f1ce9d0e872fa22d766bd87ac2ce44f990be24b21451",
+                "design_id": "dd-u06"
+              },
+              "targets": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-note",
+                  "node_name": "填写说明",
+                  "canvas_row": 4,
+                  "canvas_index": 3,
+                  "elementKey": "SetVariable"
+                }
+              ],
+              "parameter_summaries": [
+                {
+                  "path": "/inputParams",
+                  "preview": "{\"remark\":\"📦收到后留…",
+                  "truncated": true
+                }
+              ],
+              "edit_options": {
+                "parameter_operations": [
+                  {
+                    "path": "/inputParams",
+                    "guard_ref": "signed-u06-old-input",
+                    "required_inputs": [
+                      "value"
+                    ]
+                  }
+                ]
+              },
+              "next_read": {
+                "tool": "read_edit_value",
+                "path": "/inputParams"
+              }
+            }
+          },
+          {
+            "tool": "read_edit_value",
+            "arguments": {
+              "session_id": "ss-u06",
+              "group_key": "g-main",
+              "node_key": "n-note",
+              "path": "/inputParams",
+              "offset": 0,
+              "conversation_id": "cv-u06"
+            },
+            "result": {
+              "context_binding": {
+                "conversation_id": "cv-u06",
+                "session_id": "ss-u06",
+                "revision": 2,
+                "backup_sha256": "99d7541899fb20c06925f1ce9d0e872fa22d766bd87ac2ce44f990be24b21451",
+                "design_id": "dd-u06"
+              },
+              "path": "/inputParams",
+              "value_sha256": "ba486418a53cae939a3188b935e672f7fef0ed73acd47ac9695d988c8429b2e1",
+              "offset": 0,
+              "next_offset": 13,
+              "text": "{\"remark\":\"📦收",
+              "complete": false,
+              "truncated": true,
+              "continuation_complete": false
+            }
+          },
+          {
+            "tool": "read_edit_value",
+            "arguments": {
+              "session_id": "ss-u06",
+              "group_key": "g-main",
+              "node_key": "n-note",
+              "path": "/inputParams",
+              "offset": 13,
+              "conversation_id": "cv-u06"
+            },
+            "result": {
+              "context_binding": {
+                "conversation_id": "cv-u06",
+                "session_id": "ss-u06",
+                "revision": 2,
+                "backup_sha256": "99d7541899fb20c06925f1ce9d0e872fa22d766bd87ac2ce44f990be24b21451",
+                "design_id": "dd-u06"
+              },
+              "path": "/inputParams",
+              "value_sha256": "ba486418a53cae939a3188b935e672f7fef0ed73acd47ac9695d988c8429b2e1",
+              "offset": 13,
+              "next_offset": 49,
+              "text": "到后留空时保留原值；仅新增来源非空才写入。\",\"mode\":\"new\"}",
+              "complete": false,
+              "truncated": true,
+              "continuation_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U07",
+      "input": "release-p23 已保存草稿，放行日期为空要报错，有值继续。请确认现在运行的规则是否修好了；我尚未重新发布。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "release-p23"
+            },
+            "result": {
+              "ref_id": "r-release-p23",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u07",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "f2b1d0e20a145247929353d18114ffbdf8cc7699d9b7b13f4b8ab55ee6101a5a",
+                "csharp_sha256": "a78ea58e58ccb4978ed3304db3fd6182471ca97e421ba4eae32ece02483e5c44"
+              },
+              "draft": {
+                "design_id": "dd-u07",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "466847185a6c89f2521a78567b05c1b30889333f165b771f056d2965ded5e354",
+                "csharp_sha256": "d0c6e5c9fe06f8f80b77cf0ed4e9be49c7611440467c20733e1ea81385912f96"
+              },
+              "synchronized": false
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "release-p23",
+              "design_id": "pd-u07",
+              "node_key": "n-release",
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "release-p23",
+                "ref_id": "r-release-p23",
+                "name": "放行日期检查",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "copy": "published",
+              "design_id": "pd-u07",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-release",
+                  "node_name": "检查放行日期",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "NullCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "field": "releaseDate",
+                      "when_null": "continue",
+                      "when_non_null": "continue"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "release-p23",
+              "design_id": "dd-u07",
+              "node_key": "n-release",
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "release-p23",
+                "ref_id": "r-release-p23",
+                "name": "放行日期检查",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "copy": "draft",
+              "design_id": "dd-u07",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-release",
+                  "node_name": "检查放行日期",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "NullCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "field": "releaseDate",
+                      "when_null": "return_error",
+                      "when_non_null": "continue"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U08",
+      "input": "hold-z68 我刚发布了。冻结状态应拒绝提交，其他状态继续。请复核发布是否正确，现阶段没有真实提交样本。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "hold-z68"
+            },
+            "result": {
+              "ref_id": "r-hold-z68",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u08",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "d7b71b1353134b44c72134d149f97afba8326537e249edfbc07fb16197923877",
+                "csharp_sha256": "34cf8f039fc0c1abd6a0ffca95caefca5ac015da1bef98a85eadd0a59de7fb81"
+              },
+              "draft": {
+                "design_id": "dd-u08",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "d7b71b1353134b44c72134d149f97afba8326537e249edfbc07fb16197923877",
+                "csharp_sha256": "34cf8f039fc0c1abd6a0ffca95caefca5ac015da1bef98a85eadd0a59de7fb81"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "hold-z68",
+              "design_id": "pd-u08",
+              "node_key": "n-hold",
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "hold-z68",
+                "ref_id": "r-hold-z68",
+                "name": "冻结检查",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "copy": "published",
+              "design_id": "pd-u08",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-hold",
+                  "node_name": "冻结状态检查",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "field": "status",
+                      "operator": "eq",
+                      "value": "hold",
+                      "then": "return_error",
+                      "else": "continue"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U09",
+      "input": "due-h91 10:10 的异常栈提示第64行 NullReference；11:00 后已经重新发布。请解释 10:10 那次，别把现在与当时混在一起。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "due-h91",
+              "include_history": true
+            },
+            "result": {
+              "ref_id": "r-due-h91",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u09-new",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T11:00:00+08:00",
+                "data_sha256": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437",
+                "csharp_sha256": "8e90cc16d2dafcf6d50574da43fc1c43a3893d5e412cff9f07552f4f412e429d"
+              },
+              "draft": {
+                "design_id": "dd-u09",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "11507a0e2f5e69d5dfa40a62a1bd7b6ee57e6bcd85c67c9b8431b36fff21c437",
+                "csharp_sha256": "8e90cc16d2dafcf6d50574da43fc1c43a3893d5e412cff9f07552f4f412e429d"
+              },
+              "synchronized": true,
+              "history": [
+                {
+                  "design_id": "pd-u09-old",
+                  "is_publish": 1,
+                  "isDeleted": 1,
+                  "creationTime": "2026-10-27T10:00:00+08:00",
+                  "lastModificationTime": "2026-10-27T11:00:01+08:00"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "trace_dynamic_exception",
+            "arguments": {
+              "identifier": "due-h91",
+              "at_time": "2026-10-27T10:10:00+08:00",
+              "line": 64,
+              "response_detail": "full"
+            },
+            "result": {
+              "runtime_published_candidates": [
+                {
+                  "action": {
+                    "code": "due-h91",
+                    "ref_id": "r-due-h91",
+                    "name": "到期回写",
+                    "kind": "public",
+                    "page_id": null
+                  },
+                  "design_id": "pd-u09-old",
+                  "published_at": "2026-10-27T10:00:00+08:00",
+                  "line": 64,
+                  "line_context": "owner.Name = source.Owner.Name;",
+                  "exact_source_map": false,
+                  "node_candidates": [
+                    {
+                      "group_key": "g-main",
+                      "group_name": "初始化",
+                      "node_key": "n-owner",
+                      "node_name": "回写负责人",
+                      "canvas_row": 8,
+                      "canvas_index": 7,
+                      "elementKey": "SetVariable"
+                    }
+                  ]
+                }
+              ],
+              "excluded": [
+                {
+                  "design_id": "dd-u09",
+                  "copy": "draft",
+                  "text_match_score": 0.99,
+                  "reason": "draft_not_runtime"
+                },
+                {
+                  "design_id": "pd-u09-new",
+                  "published_at": "2026-10-27T11:00:00+08:00",
+                  "reason": "after_at_time"
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U10",
+      "input": "scope-q14 用户点击“选择全部”后仍只带出部分。规则：有范围授权时允许全部，无授权时仅自己，空范围不允许选择。请判断是不是第二层 IF 写反了，只排查。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "scope-q14"
+            },
+            "result": {
+              "ref_id": "r-scope-q14",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u10",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u10",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "scope-q14",
+              "design_id": "pd-u10",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-scope-q14",
+              "design_id": "pd-u10",
+              "copy": "published",
+              "structure_status": "valid",
+              "root_block": "b-root",
+              "matched_branch": "b-current",
+              "matched_end": "n-end",
+              "views": {
+                "tree_text": "b-root IF mode=select\n  b-current IF HasScope(user)\n    n-all 全部候选\n  ELSE n-self 仅本人\n  n-end IFEND\nEND"
+              },
+              "unresolved": [],
+              "scenario_matrix": [
+                {
+                  "scenario": "有范围",
+                  "actual": "unknown"
+                },
+                {
+                  "scenario": "无范围",
+                  "actual": "unknown"
+                },
+                {
+                  "scenario": "空范围",
+                  "actual": "unknown"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "scope-q14",
+              "design_id": "pd-u10",
+              "node_keys": [
+                "n-outer",
+                "n-scope",
+                "n-all",
+                "n-self"
+              ],
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u10",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-outer",
+                  "node_name": "选择模式",
+                  "canvas_row": 1,
+                  "canvas_index": 0,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "condition": "mode == select"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-scope",
+                  "node_name": "范围授权判断",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "condition": "HasScope(user)",
+                      "static_result": "unknown"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-all",
+                  "node_name": "全部候选",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "filter": []
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-self",
+                  "node_name": "仅本人",
+                  "canvas_row": 5,
+                  "canvas_index": 4,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "filter": [
+                        {
+                          "field": "owner",
+                          "eq": "currentUser"
+                        }
+                      ]
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U11",
+      "input": "看 action=ret-b72 的嵌套退回逻辑：退回必须记录原因，正常通过不能清空原因。Else 看着紧挨着“清空原因”，能不能确定它属于外层并删掉？只给审查结论。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "ret-b72"
+            },
+            "result": {
+              "ref_id": "r-ret-b72",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u11",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u11",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "ret-b72",
+              "design_id": "pd-u11",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-ret-b72",
+              "design_id": "pd-u11",
+              "copy": "published",
+              "structure_status": "invalid",
+              "root_block": "b-root",
+              "matched_branch": null,
+              "matched_end": null,
+              "views": {
+                "tree_text": "b-root IF review\n  b-inner IF returned\n  n-else ELSE [unresolved]\n  n-clear 清空原因\n  [missing IFEND]"
+              },
+              "unresolved": [
+                {
+                  "node_key": "n-else",
+                  "reason": "ambiguous_else_owner"
+                },
+                {
+                  "node_key": "n-end",
+                  "reason": "missing_end"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "ret-b72",
+              "design_id": "pd-u11",
+              "include_params": false
+            },
+            "result": {
+              "design_id": "pd-u11",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-else",
+                  "node_name": "否则",
+                  "canvas_row": 5,
+                  "canvas_index": 4,
+                  "elementKey": "Else"
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-clear",
+                  "node_name": "清空原因",
+                  "canvas_row": 6,
+                  "canvas_index": 5,
+                  "elementKey": "SetVariable"
+                }
+              ],
+              "response_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U12",
+      "input": "静态复核 age-t29：仅新增模式检查年龄。年龄空值要报错；小于18允许跳过成人审查；大于等于18必须成人审查；编辑模式保持原流程。不要执行业务。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "age-t29"
+            },
+            "result": {
+              "ref_id": "r-age-t29",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u12",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u12",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "age-t29",
+              "design_id": "pd-u12",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-age-t29",
+              "design_id": "pd-u12",
+              "copy": "published",
+              "structure_status": "valid",
+              "root_block": "b-root",
+              "matched_branch": "b-current",
+              "matched_end": "n-end",
+              "views": {
+                "tree_text": "b-root IF mode=new\n  b-current IF age >= 18\n    n-adult 成人审查\n  ELSE n-skip 跳过审查\n  n-end IFEND\nELSE n-edit 原编辑流程\nEND"
+              },
+              "unresolved": [],
+              "scenario_matrix": [
+                {
+                  "input": {
+                    "mode": "new",
+                    "age": null
+                  },
+                  "actual": "skip",
+                  "condition_results": [
+                    "true",
+                    "false"
+                  ]
+                },
+                {
+                  "input": {
+                    "mode": "new",
+                    "age": 17
+                  },
+                  "actual": "skip"
+                },
+                {
+                  "input": {
+                    "mode": "new",
+                    "age": 18
+                  },
+                  "actual": "adult"
+                },
+                {
+                  "input": {
+                    "mode": "edit",
+                    "age": null
+                  },
+                  "actual": "edit_original"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "age-t29",
+              "design_id": "pd-u12",
+              "node_keys": [
+                "n-mode",
+                "n-age",
+                "n-adult",
+                "n-skip",
+                "n-edit"
+              ],
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "age-t29",
+                "ref_id": "r-age-t29",
+                "name": "年龄规则校验",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "design_id": "pd-u12",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-mode",
+                  "node_name": "新增模式",
+                  "canvas_row": 1,
+                  "canvas_index": 0,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "left": "mode",
+                      "operator": "eq",
+                      "right": "new"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-age",
+                  "node_name": "是否成年",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "left": "age",
+                      "operator": "gte",
+                      "right": 18,
+                      "null_result": false
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-adult",
+                  "node_name": "成人审查",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "CallAction",
+                  "paramsValue": {
+                    "inputParams": {
+                      "group": "adult_review"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-skip",
+                  "node_name": "跳过审查",
+                  "canvas_row": 5,
+                  "canvas_index": 4,
+                  "elementKey": "Return",
+                  "paramsValue": {
+                    "inputParams": {
+                      "value": "skip"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-edit",
+                  "node_name": "原编辑流程",
+                  "canvas_row": 8,
+                  "canvas_index": 7,
+                  "elementKey": "CallAction",
+                  "paramsValue": {
+                    "inputParams": {
+                      "group": "edit_original"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U13",
+      "input": "slot-v48 组件 c-slot 现在能选别的站点已停用槽位。规则：只能当前站点且启用，无匹配留空。请审计所有入口后给静态结论。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "slot-v48"
+            },
+            "result": {
+              "ref_id": "r-slot-v48",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u13",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u13",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_component_filters",
+            "arguments": {
+              "identifier": "slot-v48",
+              "component": "c-slot",
+              "response_detail": "full"
+            },
+            "result": {
+              "design_id": "pd-u13",
+              "copy": "published",
+              "component_filters": {
+                "writer_count": 2
+              },
+              "writers": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-init",
+                  "node_name": "初始过滤",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "component": "c-slot",
+                      "filter": [
+                        {
+                          "field": "site",
+                          "eq": "currentSite"
+                        },
+                        {
+                          "field": "enabled",
+                          "eq": true
+                        }
+                      ]
+                    }
+                  },
+                  "execution_order": 1,
+                  "phase": "init",
+                  "parent_conditions": [],
+                  "params_complete": true
+                },
+                {
+                  "group_key": "g-event",
+                  "group_name": "变更事件",
+                  "node_key": "n-broaden",
+                  "node_name": "候选过滤",
+                  "canvas_row": 4,
+                  "canvas_index": 3,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "component": "c-slot",
+                      "filter": [
+                        {
+                          "field": "enabled",
+                          "eq": true
+                        }
+                      ]
+                    }
+                  },
+                  "execution_order": 2,
+                  "phase": "site_changed",
+                  "parent_conditions": [],
+                  "params_complete": true
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true,
+              "has_more": false,
+              "envelope_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U14",
+      "input": "mode-c63 的 c-slot 在新增模式要限制当前站点且启用，编辑模式按已确认规则允许查看全部历史槽位。无匹配新增留空。有人说后面那个空过滤一定覆盖新增过滤，帮我静态复核。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "mode-c63"
+            },
+            "result": {
+              "ref_id": "r-mode-c63",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u14",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u14",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_component_filters",
+            "arguments": {
+              "identifier": "mode-c63",
+              "component": "c-slot",
+              "response_detail": "full"
+            },
+            "result": {
+              "design_id": "pd-u14",
+              "component_filters": {
+                "writer_count": 2
+              },
+              "writers": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-new",
+                  "node_name": "候选过滤",
+                  "canvas_row": 3,
+                  "canvas_index": 2,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "component": "c-slot",
+                      "filter": [
+                        {
+                          "field": "site",
+                          "eq": "currentSite"
+                        },
+                        {
+                          "field": "enabled",
+                          "eq": true
+                        }
+                      ]
+                    }
+                  },
+                  "execution_order": 1,
+                  "phase": "init",
+                  "parent_conditions": [
+                    {
+                      "node_key": "n-mode",
+                      "condition": "mode == new",
+                      "branch": "then"
+                    }
+                  ],
+                  "params_complete": true
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-edit",
+                  "node_name": "候选过滤",
+                  "canvas_row": 6,
+                  "canvas_index": 5,
+                  "elementKey": "DataFilter",
+                  "paramsValue": {
+                    "inputParams": {
+                      "component": "c-slot",
+                      "filter": []
+                    }
+                  },
+                  "execution_order": 2,
+                  "phase": "init",
+                  "parent_conditions": [
+                    {
+                      "node_key": "n-mode",
+                      "condition": "mode == new",
+                      "branch": "else",
+                      "equivalent": "mode == edit"
+                    }
+                  ],
+                  "params_complete": true
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true,
+              "envelope_complete": true,
+              "has_more": false
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "mode-c63",
+              "design_id": "pd-u14",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-mode-c63",
+              "design_id": "pd-u14",
+              "copy": "published",
+              "structure_status": "valid",
+              "root_block": "b-root",
+              "matched_branch": "b-current",
+              "matched_end": "n-end",
+              "views": {
+                "tree_text": "b-root IF mode=new\n  b-current n-new 站点且启用\nELSE n-edit 全部历史\nn-end IFEND"
+              },
+              "unresolved": [],
+              "scenario_matrix": [
+                {
+                  "mode": "new",
+                  "actual_writers": [
+                    "n-new"
+                  ]
+                },
+                {
+                  "mode": "edit",
+                  "actual_writers": [
+                    "n-edit"
+                  ]
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U15",
+      "input": "value-r85 初始化时备注已带出，随后选择类别就变空。规则：类别非空变化只更新分类，不清备注；备注空来源也应保留原值。定位最后写备注的位置，先不改。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "passive_artifacts": [
+            "runtime_evidence_fixture is user-provided evidence, not a new required capability."
+          ]
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "value-r85"
+            },
+            "result": {
+              "ref_id": "r-value-r85",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u15",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u15",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "value-r85",
+              "design_id": "pd-u15",
+              "include_params": true,
+              "node_keys": [
+                "n-note-init",
+                "n-note-event"
+              ]
+            },
+            "result": {
+              "design_id": "pd-u15",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-note-init",
+                  "node_name": "带出备注",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "SetVariable",
+                  "paramsValue": {
+                    "inputParams": {
+                      "target": "memo",
+                      "value": "source.memo",
+                      "when_empty": "preserve"
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-category",
+                  "group_name": "类别变化",
+                  "node_key": "n-note-event",
+                  "node_name": "重置备注",
+                  "canvas_row": 5,
+                  "canvas_index": 4,
+                  "elementKey": "SetVariable",
+                  "paramsValue": {
+                    "inputParams": {
+                      "target": "memo",
+                      "value": "",
+                      "condition": "category != null"
+                    }
+                  }
+                }
+              ],
+              "response_complete": true,
+              "evidence_complete": true
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "value-r85",
+              "design_id": "pd-u15",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-value-r85",
+              "design_id": "pd-u15",
+              "copy": "published",
+              "structure_status": "valid",
+              "root_block": "b-root",
+              "matched_branch": "b-current",
+              "matched_end": "n-end",
+              "views": {
+                "tree_text": "b-root 初始化 -> n-note-init\n类别变化 IF category != null\n  b-current n-note-event memo=\"\"\nn-end IFEND"
+              },
+              "unresolved": [],
+              "scenario_matrix": []
+            }
+          },
+          {
+            "tool": "runtime_evidence_fixture",
+            "arguments": {
+              "case": "U15"
+            },
+            "result": {
+              "source": "user_supplied_minimal_trace",
+              "ref_id": "r-value-r85",
+              "published_design_id": "pd-u15",
+              "interaction": "initialize then category change",
+              "inputs": {
+                "source.memo": "保留说明",
+                "category": "A"
+              },
+              "events": [
+                {
+                  "step": 1,
+                  "node_key": "n-note-init",
+                  "memo_after": "保留说明"
+                },
+                {
+                  "step": 2,
+                  "node_key": "n-note-event",
+                  "memo_after": ""
+                }
+              ],
+              "business_write_triggered": false,
+              "scope": "one reproduced interaction"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U16",
+      "input": "生产投诉 CPL-SYN-884 在 2026-10-26 仍显示未关闭。期望 status=closed 时关闭人非空。请判断是不是生产记录丢了。当前本机连接环境我没有确认。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "describe_table",
+            "arguments": {
+              "table": "qa_complaint"
+            },
+            "result": {
+              "table": "qa_complaint",
+              "environment": "development",
+              "columns": [
+                {
+                  "name": "id",
+                  "type": "varchar(40)"
+                },
+                {
+                  "name": "complaint_no",
+                  "type": "varchar(60)"
+                },
+                {
+                  "name": "status",
+                  "type": "varchar(20)"
+                },
+                {
+                  "name": "closed_by",
+                  "type": "varchar(40)"
+                },
+                {
+                  "name": "lastModificationTime",
+                  "type": "datetime"
+                }
+              ],
+              "indexes": [
+                {
+                  "name": "ux_complaint_no",
+                  "columns": [
+                    "complaint_no"
+                  ],
+                  "unique": true
+                }
+              ]
+            }
+          },
+          {
+            "tool": "get_records",
+            "arguments": {
+              "table": "qa_complaint",
+              "filters": {
+                "complaint_no": "CPL-SYN-884"
+              },
+              "columns": [
+                "id",
+                "complaint_no",
+                "status",
+                "closed_by",
+                "lastModificationTime"
+              ],
+              "limit": 5
+            },
+            "result": {
+              "environment": "development",
+              "rows": [],
+              "truncated": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U17",
+      "input": "公共动作 calc-f46 本地 C# 已完整编译，源码里有空值保护；生产仍报错。能否确认生产 DLL 已更新并且运行修复？先给证据判断，不动服务器。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "passive_artifacts": [
+            "source_evidence_fixture and compiler_receipt_fixture are provided evidence, not new tools."
+          ]
+        },
+        "tool_results": [
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "calc-f46"
+            },
+            "result": {
+              "ref_id": "r-calc-f46",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u17",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "992a93455c71fedd36ac9bbc439952c041cf61445958472af479269b8d873513",
+                "csharp_sha256": "65fa5a01e7511d4089573a6fccc8c5f965e013da3a2a3e20526f2bdf5c9ea80a"
+              },
+              "draft": {
+                "design_id": "dd-u17",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "992a93455c71fedd36ac9bbc439952c041cf61445958472af479269b8d873513",
+                "csharp_sha256": "65fa5a01e7511d4089573a6fccc8c5f965e013da3a2a3e20526f2bdf5c9ea80a"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "calc-f46",
+              "design_id": "pd-u17",
+              "node_key": "n-calc",
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u17",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-calc",
+                  "node_name": "计算数量",
+                  "canvas_row": 4,
+                  "canvas_index": 3,
+                  "elementKey": "MathCalculation",
+                  "paramsValue": {
+                    "inputParams": {
+                      "expression": "quantity ?? 0"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          },
+          {
+            "tool": "source_evidence_fixture",
+            "arguments": {
+              "case": "U17"
+            },
+            "result": {
+              "repository": "selected-backend",
+              "commit": "synth-source-17",
+              "file": "Services/CalculationService.cs",
+              "line": 82,
+              "snippet": "return quantity ?? 0;",
+              "evidence_level": "source_static",
+              "deployment_manifest": null,
+              "production_error_time": null,
+              "production_stack": null
+            }
+          },
+          {
+            "tool": "compiler_receipt_fixture",
+            "arguments": {
+              "case": "U17"
+            },
+            "result": {
+              "environment": "local_development",
+              "csharp_compile": "complete_pass",
+              "browser_verified": false,
+              "runtime_verified": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U18",
+      "input": "目标线上页面 https://release.qa-example.invalid/review 已在 Chrome 开着。静态配置解释不了点击后选项消失，请看这一页已有网络和控制台；这轮我没有提供六位连接码，也没有授权其他站点。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "get_bridge_status",
+            "arguments": {},
+            "result": {
+              "extension_connected": true,
+              "paired": true,
+              "authorized_origins": [
+                "https://dev.qa-example.invalid"
+              ],
+              "open_tabs": [
+                {
+                  "url": "https://release.qa-example.invalid/review",
+                  "title": "复核"
+                }
+              ],
+              "target_origin_authorized": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U19",
+      "input": "检查 qty-j34 是否拒绝负数，零允许，正数允许。只读静态检查。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "search_business_logic_graph",
+            "arguments": {
+              "query": "qty-j34"
+            },
+            "result": {
+              "available": false,
+              "cache_error": "SQLITE_BUSY",
+              "message": "business graph lock timeout",
+              "written": false
+            }
+          },
+          {
+            "tool": "resolve_action",
+            "arguments": {
+              "identifier": "qty-j34"
+            },
+            "result": {
+              "resolved": true,
+              "action": {
+                "code": "qty-j34",
+                "ref_id": "r-qty-j34",
+                "name": "数量下限校验",
+                "kind": "form",
+                "page_id": "pg-syn"
+              }
+            }
+          },
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "qty-j34"
+            },
+            "result": {
+              "ref_id": "r-qty-j34",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u19",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u19",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "qty-j34",
+              "design_id": "pd-u19",
+              "node_key": "n-qty",
+              "include_params": true
+            },
+            "result": {
+              "action": {
+                "code": "qty-j34",
+                "ref_id": "r-qty-j34",
+                "name": "数量下限校验",
+                "kind": "form",
+                "page_id": "pg-syn"
+              },
+              "design_id": "pd-u19",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-qty",
+                  "node_name": "数量下限",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "IfCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "left": "qty",
+                      "operator": "lt",
+                      "right": 0,
+                      "then": "return_error",
+                      "else": "continue"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U20",
+      "input": "label-u57 规则是新增时默认标签为空，编辑时保留。inspect_action 刚刚错误了，请继续查可用证据，不要让我重复描述。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "label-u57",
+              "include_params": false,
+              "focus_fields": [
+                "label"
+              ]
+            },
+            "result": {
+              "error": "TOOL_ARGUMENT_UNSUPPORTED",
+              "message": "focus_fields is unavailable on this service version",
+              "retryable_same_request": false
+            }
+          },
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "label-u57"
+            },
+            "result": {
+              "ref_id": "r-label-u57",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u20",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "draft": {
+                "design_id": "dd-u20",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "148de9c5a7a44d19e56cd9ae1a554bf67847afb0c58f6e12fa29ac7ddfca9940",
+                "csharp_sha256": "d7d4f59db48fb4b8d9fe1fe1b7ec5bff489fc305e0ce38500bbb4acc2166e4ca"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_control_flow",
+            "arguments": {
+              "identifier": "label-u57",
+              "design_id": "pd-u20",
+              "render": "tree_text"
+            },
+            "result": {
+              "ref_id": "r-label-u57",
+              "design_id": "pd-u20",
+              "copy": "published",
+              "structure_status": "valid",
+              "root_block": "b-root",
+              "matched_branch": "b-current",
+              "matched_end": "n-end",
+              "views": {
+                "tree_text": "b-root IF mode=new\n  b-current n-label label=\"\"\nELSE n-keep preserve\nn-end IFEND"
+              },
+              "unresolved": [],
+              "scenario_matrix": []
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "label-u57",
+              "design_id": "pd-u20",
+              "group_key": "g-main",
+              "node_keys": [
+                "n-label",
+                "n-keep"
+              ],
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u20",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-label",
+                  "node_name": "新增标签",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "SetVariable",
+                  "paramsValue": {
+                    "inputParams": {
+                      "target": "label",
+                      "value": ""
+                    }
+                  }
+                },
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-keep",
+                  "node_name": "编辑保留",
+                  "canvas_row": 4,
+                  "canvas_index": 3,
+                  "elementKey": "NoOp",
+                  "paramsValue": {
+                    "inputParams": {
+                      "effect": "preserve label"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U21",
+      "input": "review-d82 以前记录说“复核人为空会跳过”，现在用户说已经改好了。规则仍是复核人空就报错，非空继续。复核当前是否符合。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "search_business_logic_graph",
+            "arguments": {
+              "query": "review-d82"
+            },
+            "result": {
+              "available": true,
+              "items": [
+                {
+                  "case_key": "old-review-d82",
+                  "status": "stale",
+                  "published_design_id": "pd-u21-old",
+                  "conclusion": "空复核人跳过",
+                  "must_reverify_current_published_copy": true
+                }
+              ],
+              "complete": true
+            }
+          },
+          {
+            "tool": "resolve_action",
+            "arguments": {
+              "identifier": "review-d82"
+            },
+            "result": {
+              "resolved": true,
+              "action": {
+                "code": "review-d82",
+                "ref_id": "r-review-d82",
+                "name": "复核人检查",
+                "kind": "form",
+                "page_id": "pg-syn"
+              }
+            }
+          },
+          {
+            "tool": "get_design_versions",
+            "arguments": {
+              "identifier": "review-d82"
+            },
+            "result": {
+              "ref_id": "r-review-d82",
+              "environment": "development",
+              "published": {
+                "design_id": "pd-u21-now",
+                "is_publish": 1,
+                "isDeleted": 0,
+                "creationTime": "2026-10-27T08:00:00+08:00",
+                "data_sha256": "f8a4c9e694b56156d5d6fce2879eef0b1be4b3399a822ea3cfd98dcd450acd32",
+                "csharp_sha256": "41fba79a4aa1d58999900e92e75c645a748be3b951a7a82bbb03a7dcf144a1c1"
+              },
+              "draft": {
+                "design_id": "dd-u21",
+                "is_publish": 0,
+                "isDeleted": 0,
+                "lastModificationTime": "2026-10-27T10:02:00+08:00",
+                "data_sha256": "f8a4c9e694b56156d5d6fce2879eef0b1be4b3399a822ea3cfd98dcd450acd32",
+                "csharp_sha256": "41fba79a4aa1d58999900e92e75c645a748be3b951a7a82bbb03a7dcf144a1c1"
+              },
+              "synchronized": true
+            }
+          },
+          {
+            "tool": "inspect_action",
+            "arguments": {
+              "identifier": "review-d82",
+              "design_id": "pd-u21-now",
+              "node_key": "n-reviewer",
+              "include_params": true
+            },
+            "result": {
+              "design_id": "pd-u21-now",
+              "copy": "published",
+              "nodes": [
+                {
+                  "group_key": "g-main",
+                  "group_name": "初始化",
+                  "node_key": "n-reviewer",
+                  "node_name": "复核人必填",
+                  "canvas_row": 2,
+                  "canvas_index": 1,
+                  "elementKey": "NullCondition",
+                  "paramsValue": {
+                    "inputParams": {
+                      "field": "reviewer",
+                      "when_null": "return_error",
+                      "when_non_null": "continue"
+                    }
+                  }
+                }
+              ],
+              "evidence_complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U22",
+      "input": "能否把 lab_sample.owner_id 自动关联 personnel.id？以前本机有一次否决；我只是想看现在关系状态，没有要求恢复。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "inspect_table_schema",
+            "arguments": {
+              "table": "lab_sample"
+            },
+            "result": {
+              "environment": "development",
+              "table": "lab_sample",
+              "declared_foreign_keys": [],
+              "inferred_relations": [
+                {
+                  "relation_id": "rel-u22",
+                  "source": "lab_sample.owner_id",
+                  "target": "personnel.id",
+                  "policy_status": "rejected",
+                  "policy_revision": 4,
+                  "reason_code": "USER_CONFIRMED_INCORRECT"
+                }
+              ],
+              "schema_snapshot": "schema-u22"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U23",
+      "input": "我希望自动选择 visit.host_key 的唯一可信人员关系。候选是 staff.staff_key 和 contractor.contractor_key；请判断当前证据能否自动选。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "resolve_table_relation",
+            "arguments": {
+              "source_table": "visit",
+              "source_column": "host_key",
+              "target_table": "staff",
+              "target_column": "staff_key"
+            },
+            "result": {
+              "environment": "development",
+              "verification_scope": "explicit_target",
+              "relation_id": "rel-u23-staff",
+              "policy_status": "allowed",
+              "target_unique": true,
+              "type_compatible": true,
+              "distinct_non_null_source_keys": 36,
+              "matched_ratio": 1,
+              "status": "data_verified",
+              "candidate_group_complete": false,
+              "unresolved_candidates": [
+                {
+                  "target": "contractor.contractor_key",
+                  "validation_status": "not_run"
+                }
+              ],
+              "truncated": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U24",
+      "input": "我已在上一轮明确恢复 rel-u24-a，本轮请重新判断是否可以自动选择 source.owner_key 的关系。旧报告说 A 唯一，但同组 B 也刚恢复了。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "明确恢复本机 rel-u24-a，恢复后重新验证。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case."
+        },
+        "tool_results": [
+          {
+            "tool": "restore_table_relation",
+            "arguments": {
+              "relation_id": "rel-u24-a"
+            },
+            "result": {
+              "restored": true,
+              "relation_id": "rel-u24-a",
+              "policy_revision": 8,
+              "verification_invalidated": true
+            }
+          },
+          {
+            "tool": "inspect_table_schema",
+            "arguments": {
+              "table": "source"
+            },
+            "result": {
+              "schema_snapshot": "schema-u24",
+              "relations": [
+                {
+                  "relation_id": "rel-u24-a",
+                  "target": "owner_a.key",
+                  "old_validation": {
+                    "status": "data_verified",
+                    "policy_revision": 5,
+                    "unique_in_group": true
+                  }
+                },
+                {
+                  "relation_id": "rel-u24-b",
+                  "target": "owner_b.key",
+                  "policy_revision": 9,
+                  "policy_status": "allowed",
+                  "validation_status": "required_after_restore"
+                }
+              ]
+            }
+          },
+          {
+            "tool": "resolve_table_relation",
+            "arguments": {
+              "source_table": "source",
+              "source_column": "owner_key",
+              "force_live": true
+            },
+            "result": {
+              "verification_source": "live_database",
+              "verification_scope": "candidate_group",
+              "candidate_group_complete": true,
+              "truncated": false,
+              "candidates": [
+                {
+                  "relation_id": "rel-u24-a",
+                  "target": "owner_a.key",
+                  "policy_revision": 8,
+                  "target_unique": true,
+                  "type_compatible": true,
+                  "distinct_non_null_source_keys": 12,
+                  "matched_ratio": 1,
+                  "status": "insufficient_sample"
+                },
+                {
+                  "relation_id": "rel-u24-b",
+                  "target": "owner_b.key",
+                  "policy_revision": 9,
+                  "target_unique": false,
+                  "type_compatible": true,
+                  "distinct_non_null_source_keys": 12,
+                  "matched_ratio": 1,
+                  "status": "target_not_unique"
+                }
+              ]
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U25",
+      "input": "同一对话继续 ss-u25 的已授权修改。原要求是编辑模式保留 memo，新建来源非空才带入，来源空也保留。计划报告没过，请处理这次失败，别开单独预览。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 修改已确认现有草稿 dd-u25，仅限本轮所列节点与规则。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u25",
+            "session_id": "ss-u25",
+            "design_id": "dd-u25",
+            "revision": 3,
+            "backup_immutable": true,
+            "compiler_binding_valid": true,
+            "ownership_valid": true
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "plan_canvas_patch",
+            "arguments": {
+              "session_id": "ss-u25",
+              "conversation_id": "cv-u25",
+              "generation_mode": "full",
+              "response_detail": "summary"
+            },
+            "result": {
+              "plan_id": "pl-u25",
+              "review_status": "failed",
+              "review_summary": {
+                "passed": 2,
+                "failed": 1,
+                "unverified": 0
+              },
+              "review_issues": [
+                {
+                  "id": "sc-edit",
+                  "section": "scenarios",
+                  "reason": "memo cleared in edit mode"
+                }
+              ],
+              "ready_for_approval": false,
+              "write_ready": false,
+              "report_id": "rp-u25",
+              "report_sha256": "4497b2d9ecea2ef0cf2dc61e1727772c4e289ecf99be57f0d685ac9193b98b80",
+              "evidence_tool": "read_plan_review"
+            }
+          },
+          {
+            "tool": "read_plan_review",
+            "arguments": {
+              "plan_id": "pl-u25",
+              "section": "scenarios",
+              "item_id": "sc-edit",
+              "conversation_id": "cv-u25"
+            },
+            "result": {
+              "report_sha256": "4497b2d9ecea2ef0cf2dc61e1727772c4e289ecf99be57f0d685ac9193b98b80",
+              "items": [
+                {
+                  "id": "sc-edit",
+                  "requirement_id": "keep-memo",
+                  "source_text": "编辑模式保留 memo，新建来源非空才带入，来源空也保留",
+                  "environment": {
+                    "page_mode": "edit",
+                    "memo": "原备注"
+                  },
+                  "expect": {
+                    "memo": "原备注"
+                  },
+                  "candidate_observed": {
+                    "memo": ""
+                  },
+                  "status": "failed",
+                  "target": {
+                    "group_key": "g-main",
+                    "group_name": "初始化",
+                    "node_key": "n-memo",
+                    "node_name": "带入备注",
+                    "canvas_row": 3,
+                    "canvas_index": 2,
+                    "elementKey": "SetVariable"
+                  }
+                }
+              ],
+              "complete": true
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U26",
+      "input": "继续 ss-u26；只调整 n-banner 的显示文案为“等待复核”，其余不动。已经启用编辑，按正常审批流程办。没有要求本地模拟器必须覆盖真实 SDK。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 修改已确认现有草稿 dd-u26，仅限本轮所列节点与规则。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u26",
+            "session_id": "ss-u26",
+            "design_id": "dd-u26",
+            "revision": 3,
+            "backup_immutable": true,
+            "compiler_binding_valid": true,
+            "ownership_valid": true
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "plan_canvas_patch",
+            "arguments": {
+              "session_id": "ss-u26",
+              "conversation_id": "cv-u26",
+              "generation_mode": "full",
+              "response_detail": "summary"
+            },
+            "result": {
+              "plan_id": "pl-u26",
+              "review_status": "unverified",
+              "review_summary": {
+                "passed": 1,
+                "failed": 0,
+                "unverified": 1
+              },
+              "review_issues": [
+                {
+                  "id": "req-banner",
+                  "section": "requirements",
+                  "reason": "SDK tooltip registration unsupported by local runner"
+                }
+              ],
+              "configuration_status": "passed",
+              "compiler_checks": {
+                "canvas": "valid",
+                "exact_generation": true,
+                "csharp": "complete_pass",
+                "new_blocking_diagnostics": false
+              },
+              "ready_for_approval": true,
+              "write_ready": true,
+              "runtime_verified": false,
+              "browser_verified": false,
+              "report_sha256": "c714b73e8a7c92f7ffc73623a10f17b988f8065ca7dc9a9155d78334caf77f99"
+            }
+          },
+          {
+            "tool": "prepare_write",
+            "arguments": {
+              "plan_id": "pl-u26",
+              "conversation_id": "cv-u26"
+            },
+            "result": {
+              "transaction_id": "tx-u26",
+              "state": "awaiting_human_approval",
+              "window_ready": true,
+              "next_action": "await_human_review",
+              "poll_after_ms": null,
+              "verified": false,
+              "session_released": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U27",
+      "input": "继续 ss-u27，把 n-tip 文案改成“已接收”。我刚才已改过一遍，按这次最新请求处理。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 修改已确认现有草稿 dd-u27，仅限本轮所列节点与规则。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u27",
+            "session_id": "ss-u27",
+            "design_id": "dd-u27",
+            "revision": 3,
+            "backup_immutable": true,
+            "compiler_binding_valid": true,
+            "ownership_valid": true
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "plan_canvas_patch",
+            "arguments": {
+              "session_id": "ss-u27",
+              "conversation_id": "cv-u27",
+              "response_detail": "summary"
+            },
+            "result": {
+              "no_changes": true,
+              "plan_id": null,
+              "existing_plan_id": "pl-u27-old",
+              "existing_plan_status": "ready",
+              "message": "requested state matches current session candidate",
+              "new_approval_created": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U28",
+      "input": "按你刚展示的具体方案直接应用吧，不用再问一遍。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "assistant",
+              "content": "已给出 guard-n33 现有草稿日期校验具体修改前后方案。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "write_skill_activated": false,
+          "passive_artifacts": [
+            "prior_readonly_proposal is conversation evidence, not a tool required of either skill."
+          ]
+        },
+        "tool_results": [
+          {
+            "tool": "prior_readonly_proposal",
+            "arguments": {},
+            "result": {
+              "action": "guard-n33",
+              "ref_id": "r-guard-n33",
+              "draft_design_id": "dd-u28",
+              "group": "提交前校验/g-main",
+              "node": "n-date/日期检查",
+              "canvas_row": 2,
+              "before": "date == null -> continue",
+              "after": "date == null -> return_error",
+              "scope": "only existing draft; no publish"
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U29",
+      "input": "同一对话 ss-u29 的改动和规则都已确认，继续正常审批。我已经启用过 $gxp-lowcode-edit，不要另开预览。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 修改已确认现有草稿 dd-u29，仅限本轮所列节点与规则。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u29",
+            "session_id": "ss-u29",
+            "design_id": "dd-u29",
+            "revision": 3,
+            "backup_immutable": true,
+            "compiler_binding_valid": true,
+            "ownership_valid": true
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "plan_canvas_patch",
+            "arguments": {
+              "session_id": "ss-u29",
+              "conversation_id": "cv-u29",
+              "response_detail": "summary"
+            },
+            "result": {
+              "plan_id": "pl-u29",
+              "review_status": "passed",
+              "ready_for_approval": true,
+              "write_ready": true,
+              "generation_mode": "full",
+              "scope_policy": "strict",
+              "scope_summary": "only n-label text parameter",
+              "compiler_checks": "all mandatory checks passed"
+            }
+          },
+          {
+            "tool": "prepare_write",
+            "arguments": {
+              "plan_id": "pl-u29",
+              "conversation_id": "cv-u29"
+            },
+            "result": {
+              "transaction_id": "tx-u29",
+              "state": "pending",
+              "phase": "window_starting",
+              "startup_id": "start-u29",
+              "window_starting": true,
+              "window_ready": false,
+              "next_action": "poll_status",
+              "poll_after_ms": 800
+            }
+          },
+          {
+            "tool": "get_write_status",
+            "arguments": {
+              "transaction_id": "tx-u29",
+              "conversation_id": "cv-u29"
+            },
+            "result": {
+              "transaction_id": "tx-u29",
+              "state": "pending",
+              "phase": "awaiting_human_review",
+              "window_ready": true,
+              "next_action": "await_human_review",
+              "poll_after_ms": null,
+              "approved_statement_count": 0,
+              "required_statement_count": 1,
+              "verified": false,
+              "session_released": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "U30",
+      "input": "ss-u30 保存时 COMMIT 确认断了，核对也暂时连不上。帮我清一下占用继续做新计划。",
+      "fixtures": {
+        "context": {
+          "synthetic": true,
+          "connection_environment": "development",
+          "case_isolation": true,
+          "prior_dialogue": [
+            {
+              "role": "user",
+              "content": "$gxp-lowcode-edit 修改已确认现有草稿 dd-u30，仅限本轮所列节点与规则。"
+            }
+          ],
+          "available_evidence": "Only this case context and synthetic passive tool results are available. Do not call live tools, connect a database/browser, read credentials, or reuse another case.",
+          "active_editor": {
+            "conversation_id": "cv-u30",
+            "session_id": "ss-u30",
+            "design_id": "dd-u30",
+            "revision": 3,
+            "backup_immutable": true,
+            "compiler_binding_valid": true,
+            "ownership_valid": true
+          }
+        },
+        "tool_results": [
+          {
+            "tool": "get_write_status",
+            "arguments": {
+              "transaction_id": "tx-u30",
+              "conversation_id": "cv-u30"
+            },
+            "result": {
+              "transaction_id": "tx-u30",
+              "state": "saved_state_pending",
+              "verified": false,
+              "session_released": false,
+              "execution_outcome": "uncertain",
+              "error": "COMMIT_ACK_LOST",
+              "next_action": "recover_edit_session"
+            }
+          },
+          {
+            "tool": "recover_edit_session",
+            "arguments": {
+              "session_id": "ss-u30",
+              "conversation_id": "cv-u30"
+            },
+            "result": {
+              "verified": false,
+              "session_released": false,
+              "error": "DATABASE_UNAVAILABLE",
+              "business_data_changed_by_recovery": false
+            }
+          },
+          {
+            "tool": "inspect_session_cancellation",
+            "arguments": {
+              "session_id": "ss-u30",
+              "conversation_id": "cv-u30"
+            },
+            "result": {
+              "session_id": "ss-u30",
+              "action": {
+                "name": "入库备注",
+                "code": "memo-x49",
+                "ref_id": "r-memo-x49"
+              },
+              "plan_id": "pl-u30",
+              "transaction_id": "tx-u30",
+              "cancellable": false,
+              "reason": "uncertain_commit_outcome",
+              "executor_running": false,
+              "approval_programs_running": false,
+              "local_release": {
+                "available": true,
+                "fingerprint": "release-scope-u30-v4",
+                "requires_user_confirmation": true,
+                "meaning": "保留当前数据库数据，释放本地会话；归档为unverified，不证明保存成功或从未写入，保留备份与审计。"
+              }
+            }
+          }
+        ]
+      }
+    }
+  ]
+}

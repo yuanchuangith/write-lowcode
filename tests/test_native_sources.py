@@ -106,6 +106,40 @@ class NativeSourceBindingTests(unittest.TestCase):
         with self.assertRaisesRegex(CompilerError, 'native source changed'):
             self.bridge.describe_registry()
 
+    def test_warm_cache_rejects_same_mtime_source_drift_during_external_probes(self):
+        for probe in ("node", "git"):
+            with self.subTest(probe=probe):
+                self.rule.write_text('export const ElementListData = [];', encoding='utf-8')
+                self.cache_registry()
+                fresh = CompilerBridge(self.bridge.config)
+                original = self.rule.read_bytes()
+                stamp = self.rule.stat()
+
+                def mutate():
+                    self.rule.write_bytes(original.replace(b'[]', b'{}'))
+                    os.utime(self.rule, ns=(stamp.st_atime_ns, stamp.st_mtime_ns))
+
+                def node_identity():
+                    if probe == 'node':
+                        mutate()
+                    return ('node', 'v22.0.0')
+
+                def provenance():
+                    if probe == 'git':
+                        mutate()
+                    return {}
+
+                with patch.object(fresh, '_node_identity', side_effect=node_identity), \
+                     patch.object(fresh, 'source_provenance', side_effect=provenance), \
+                     patch.object(fresh, '_call') as call:
+                    with self.assertRaisesRegex(CompilerError, 'native source changed'):
+                        fresh.describe_registry()
+                call.assert_not_called()
+                self.assertIsNone(fresh._registry)
+                self.assertIsNone(fresh._provenance)
+                self.assertEqual(self.rule.stat().st_size, len(original))
+                self.assertEqual(self.rule.stat().st_mtime_ns, stamp.st_mtime_ns)
+
     def test_cached_registry_cannot_hide_bridge_replacement(self):
         self.cache_registry()
         with self.path.open('a', encoding='utf-8') as stream:
