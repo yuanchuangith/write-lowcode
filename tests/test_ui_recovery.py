@@ -136,12 +136,13 @@ class StalledWindowRecoveryTests(unittest.TestCase):
         child.write_text("import sys,time\nsys.path.insert(0," + repr(str(MCP_ROOT)) + ")\n"
                          "from gxp_editor.ui_launch import register_window_process\n"
                          "register_window_process()\ntime.sleep(2)\n", encoding="utf-8")
-        result = launch_window(executable=sys.executable, script=child, arguments=[], cwd=self.root,
+        result = launch_window(lifecycle_mode="direct", executable=sys.executable, script=child, arguments=[], cwd=self.root,
                                launch_key="fixture", startup_root=self.receipts, timeout_seconds=0,
                                recovery_kind="nonwriting")
         path = self.receipts / "attempts" / (result["startup_id"] + ".json")
         deadline = time.monotonic() + 1
-        while not path.with_suffix(".claim.json").exists() and time.monotonic() < deadline:
+        while (not path.with_suffix(".claim.json").exists() or
+               not json.loads(path.read_text(encoding="utf-8")).get("ui_pid")) and time.monotonic() < deadline:
             time.sleep(0.02)
         record = json.loads(path.read_text(encoding="utf-8"))
         record["created_at"] = time.time() - STARTUP_STALL_SECONDS - 1
@@ -158,7 +159,7 @@ class StalledWindowRecoveryTests(unittest.TestCase):
             "from gxp_editor.execution_lock import approval_window_lock\n"
             "register_window_process()\nwith approval_window_lock(" + repr(str(self.artifact)) + "):\n"
             " report_window_startup('ready')\n time.sleep(2)\n", encoding="utf-8")
-        result = launch_window(executable=sys.executable, script=child, arguments=[], cwd=self.root,
+        result = launch_window(lifecycle_mode="direct", executable=sys.executable, script=child, arguments=[], cwd=self.root,
                                launch_key="fixture", startup_root=self.receipts, timeout_seconds=1,
                                recovery_kind="approval", recovery_artifact_path=self.artifact)
         self.assertTrue(result["window_opened"], result)
@@ -166,6 +167,10 @@ class StalledWindowRecoveryTests(unittest.TestCase):
         record = json.loads(path.read_text(encoding="utf-8"))
         record["updated_at"] = time.time() - HEARTBEAT_STALL_SECONDS - 1
         path.write_text(json.dumps(record), encoding="utf-8")
+        heartbeat_path = path.with_suffix(".heartbeat.json")
+        heartbeat = json.loads(heartbeat_path.read_text(encoding="utf-8"))
+        heartbeat["heartbeat_at"] = record["updated_at"]
+        heartbeat_path.write_text(json.dumps(heartbeat), encoding="utf-8")
         recovered = self.recover(result["startup_id"], lambda path: path.resolve() == self.artifact.resolve())
         self.assertTrue(recovered["window_recovered"], recovered)
         with approval_window_lock(self.artifact):

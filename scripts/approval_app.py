@@ -651,9 +651,15 @@ class ApprovalWindow(QObject):
     def run(self):
         self.root.fit_to_screen()
         self.root.show()
-        QTimer.singleShot(0, lambda: report_window_startup("ready") if self.root.isVisible() else None)
+        QTimer.singleShot(0, lambda: report_window_startup("ready",
+            phase="loading_preview" if getattr(self, "_metadata_pending", False) else "review",
+            review_ready=not getattr(self, "_metadata_pending", False),
+            preview_pending=getattr(self, "_metadata_pending", False)) if self.root.isVisible() else None)
         try:
             self.qt_app.exec()
+        except BaseException:
+            report_window_startup("failed", error="UI event loop exited with an exception")
+            raise
         finally:
             self.close()
             report_window_startup("closed")
@@ -716,6 +722,8 @@ class ApprovalQueueWindow(ApprovalWindow):
         lock.__enter__()
         self._queue_lock = lock
         try:
+            from gxp_editor.queue_protocol import claim_window
+            claim_window(self.state, self.queue_id, self.conversation_id)
             self.qt_app = application()
             self.root = ApprovalShell(self)
             self.timer = QTimer(self.root)
@@ -734,7 +742,15 @@ class ApprovalQueueWindow(ApprovalWindow):
         lock = self._queue_lock
         self._queue_lock = None
         if lock is not None:
-            lock.__exit__(None, None, None)
+            try:
+                import os
+                from gxp_editor.queue_protocol import release_launch, TOKEN_ENV, GENERATION_ENV
+                generation = os.environ.get(GENERATION_ENV, "0")
+                if generation.isdigit() and int(generation) > 0:
+                    release_launch(self.state, {"queue_id": self.queue_id, "generation": int(generation),
+                        "launch_token": os.environ.get(TOKEN_ENV, "")})
+            finally:
+                lock.__exit__(None, None, None)
 
     def _item_owned(self, item):
         return (item["conversation_id"] == self.conversation_id
@@ -836,6 +852,8 @@ class ApprovalQueueWindow(ApprovalWindow):
     def _advance_queue(self, transaction_id=None):
         if self._executing or self._queue_stopped:
             return
+        from gxp_editor.queue_protocol import validate_window
+        validate_window(self.state, self.queue_id, self.conversation_id)
         self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
         self._waiting_for_lock = False
         uncertain = next((item for item in self._queue_items if self._item_owned(item)
@@ -953,10 +971,14 @@ class ApprovalQueueWindow(ApprovalWindow):
 
     def approve_current(self):
         if self._active_review and not self._queue_stopped:
+            from gxp_editor.queue_protocol import validate_window
+            validate_window(self.state, self.queue_id, self.conversation_id)
             super().approve_current()
 
     def execute(self):
         if self._active_review and not self._queue_stopped:
+            from gxp_editor.queue_protocol import validate_window
+            validate_window(self.state, self.queue_id, self.conversation_id)
             super().execute()
             self._update_queue_banner()
 
@@ -1042,9 +1064,13 @@ class PlanReviewWindow(QMainWindow):
 
     def run(self):
         self.show()
-        QTimer.singleShot(0, lambda: report_window_startup("ready") if self.isVisible() else None)
+        QTimer.singleShot(0, lambda: report_window_startup("ready", phase="plan_review", review_ready=True,
+            preview_pending=False) if self.isVisible() else None)
         try:
             self.qt_app.exec()
+        except BaseException:
+            report_window_startup("failed", error="UI event loop exited with an exception")
+            raise
         finally:
             report_window_startup("closed")
 

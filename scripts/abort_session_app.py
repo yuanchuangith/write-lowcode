@@ -8,7 +8,8 @@ from tkinter import messagebox, ttk
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "mcp"))
 from gxp_editor.state import StateError, StateStore
 from gxp_editor.service import EditorService
-from gxp_editor.ui_launch import managed_window_launch, report_window_startup
+from gxp_editor.ui_launch import managed_window_launch, report_window_startup, register_window_process, report_window_heartbeat
+register_window_process()
 
 
 class AbortSessionWindow:
@@ -154,14 +155,22 @@ class AbortSessionWindow:
             messagebox.showerror("流程未释放", str(exc), parent=self.root)
 
     def run(self):
+        def heartbeat():
+            if self.root.winfo_exists():
+                report_window_heartbeat(phase="review")
+                self.root.after(1000, heartbeat)
         def report_visible():
             if self.root.winfo_viewable():
-                report_window_startup("ready")
+                report_window_startup("ready", phase="review", review_ready=True, preview_pending=False)
+                self.root.after(1000, heartbeat)
             else:
                 self.root.after(25, report_visible)
         self.root.after_idle(report_visible)
         try:
             self.root.mainloop()
+        except BaseException:
+            report_window_startup("failed", error="UI event loop exited with an exception")
+            raise
         finally:
             report_window_startup("closed")
 

@@ -36,6 +36,10 @@ class WindowStartupTests(unittest.TestCase):
             while _process_running(pid) and time.monotonic() < deadline:
                 time.sleep(0.02)
             self.assertFalse(_process_running(pid), "Fixture child did not exit by itself")
+            record_path = path.with_suffix("").with_suffix(".json")
+            while (record_path.exists() and not json.loads(record_path.read_text(encoding="utf-8")).get("launcher_exit_at")
+                   and time.monotonic() < deadline):
+                time.sleep(.02)
 
     def launch(self, source, *, key="test-window", timeout=2):
         script = self.root / "child.py"
@@ -43,7 +47,7 @@ class WindowStartupTests(unittest.TestCase):
             f"import sys,time\nsys.path.insert(0,{str(MCP_ROOT)!r})\n"
             "from gxp_editor.ui_launch import report_window_startup\n" + source,
             encoding="utf-8")
-        return launch_window(executable=sys.executable, script=script, arguments=[], cwd=self.root,
+        return launch_window(lifecycle_mode="direct", executable=sys.executable, script=script, arguments=[], cwd=self.root,
                              launch_key=key, startup_root=self.startup, timeout_seconds=timeout)
 
     def wait_for_status(self, key, status):
@@ -60,7 +64,7 @@ class WindowStartupTests(unittest.TestCase):
         self.assertTrue(result["window_opened"])
         self.assertFalse(result["window_starting"])
         with patch("gxp_editor.ui_launch.subprocess.Popen", side_effect=AssertionError("No duplicate child")):
-            repeated = launch_window(executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
+            repeated = launch_window(lifecycle_mode="direct", executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
                                      launch_key="test-window", startup_root=self.startup)
         self.assertEqual(repeated["startup_id"], result["startup_id"])
         self.assertTrue(repeated["window_opened"])
@@ -82,7 +86,7 @@ class WindowStartupTests(unittest.TestCase):
         self.assertFalse(result["window_opened"])
         self.assertTrue(result["window_starting"])
         with patch("gxp_editor.ui_launch.subprocess.Popen", side_effect=AssertionError("No duplicate child")):
-            repeated = launch_window(executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
+            repeated = launch_window(lifecycle_mode="direct", executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
                                      launch_key="test-window", startup_root=self.startup)
         self.assertEqual(repeated["startup_id"], result["startup_id"])
         self.assertTrue(repeated["window_starting"])
@@ -113,7 +117,7 @@ class WindowStartupTests(unittest.TestCase):
         self.wait_for_status("test-window", "closed")
 
     def test_missing_executable_is_reported_without_claiming_a_window(self):
-        result = launch_window(executable=self.root / "missing-python.exe", script="unused.py", arguments=[],
+        result = launch_window(lifecycle_mode="direct", executable=self.root / "missing-python.exe", script="unused.py", arguments=[],
                                cwd=self.root, launch_key="missing", startup_root=self.startup)
         self.assertEqual(result["startup_status"], "failed")
         self.assertFalse(result["window_opened"])
@@ -147,7 +151,7 @@ class WindowStartupTests(unittest.TestCase):
         self.assertIn(str(STARTUP_STALL_SECONDS), result["window_error"])
         self.assertEqual(path.read_bytes(), original_receipt)
         with patch("gxp_editor.ui_launch.subprocess.Popen", side_effect=AssertionError("No duplicate child")):
-            repeated = launch_window(executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
+            repeated = launch_window(lifecycle_mode="direct", executable=sys.executable, script="unused.py", arguments=[], cwd=self.root,
                                      launch_key=key, startup_root=self.startup)
         self.assertEqual(repeated["startup_status"], "startup_timeout")
         self.assertEqual(repeated["startup_id"], startup_id)
@@ -179,6 +183,16 @@ class WindowScriptReceiptTests(unittest.TestCase):
             patcher = patch.object(module, "managed_window_launch", return_value=False)
             patcher.start()
             self.addCleanup(patcher.stop)
+
+    def test_queue_os_lock_releases_even_when_control_state_is_unavailable(self):
+        lock = SimpleNamespace(__exit__=Mock())
+        controller = SimpleNamespace(_window_lock=None, _queue_lock=lock, state=Mock(), queue_id="fixture")
+        with patch.dict(os.environ, {"GXP_EDITOR_QUEUE_GENERATION": "2", "GXP_EDITOR_QUEUE_LAUNCH_TOKEN": "fixture"}), \
+             patch("gxp_editor.queue_protocol.release_launch", side_effect=RuntimeError("fixture state unavailable")):
+            with self.assertRaisesRegex(RuntimeError, "fixture state unavailable"):
+                self.approval.ApprovalQueueWindow._release_window_lock(controller)
+        lock.__exit__.assert_called_once_with(None, None, None)
+        self.assertIsNone(controller._queue_lock)
 
     def test_qt_ready_is_reported_from_the_event_loop_after_show(self):
         queued, reports = [], []
