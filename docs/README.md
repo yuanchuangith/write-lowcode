@@ -1,8 +1,8 @@
-# Write 文档索引
+# Write 参考与历史资料索引
 
-日常使用从[仓库入口](../README.md)或[编辑技能](../skills/gxp-lowcode-edit/SKILL.md)开始。技能入口负责选择流程，参考文档维护详细规则；本目录中的历史报告保留当时的代码、样本和测量口径，不作为当前调用步骤。
+**开发主文档只有 [DEVELOPMENT.md](../DEVELOPMENT.md)**。架构、运行、镜像同步、验证及交付流程统一在主文档维护；本页仅索引专题和历史资料。日常使用从[仓库入口](../README.md)或[编辑技能](../skills/gxp-lowcode-edit/SKILL.md)开始。
 
-## 当前使用与维护
+## 专题规范
 
 | 内容 | 文档 |
 | --- | --- |
@@ -18,7 +18,7 @@
 | 账户、并发和签名边界 | [safety-contract.md](../skills/gxp-lowcode-edit/references/safety-contract.md) |
 | 本机连接设置 | [database-settings.md](../skills/gxp-lowcode-edit/references/database-settings.md) |
 | 生成模式及选择边界 | [incremental-generation.md](incremental-generation.md) |
-| 运行环境、镜像同步和离线测量 | [scripts/README.md](../scripts/README.md) |
+| 架构、运行环境、镜像同步和离线测量 | [开发主文档](../DEVELOPMENT.md) |
 
 响应默认摘要，生成默认全量；两者独立。工具精确签名以当前 MCP schema 为准，完整证据留在服务端。Write 可独立使用，不以 Look 诊断或导出交接包为前提。
 

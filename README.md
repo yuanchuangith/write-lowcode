@@ -6,16 +6,16 @@
 
 | 要做什么 | 阅读位置 |
 | --- | --- |
+| 开发、调试、验证和交付 | [主要开发文档](DEVELOPMENT.md)，开发流程统一在此维护 |
 | 启用编辑、定位草稿、规划和审批 | [编辑技能](skills/gxp-lowcode-edit/SKILL.md) |
 | 查某类操作、原值守卫或参数路径 | [操作契约](skills/gxp-lowcode-edit/references/patch-schema.md)和[目标定位](skills/gxp-lowcode-edit/references/targeting-and-source.md) |
 | 固定需求、场景和业务验收 | [业务复核](skills/gxp-lowcode-edit/references/business-review.md) |
 | 处理审批状态、恢复、取消或多动作队列 | [会话流程](skills/gxp-lowcode-edit/references/session-workflows.md)，只读对应分支 |
 | 选择全量、增量或自动生成 | [生成模式](docs/incremental-generation.md) |
 | 查看或修改本机数据库设置 | [统一设置](skills/gxp-lowcode-edit/references/database-settings.md) |
-| 维护本地运行环境、技能镜像或测量脚本 | [脚本说明](scripts/README.md) |
-| 查优化交付、测量附件及历史评估 | [文档索引](docs/README.md) |
+| 查专题参考、优化交付及历史测量 | [资料索引](docs/README.md) |
 
-当前版本以 [.codex-plugin/plugin.json](.codex-plugin/plugin.json) 为准（0.1.46）。技能源文件在 `skills/`，Claude 的受跟踪镜像通过 `scripts/sync_skills.py` 维护。运行环境准备、技能镜像同步与插件安装是不同步骤；本仓库目前没有 Look 那样的一键 Codex / Claude 安装器。
+当前版本以 [.codex-plugin/plugin.json](.codex-plugin/plugin.json) 为准（0.1.46）。源码开发和维护统一从 [DEVELOPMENT.md](DEVELOPMENT.md) 开始。
 
 ## 最短使用流程
 
