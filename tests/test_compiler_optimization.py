@@ -92,7 +92,7 @@ class CompilerOptimizationTests(unittest.TestCase):
         details = {"operation_index": 2, "group_key": "g" * 1000, "node_key": "n", "path": "/inputParams/status", "reason_code": "old_value_mismatch", "value": "private"}
         response = subprocess.CompletedProcess([], 1, json.dumps({"ok": False, "error": "Old value changed", "details": details}), "")
         # Use an existing file for the bridge existence gate; source verification is isolated here.
-        with patch.object(type(bridge), "path", new_callable=PropertyMock, return_value=Path(__file__)), patch.object(bridge, "_verify_native_sources", return_value=""), patch("gxp_editor.compiler.subprocess.run", return_value=response):
+        with patch.object(type(bridge), "path", new_callable=PropertyMock, return_value=Path(__file__)), patch.object(bridge, "_verify_native_sources", return_value=""), patch.object(bridge, "_node_identity", return_value=("fixture-node", "v22.0.0")), patch("gxp_editor.compiler.subprocess.run", return_value=response):
             with self.assertRaises(CompilerError) as caught:
                 bridge._call({"command": "compile_patch"})
         self.assertEqual(caught.exception.details["operation_index"], 2)

@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import hashlib
+import os
 import re
 import subprocess
 import shutil
@@ -15,6 +16,7 @@ from .config import EditorConfig
 from .hashing import compiler_binding_payload, sha256_json, sha256_text
 from .reference_repair import scan_references
 from .telemetry import stage
+from .runtime_package import MANIFEST_NAME, RuntimeResourceError, assert_runtime_resources
 
 _REGISTRY_CACHE = OrderedDict()
 _CONTRACT_CACHE = OrderedDict()
@@ -102,6 +104,7 @@ class CompilerBridge:
         self.config = config
         self._registry: dict[str, Any] | None = None
         self._node_identity_value = None
+        self._node_binary_sha256 = None
         self._provenance = None
         self._registry_key_value = None
         self._verified_call = None
@@ -181,8 +184,10 @@ class CompilerBridge:
             source_key = self._source_key()
             source_hash = source_key[4]
         with stage("compiler." + str(payload.get("command", "unknown"))):
+            node = self._node_identity()[0]
+            self._verify_node_binary(node)
             process = subprocess.run(
-            ["node", str(Path(__file__).with_name("compiler_runner.cjs")), str(self.path)],
+            [node, str(Path(__file__).with_name("compiler_runner.cjs")), str(self.path)],
             input=json.dumps(payload, ensure_ascii=False),
             text=True,
             encoding="utf-8",
@@ -191,6 +196,7 @@ class CompilerBridge:
             timeout=timeout_seconds,
             check=False,
             )
+            self._verify_node_binary(node)
         # Reject changes during the isolated command as well as before launch.
         with stage("compiler.source_verification_final"):
             if self._source_key() != source_key:
@@ -306,14 +312,54 @@ class CompilerBridge:
             executable = shutil.which("node")
             if not executable:
                 raise CompilerError("Node executable was not found")
+            executable_hash = hashlib.sha256(Path(executable).read_bytes()).hexdigest()
             result = subprocess.run([executable, "--version"], stdin=subprocess.DEVNULL,
                 capture_output=True, text=True, encoding="utf-8", timeout=10, check=False)
             if result.returncode != 0 or not re.fullmatch(r"v\d+\.\d+\.\d+\s*", result.stdout):
                 raise CompilerError("Cannot determine Node compiler version")
+            if hashlib.sha256(Path(executable).read_bytes()).hexdigest() != executable_hash:
+                raise RuntimeResourceError("plugin_runtime_interpreter_changed", "Node changed during identity probing.")
             self._node_identity_value = (str(Path(executable).resolve()), result.stdout.strip())
+            self._node_binary_sha256 = executable_hash
         return self._node_identity_value
 
+    def _verify_node_binary(self, executable):
+        # Test doubles and custom bridges may provide only a logical Node
+        # identity. Actual probes always freeze the executable's exact bytes.
+        if self._node_binary_sha256 is None:
+            return
+        try:
+            actual = hashlib.sha256(Path(executable).read_bytes()).hexdigest()
+        except OSError as exc:
+            raise RuntimeResourceError("plugin_runtime_interpreter_changed",
+                "The bound Node executable is no longer available.") from exc
+        if actual != self._node_binary_sha256:
+            raise RuntimeResourceError("plugin_runtime_interpreter_changed",
+                "The bound Node executable changed after compiler initialization.")
+
+    @staticmethod
+    def _runtime_preflight():
+        root = Path(__file__).resolve().parents[2]
+        bound = os.environ.get("GXP_EDITOR_RUNTIME_ROOT")
+        if bound and Path(bound).resolve() != root:
+            raise RuntimeResourceError("plugin_runtime_resource_changed",
+                "Compiler module does not belong to the bound runtime package.")
+        names = ["mcp/gxp_editor/" + name for name in
+                 ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
+                  "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
+                  "incremental_codegen.cjs", "generation_modes.cjs", "operation_contracts.json",
+                  "operation_preflight.py", "edit_context.py", "native_catalog.py")]
+        names.append("mcp/gxp_editor/native_compiler/")
+        if bound or (root / MANIFEST_NAME).is_file():
+            assert_runtime_resources(root, names)
+        else:
+            missing = [name for name in names if not (root / name).exists()]
+            if missing:
+                raise RuntimeResourceError("plugin_runtime_path_missing", "Compiler runtime files are missing.",
+                                           details={"missing_files": missing})
+
     def _source_key(self):
+        self._runtime_preflight()
         return (str(self.frontend_repo), str(self.path.resolve()),
                 sha256_text(self.path.read_text(encoding="utf-8")), self._adapter_sha256(),
                 self._verify_native_sources())

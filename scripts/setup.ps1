@@ -8,20 +8,12 @@ $venvPath = Join-Path $runtimeRoot '.venv'
 $pythonPath = Join-Path $venvPath 'Scripts\python.exe'
 
 New-Item -ItemType Directory -Path $runtimeRoot -Force | Out-Null
-if (-not (Test-Path -LiteralPath $pythonPath)) {
-    python -m venv $venvPath
-    if ($LASTEXITCODE -ne 0) {
-        throw "Virtual environment creation failed (exit code $LASTEXITCODE)."
-    }
-}
-
-& $pythonPath -m pip install --disable-pip-version-check --upgrade pip
+# Use the external bootstrap Python: the protected environment itself must not
+# be modified until every active or unknown lease has been checked. The same
+# OS coordination lock remains held through venv creation and both pip calls.
+python (Join-Path $pluginRoot 'mcp\gxp_editor\runtime_package.py') setup --source $pluginRoot --interpreter $pythonPath
 if ($LASTEXITCODE -ne 0) {
-    throw "pip upgrade failed (exit code $LASTEXITCODE)."
-}
-& $pythonPath -m pip install --disable-pip-version-check -r (Join-Path $pluginRoot 'requirements.txt')
-if ($LASTEXITCODE -ne 0) {
-    throw "Dependency installation failed (exit code $LASTEXITCODE)."
+    throw "Runtime setup refused or failed (exit code $LASTEXITCODE). Close active MCP/UI instances or prepare a separate environment."
 }
 Write-Host "Runtime ready: $venvPath"
 Write-Host 'Draft writes require a dedicated least-privilege account or fingerprint-pinned shared account, required indexes, and a verified compiler bridge. Nonblank candidate C# must compile against read-only local references (development build or deployment snapshot).'

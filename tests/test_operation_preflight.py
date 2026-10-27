@@ -224,6 +224,7 @@ class OperationPreflightTests(unittest.TestCase):
                     payload = {"command": "verify_candidate", **({"design": design} if design is not None else {})}
                     with patch.object(type(bridge), "path", new_callable=PropertyMock, return_value=Path(__file__)), \
                          patch.object(bridge, "_verify_native_sources", return_value=""), \
+                         patch.object(bridge, "_node_identity", return_value=("fixture-node", "v22.0.0")), \
                          patch("gxp_editor.compiler.subprocess.run", return_value=response), self.assertRaises(CompilerError) as caught:
                         bridge._call(payload)
                     ref = caught.exception.details["issues"][0]["context_ref"]

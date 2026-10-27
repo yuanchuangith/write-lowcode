@@ -66,10 +66,12 @@ class CompilerBridgeTests(unittest.TestCase):
                 json.dumps({"ok": True, "name": localized_name}, ensure_ascii=False),
                 "",
             )
-            with patch("gxp_editor.compiler.subprocess.run", return_value=completed) as run:
+            with patch.object(bridge, "_node_identity", return_value=("fixture-node", "v22.0.0")), \
+                    patch("gxp_editor.compiler.subprocess.run", return_value=completed) as run:
                 result = bridge._call({"command": "describe_registry"})
 
         self.assertEqual(result["name"], localized_name)
+        self.assertEqual(run.call_args.args[0][0], "fixture-node")
         self.assertEqual(run.call_args.kwargs["encoding"], "utf-8")
 
     def test_registry_hash_ignores_generated_default_row_ids(self):

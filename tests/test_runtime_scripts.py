@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -15,8 +16,20 @@ STUB_SOURCE = r"""
 using System;
 using System.IO;
 using System.Reflection;
+using System.Diagnostics;
+using System.Linq;
 public class RuntimeCommandStub {
     public static int Main(string[] args) {
+        if (args.Length > 1 && args[1] == "setup") {
+            // Execute the actual guarded setup bootstrap in an isolated Python
+            // process; only its native venv/pip children remain harmless stubs.
+            var start = new ProcessStartInfo();
+            start.FileName = Environment.GetEnvironmentVariable("GXP_SCRIPT_TEST_REAL_PYTHON");
+            start.Arguments = "\"" + Environment.GetEnvironmentVariable("GXP_SCRIPT_TEST_BOOTSTRAP") + "\" "
+                + String.Join(" ", args.Skip(1).Select(value => "\"" + value + "\""));
+            start.UseShellExecute = false;
+            using (var child = Process.Start(start)) { child.WaitForExit(); return child.ExitCode; }
+        }
         string stage = args.Length > 1 && args[1] == "venv" ? "venv"
             : args.Length > 1 && args[1] == "pip" ? (Array.IndexOf(args, "--upgrade") >= 0 ? "upgrade" : "install")
             : "server";
@@ -40,6 +53,16 @@ class RuntimeScriptTests(unittest.TestCase):
         cls.stub_folder = tempfile.TemporaryDirectory()
         cls.addClassCleanup(cls.stub_folder.cleanup)
         cls.stub = Path(cls.stub_folder.name) / "python.exe"
+        cls.bootstrap = Path(cls.stub_folder.name) / "isolated_setup.py"
+        cls.bootstrap.write_text("""import os, sys
+sys.path.insert(0, os.environ['GXP_SCRIPT_TEST_MODULE_ROOT'])
+from gxp_editor import runtime_package
+# This fixture's target is a newly-created temporary environment; no real
+# process inventory or user-owned interpreter is involved.
+runtime_package._legacy_environment_users = lambda interpreter: []
+runtime_package.sys.executable = os.environ['GXP_SCRIPT_TEST_NATIVE']
+runtime_package._main(sys.argv[1:])
+""", encoding="utf-8")
         # A native executable exercises PowerShell's real LASTEXITCODE behavior.
         command = "$ErrorActionPreference = 'Stop'\nAdd-Type -TypeDefinition @'\n" + STUB_SOURCE + "\n'@ -OutputType ConsoleApplication -OutputAssembly $env:GXP_SCRIPT_TEST_STUB\n"
         env = dict(os.environ, GXP_SCRIPT_TEST_STUB=str(cls.stub))
@@ -53,7 +76,10 @@ class RuntimeScriptTests(unittest.TestCase):
     def environment(self, runtime: Path, failure: str) -> dict[str, str]:
         return dict(os.environ, LOCALAPPDATA=str(runtime),
                     PATH=str(self.stub.parent) + os.pathsep + os.environ.get("PATH", ""),
-                    GXP_SCRIPT_TEST_LOG=str(runtime / "commands.log"), GXP_SCRIPT_TEST_FAILURE=failure)
+                    GXP_SCRIPT_TEST_LOG=str(runtime / "commands.log"), GXP_SCRIPT_TEST_FAILURE=failure,
+                    GXP_SCRIPT_TEST_NATIVE=str(self.stub), GXP_SCRIPT_TEST_REAL_PYTHON=sys.executable,
+                    GXP_SCRIPT_TEST_BOOTSTRAP=str(self.bootstrap),
+                    GXP_SCRIPT_TEST_MODULE_ROOT=str(PLUGIN_ROOT / "mcp"))
 
     def run_powershell_script(self, name: str, env: dict[str, str]) -> subprocess.CompletedProcess:
         return subprocess.run(
