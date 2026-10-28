@@ -121,6 +121,16 @@ class LogicReviewTests(unittest.TestCase):
         self.assertTrue(change["after_present"])
         self.assertIsNone(change["after"])
 
+    def test_reorder_positions_exclude_inserted_and_deleted_nodes(self):
+        from gxp_editor.logic_review import _canvas_changes
+        def canvas(keys):
+            return {"actionData": [{"key": "main", "data": [{"key": key} for key in keys]}], "globalVariables": []}
+        spec = {"requirements": [{"id": "order", "targets": [{"group_key": "main"}]}], "scope_policy": "strict"}
+        changes = _canvas_changes(canvas(["deleted", "a", "b", "c"]), canvas(["c", "inserted", "b", "a"]), spec)
+        order = [(item["node_key"], item["before"], item["after"]) for item in changes if item["field_path"] == "$order"]
+        self.assertEqual(order, [("c", 2, 0), ("a", 0, 2)])
+        self.assertEqual({item["node_key"] for item in changes if item["field_path"] != "$order"}, {"inserted", "deleted"})
+
     def test_mismatched_or_tampered_scenario_sources_and_expectations_are_rejected(self):
         for mutate in (
             lambda r: r["scenarios"].__setitem__("candidate_source_sha256", "f" * 64),

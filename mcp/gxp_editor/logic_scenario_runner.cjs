@@ -5,6 +5,7 @@ const path = require('node:path');
 const vm = require('node:vm');
 const crypto = require('node:crypto');
 const {createRequire} = require('node:module');
+const coverageAdapter = require('./execution_coverage.cjs');
 
 function checkEligibility(source, frontendRoot) {
   const load = createRequire(path.join(path.resolve(frontendRoot || process.cwd()), 'package.json'));
@@ -41,7 +42,7 @@ function checkEligibility(source, frontendRoot) {
 }
 
 // All callbacks, objects and proxies are created inside the context; no host SDK is passed in.
-function executeScenario(spec, factory) {
+function executeScenario(spec, factory, executionCoverage) {
   const unsupportedReasons = [];
   const unsupported = reason => { unsupportedReasons.push(reason); throw new Error(reason); };
   const clone = (value, seen=new Set()) => {
@@ -202,6 +203,7 @@ function executeScenario(spec, factory) {
     const hasExpected = Object.keys(spec.expect || {}).length > 0;
     const status = state.unsupported.length || !hasExpected ? 'unverified' : runtimeError ? 'failed' : !assertions.length ? 'unverified' : assertions.some(item=>!item.passed) ? 'failed' : 'passed';
     return {status, actual:inspect(), trace:state.trace, assertions,
+      ...(executionCoverage ? {execution_coverage:executionCoverage} : {}),
       ...(state.unsupported.length ? {reason:state.unsupported[0]} : runtimeError ? {reason:runtimeError} : !assertions.length ? {reason:'No explicit expectations were declared'} : {})};
   })();
 }
@@ -212,12 +214,24 @@ async function main(request) {
   try {
     if (request.protocol_version !== 1 || request.source_sha256 !== hash || !request.scenario) throw new Error('Invalid scenario protocol');
     checkEligibility(request.js_code, request.frontend_root);
+    // The original code is checked before adding a private, unguessable lexical hook.
+    // Counts stay separate from business API logs and never affect call_order.
+    const hook = '__gxpCoverage_'+crypto.randomBytes(16).toString('hex');
+    const instrumented = request.execution_mapping
+      ? coverageAdapter.instrument(request.js_code, request.execution_mapping, request.frontend_root, hook) : null;
+    if (request.execution_mapping && !instrumented) throw new Error('Invalid native execution mapping');
+    const coverage = instrumented ? {mapping_sha256:instrumented.mapping_sha256,
+      nodes:instrumented.entries.map(entry=>({group_key:entry.group_key,node_key:entry.node_key,
+        element_key:entry.element_key,kind:entry.kind,count:0,true_count:0,false_count:0}))} : null;
     const context = vm.createContext(Object.create(null), {codeGeneration:{strings:false,wasm:false}});
     const bootstrap = 'const console = {log(){},warn(){},error(){}};\n' +
       // Keep the oracle's JSON/Object/Array operations independent of candidate monkey patches.
       '(function(){const names=["Object","Array","Function","String","Number","Boolean","Promise","Map","Set","Error","TypeError","RangeError","JSON","Reflect","RegExp","Symbol","Date","Math","parseInt","parseFloat","isNaN","isFinite","encodeURIComponent","decodeURIComponent"];' +
       'for(const name of names){const value=globalThis[name];if(value && (typeof value==="object" || typeof value==="function")){if(value.prototype)Object.freeze(value.prototype);Object.freeze(value);}Object.defineProperty(globalThis,name,{value,writable:false,configurable:false});}})();\n' +
-      '(' + executeScenario.toString() + ')(JSON.parse(' + JSON.stringify(JSON.stringify(request.scenario)) + '),(' + request.js_code + '))';
+      '(function(){const receipt=JSON.parse('+JSON.stringify(JSON.stringify(coverage))+');' +
+      'const '+hook+'=function(id,value){const node=receipt.nodes[id];if(node.count<1000000){node.count++;if(arguments.length>1){const key=value?"true_count":"false_count";node[key]++;}}return value;};' +
+      'return (' + executeScenario.toString() + ')(JSON.parse(' + JSON.stringify(JSON.stringify(request.scenario)) + '),(' +
+      (instrumented ? instrumented.source : request.js_code) + '),receipt);})()';
     result = await new vm.Script(bootstrap, {filename:'generated-scenario.js'}).runInContext(context, {timeout:1500});
   } catch(error) {
     result = {status:'unverified', reason:String(error.message).slice(0,500), actual:null, trace:[], assertions:[]};

@@ -155,7 +155,7 @@ python scripts/benchmark_service_pairs.py --baseline path/to/baseline-worktree -
 
 测量须固定基线、同机交替、每场景至少五轮，冷 / 热分开，核对完整候选及审批绑定哈希。报告中位数和范围；误绿、误阻与未验证分别统计。`timings` 的嵌套阶段不可直接相加，字节减少不能推出模型端到端提速。日志、缓存和计时边界见[批次修复与性能](skills/gxp-lowcode-edit/references/batch-repair-and-performance.md)。
 
-现有结果以[优化交付报告](docs/look-write-optimization-delivery-2026-10-26.md)及其冻结附件为准；报告列出的未测范围和回退样本必须随结论保留。
+既有结果见[优化交付报告](docs/look-write-optimization-delivery-2026-10-26.md)及其冻结附件；2026-10-28 的检索完整性、异常入口、结构化输入、解析复用和执行覆盖修复见[本轮记录](docs/speed-accuracy-repairs-2026-10-28.md)。报告列出的未测范围和回退样本必须随结论保留。
 
 ## 文档维护约定
 

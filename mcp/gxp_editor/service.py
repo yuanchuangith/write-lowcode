@@ -1004,6 +1004,9 @@ class EditorService:
             raise EditorServiceError("业务验收的修改前版本与会话备份不一致。")
         if "action_context" in artifact and artifact["action_context"] != action_context(session["baseline"]):
             raise EditorServiceError("计划的表单或动作归属与会话备份不一致，请重新生成计划。")
+        coverage = artifact["business_review"].get("scenarios", {}).get("execution_mapping")
+        if coverage is not None and coverage != (artifact.get("event_binding_validation") or {}).get("execution_coverage"):
+            raise EditorServiceError("节点执行覆盖与独立原生复核不一致，请重新生成计划。")
         validate_business_review(
             artifact["business_review"], baseline_design=session["baseline"],
             candidate_design=artifact.get("desired"), compiler_binding=artifact.get("compiler_binding"),
@@ -1074,8 +1077,11 @@ class EditorService:
         )
         self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
         with stage("review.scenarios"):
+            execution_mapping = compiler_evidence.get("event_binding_validation", {}).get("execution_coverage")
             scenario_report = LogicScenarioRunner(config).run_pair(
                 str(session["baseline"].get("js_code") or ""), desired["js_code"], spec["scenarios"],
+                **({"candidate_coverage": execution_mapping, "compiler_binding": binding}
+                   if execution_mapping is not None else {}),
             )
         with stage("review.business_checks"):
             business_review = build_business_review(

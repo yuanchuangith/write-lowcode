@@ -350,7 +350,7 @@ class CompilerBridge:
         names = ["mcp/gxp_editor/" + name for name in
                  ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
                   "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
-                  "incremental_codegen.cjs", "generation_modes.cjs", "operation_contracts.json",
+                  "incremental_codegen.cjs", "generation_modes.cjs", "execution_coverage.cjs", "operation_contracts.json",
                   "operation_preflight.py", "edit_context.py", "native_catalog.py")]
         names.append("mcp/gxp_editor/native_compiler/")
         if bound or (root / MANIFEST_NAME).is_file():
@@ -446,7 +446,7 @@ class CompilerBridge:
         return sha256_json({name: sha256_text(Path(__file__).with_name(name).read_text(encoding="utf-8"))
                             for name in ("compiler_runner.cjs", "canvas_operations.cjs", "event_contracts.cjs",
                                          "event_contracts.json", "event_binding_checks.cjs", "interface_metadata.cjs",
-                                         "incremental_codegen.cjs", "generation_modes.cjs",
+                                         "incremental_codegen.cjs", "generation_modes.cjs", "execution_coverage.cjs",
                                          "operation_contracts.json", "operation_preflight.py", "edit_context.py", "native_catalog.py")})
 
     @staticmethod

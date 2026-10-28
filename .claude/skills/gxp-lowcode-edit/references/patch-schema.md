@@ -2,6 +2,8 @@
 
 All operations edit one existing unpublished ActionDesign. Creating a child action group does not create a new design row. The compiler generates group, parameter and node keys; callers never supply new persistent keys or generated JS/C#.
 
+The MCP input schema exposes the supported operation shapes and structured review specification. Copy the native operation template and keep omitted fields omitted; explicit JSON null remains a value. Guarded updates must supply exactly one of `guard_ref` and `expected_old_value`. Input validation rejects malformed shapes before opening editor services; it does not replace baseline, native preflight, compilation or approval checks.
+
 ## Capability discovery
 
 Check `supported_operations` from session entry or the latest readiness evidence before planning extended operations; call `editor_status` only if that evidence is missing. If the requested operation is absent, reload the updated MCP plugin. Do not substitute arbitrary JSON or SQL. Read inspect_component_contract(component_type) for the compiled component's event names and callback input/output declarations. This query does not verify a component instance on a page; establish its current page, ID, type and visible title through readonly page evidence first.

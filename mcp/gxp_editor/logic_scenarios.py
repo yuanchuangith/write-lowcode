@@ -18,7 +18,7 @@ class LogicScenarioSpecError(ValueError):
     pass
 
 
-RUNNER_VERSION = "1"
+RUNNER_VERSION = "2"
 MAX_SPEC_BYTES = 1024 * 1024
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
 MAX_CASES = 20
@@ -197,13 +197,15 @@ class LogicScenarioRunner:
         if process.poll() is None:
             process.kill()
 
-    def _run(self, source: str, case: dict[str, Any], timeout: float) -> dict[str, Any]:
+    def _run(self, source: str, case: dict[str, Any], timeout: float, *, coverage=None) -> dict[str, Any]:
         if not isinstance(source, str) or not source.strip():
             return self._unverified("No generated JavaScript is available for this version")
         if len(source.encode("utf-8")) > MAX_SOURCE_BYTES:
             return self._unverified("Generated JavaScript exceeds the 2 MiB execution limit")
         payload = {"protocol_version": 1, "source_sha256": sha256_text(source), "js_code": source,
                    "scenario": case, "frontend_root": str(getattr(self.config, "frontend_repo", ""))}
+        if coverage is not None:
+            payload["execution_mapping"] = coverage
         process = None
         try:
             environment = {name: value for name, value in os.environ.items()
@@ -238,7 +240,8 @@ class LogicScenarioRunner:
                         if stream is not None:
                             stream.close()
 
-    def run_pair(self, baseline_js: str, candidate_js: str, scenario_spec: dict[str, Any]) -> dict[str, Any]:
+    def run_pair(self, baseline_js: str, candidate_js: str, scenario_spec: dict[str, Any], *,
+                 candidate_coverage=None, compiler_binding=None) -> dict[str, Any]:
         spec = validate_scenario_spec(scenario_spec)
         started = time.monotonic()
         cases = [{"id": case["id"], "title": case.get("title", case["id"]),
@@ -249,11 +252,15 @@ class LogicScenarioRunner:
         for version, source in (("candidate", candidate_js), ("baseline", baseline_js)):
             for row, case in zip(cases, spec["cases"]):
                 remaining = self.SUITE_TIMEOUT_SECONDS - (time.monotonic() - started)
-                row[version] = (self._run(source, case, min(self.CASE_TIMEOUT_SECONDS, remaining))
+                options = {"coverage": candidate_coverage} if version == "candidate" and candidate_coverage is not None else {}
+                row[version] = (self._run(source, case, min(self.CASE_TIMEOUT_SECONDS, remaining), **options)
                                 if remaining > 0 else self._unverified("Scenario suite time limit reached"))
         summary = {status: sum(row["candidate"]["status"] == status for row in cases)
                    for status in ("passed", "failed", "unverified")}
         return {"schema_version": 1, "runner_version": RUNNER_VERSION,
+                **({"execution_mapping": deepcopy(candidate_coverage),
+                    "coverage_compiler_sha256": (compiler_binding or {}).get("compiler_binding_sha256")}
+                   if candidate_coverage is not None else {}),
                 "spec_sha256": sha256_json(spec), "baseline_source_sha256": sha256_text(baseline_js),
                 "candidate_source_sha256": sha256_text(candidate_js), "cases": cases, "summary": summary,
                 "candidate_gate": {"blocked": summary["failed"] > 0, "fail_count": summary["failed"],

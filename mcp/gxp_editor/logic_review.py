@@ -189,9 +189,10 @@ def _canvas_changes(before: dict[str, Any], after: dict[str, Any], spec: dict[st
         old_common = [key for key in old_nodes if key in new_nodes]
         new_common = [key for key in new_nodes if key in old_nodes]
         if old_common != new_common:
+            old_positions = {key: index for index, key in enumerate(old_common)}
             for index, node_key in enumerate(new_common):
                 if old_common[index] != node_key:
-                    add(old_common.index(node_key), index, group_key, node_key, "$order")
+                    add(old_positions[node_key], index, group_key, node_key, "$order")
         for node_key in dict.fromkeys([*old_nodes, *new_nodes]):
             walk(old_nodes.get(node_key, _MISSING), new_nodes.get(node_key, _MISSING), group_key, node_key)
     for key in sorted((set(before) | set(after)) - {"actionData"}):
@@ -221,10 +222,11 @@ _TARGET_LIMIT_REASONS = {
     "关联场景没有记录目标分组的执行，需人工判断",
     "仅有分组执行记录，需求目标节点未验证",
     "仅有分组执行记录，需求目标字段未验证",
+    "关联场景未记录目标节点的原生执行覆盖，需人工判断",
 }
 
 
-def _requirement_target_limit(requirement, linked, candidate):
+def _requirement_target_limit(requirement, linked, candidate, report=None):
     targets = requirement["targets"]
     if not targets:
         return "未指定需求目标，需人工判断"
@@ -241,12 +243,26 @@ def _requirement_target_limit(requirement, linked, candidate):
     # Event/registration traces do not identify the native callback function.
     # An unexecuted or later-overwritten canvas binding cannot prove which
     # group handled an event. Nested action/node coverage is also not logged.
+    # Native-mapped node hits also establish their containing group's execution,
+    # including nested action calls and callbacks absent from the public API log.
+    mapped_hits = set()
+    from .logic_scenarios import RUNNER_VERSION
+    mapping = (report or {}).get("execution_mapping")
+    if (report or {}).get("runner_version") == RUNNER_VERSION and isinstance(mapping, dict):
+        mapping_sha = sha256_json(mapping)
+        for case in linked:
+            coverage = case["candidate"].get("execution_coverage") or {}
+            if coverage.get("mapping_sha256") == mapping_sha:
+                mapped_hits.update((node["group_key"], node["node_key"]) for node in coverage.get("nodes", [])
+                                   if type(node.get("count")) is int and node["count"] > 0)
+        executed.update(group for group, _ in mapped_hits)
     if any(target["group_key"] not in executed for target in targets):
         return "关联场景没有记录目标分组的执行，需人工判断"
-    if any(target.get("node_key") for target in targets):
-        return "仅有分组执行记录，需求目标节点未验证"
     if any(target.get("field_path") for target in targets):
         return "仅有分组执行记录，需求目标字段未验证"
+    if any(target.get("node_key") and (target["group_key"], target["node_key"]) not in mapped_hits for target in targets):
+        return ("关联场景未记录目标节点的原生执行覆盖，需人工判断" if mapping is not None
+                else "仅有分组执行记录，需求目标节点未验证")
     return None
 
 
@@ -259,7 +275,7 @@ def _requirements_evidence(spec, report, candidate=None, canvas_checks=None):
         reason = ("没有关联执行场景，需人工判断" if not linked else "关联场景存在失败" if status == "failed" else
                   "关联场景仍有未验证项" if status == "unverified" else "关联场景均通过；覆盖范围限于这些场景")
         if status == "passed" and candidate is not None:
-            limit = _requirement_target_limit(requirement, linked, candidate)
+            limit = _requirement_target_limit(requirement, linked, candidate, report)
             if limit:
                 status, reason = "unverified", limit
         item = {**deepcopy(requirement), "status": status, "case_ids": [case["id"] for case in linked], "reason": reason}
@@ -290,6 +306,70 @@ def _requirements_evidence(spec, report, candidate=None, canvas_checks=None):
 def _has_expectations(expect):
     return bool(expect.get("fields") or expect.get("call_counts")) or any(
         field in expect for field in ("metadata", "metadata_registrations", "last_return", "last_return_undefined", "call_order"))
+
+
+def _validate_execution_coverage(report, candidate_design, compiler_sha):
+    """Coverage is usable only with the compiler's exact candidate mapping.
+
+    Unsupported/old reports remain conservative. No C# or configuration-field
+    execution is inferred from these JavaScript statement/condition receipts.
+    """
+    mapping = report.get("execution_mapping")
+    if mapping is None:
+        if any("execution_coverage" in case.get("candidate", {}) for case in report["cases"]):
+            raise LogicReviewError("节点执行覆盖缺少原生映射。")
+        return
+    from .logic_scenarios import RUNNER_VERSION
+    if (report.get("runner_version") != RUNNER_VERSION or not isinstance(mapping, dict)
+            or mapping.get("schema_version") != 1 or not isinstance(mapping.get("ranges"), list)
+            or mapping.get("source_sha256") != report.get("candidate_source_sha256")
+            or report.get("coverage_compiler_sha256") != compiler_sha):
+        raise LogicReviewError("节点执行覆盖未绑定当前候选及编译器。")
+    canvas = _canvas(candidate_design) if candidate_design is not None else None
+    if canvas is not None and mapping.get("canvas_sha256") != sha256_json({
+            "actionData": canvas["actionData"], "globalVariables": canvas["globalVariables"]}):
+        raise LogicReviewError("节点执行覆盖的画布已变化。")
+    mapped = {}
+    actual_nodes = {(group["key"], node["key"]): (group.get("actionType"), node.get("elementKey"))
+                    for group in canvas["actionData"] for node in group.get("data", [])} if canvas is not None else None
+    source_length = len(str(candidate_design.get("js_code") or "").encode("utf-16-le")) // 2 if candidate_design is not None else None
+    previous_end = 0
+    for item in mapping["ranges"]:
+        if not isinstance(item, dict) or any(not isinstance(item.get(key), str) or not item[key]
+                for key in ("group_key", "node_key", "element_key")):
+            raise LogicReviewError("节点执行覆盖映射无效。")
+        key = (item["group_key"], item["node_key"])
+        start, end = item.get("start"), item.get("end")
+        if (key in mapped or type(start) is not int or type(end) is not int or start < previous_end or end <= start
+                or source_length is not None and end > source_length
+                or actual_nodes is not None and actual_nodes.get(key) != ("js", item["element_key"])):
+            raise LogicReviewError("节点执行覆盖映射与真实节点不一致。")
+        mapped[key] = item
+        previous_end = end
+    for case in report["cases"]:
+        result = case["candidate"]
+        receipt = result.get("execution_coverage")
+        if receipt is None:
+            if result["status"] == "passed":
+                raise LogicReviewError("通过的场景缺少节点执行覆盖回执。")
+            continue
+        if not isinstance(receipt, dict) or receipt.get("mapping_sha256") != sha256_json(mapping) or not isinstance(receipt.get("nodes"), list):
+            raise LogicReviewError("节点执行覆盖回执已变化。")
+        seen = set()
+        for node in receipt["nodes"]:
+            if not isinstance(node, dict):
+                raise LogicReviewError("节点执行覆盖回执结构无效。")
+            key = (node.get("group_key"), node.get("node_key"))
+            item = mapped.get(key)
+            counts = [node.get(field) for field in ("count", "true_count", "false_count")]
+            if (key in seen or item is None or node.get("element_key") != item["element_key"]
+                    or node.get("kind") not in {"statement", "condition"}
+                    or any(type(value) is not int or not 0 <= value <= 1000000 for value in counts)
+                    or node["kind"] == "condition" and (item["element_key"] not in {"IfCondition", "ElseIfCondition"}
+                        or counts[0] != counts[1] + counts[2])
+                    or node["kind"] == "statement" and any(counts[1:])):
+                raise LogicReviewError("节点执行覆盖回执与原生映射不一致。")
+            seen.add(key)
 
 
 def _json_equal(left, right):
@@ -516,6 +596,7 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
                 from .logic_scenarios import RUNNER_VERSION
                 if report["runner_version"] == RUNNER_VERSION:
                     _validate_passed_data_oracle(expected.get("expect", {}), actual[side])
+    _validate_execution_coverage(report, candidate_design, binding["compiler_binding_sha256"])
     canvas_checks = None
     if "canvas_assertions" in spec:
         try:
@@ -569,6 +650,9 @@ def require_write_business_review(artifact: dict[str, Any]) -> None:
     compiler = artifact.get("compiler_evidence")
     if not isinstance(compiler, dict) or not isinstance(compiler.get("hashes"), dict) or not isinstance(compiler.get("compiler_binding"), dict) or not isinstance(artifact.get("desired_design"), dict):
         raise LogicReviewError("写入业务审查缺少候选内容或编译器绑定。")
+    coverage = review.get("scenarios", {}).get("execution_mapping")
+    if coverage is not None and coverage != (compiler.get("event_binding_validation") or {}).get("execution_coverage"):
+        raise LogicReviewError("节点执行覆盖与独立原生复核不一致。")
     validate_business_review(review, candidate_design=artifact.get("desired_design"),
                              candidate_hashes=compiler.get("hashes"), compiler_binding=compiler.get("compiler_binding"))
     if "scope_policy" not in review["spec"]:

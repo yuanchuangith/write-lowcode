@@ -243,6 +243,17 @@ operations and swallowed unsupported errors cannot become passing evidence.
 Metadata's `last_registration_wins` model is an explicit local assumption; SDK
 registration/return-wrapper behavior remains unverified.
 
+Runner v2 can record execution of supported JavaScript statements and IF/ElseIf
+conditions from exact native-generated source ranges. Full generation captures
+the mapping in memory, strips all markers from saved JS, and independently
+regenerates the same mapping. Candidate receipts bind the source, canvas,
+compiler and mapping hashes; condition receipts include true/false counts.
+Only linked executed cases with matching native node hits can establish that
+node's local scenario coverage, including mapped nested action calls. Counts do
+not replace fixed business assertions or prove all branches were tested.
+Incremental generation, missing/unmapped/skipped nodes, field-path targets and
+C# execution remain unverified. Old receipts are not upgraded to node coverage.
+
 The report is bound to requirements, scenarios, runner version, baseline,
 candidate and compiler. Replanning invalidates old approval eligibility. Existing
 C# compilation and saved-draft checks keep their original meaning;

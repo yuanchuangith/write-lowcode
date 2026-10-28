@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import sys
 from pathlib import Path
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
+
+from pydantic import Field
 
 from mcp.server.fastmcp import FastMCP
 
@@ -12,6 +14,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 from gxp_editor.service import EditorService
 from gxp_editor.compiler import CompilerError
 from gxp_editor.telemetry import traced_tool
+from gxp_editor.tool_inputs import CanvasOperation, Offset, ReviewSpec, Target, ValueBudget
 
 
 mcp = FastMCP(
@@ -123,8 +126,8 @@ def inspect_reference_repairs(
 @traced_tool
 def plan_reference_repairs(
     session_id: str, choices: list[dict[str, str]] | None = None, conversation_id: str = "",
-    review_spec: dict[str, Any] | None = None,
-    response_detail: str = "summary",
+    review_spec: ReviewSpec | None = None,
+    response_detail: Literal["summary", "full"] = "summary",
 ) -> dict[str, Any]:
     """Repair unique bindings with confirmed choices and compile the whole candidate. Return bounded review evidence by default."""
     try:
@@ -138,7 +141,8 @@ def plan_reference_repairs(
 @traced_tool
 def find_edit_nodes(
     session_id: str, conversation_id: str = "", kind: Literal["nodes", "groups"] = "nodes", query: str = "",
-    group_key: str = "", element_key: str = "", offset: int = 0, limit: int = 30,
+    group_key: str = "", element_key: str = "", offset: Offset = 0,
+    limit: Annotated[int, Field(ge=1, le=100, strict=True)] = 30,
 ) -> dict[str, Any]:
     """Discover exact group/node keys and canvas locations from the owned session backup. Search labels only; no parameters/code. Paginated, read-only and version checked on every call."""
     return service(conversation_id).find_edit_nodes(session_id, kind=kind, query=query, group_key=group_key,
@@ -148,7 +152,8 @@ def find_edit_nodes(
 @mcp.tool()
 @traced_tool
 def inspect_edit_context(
-    session_id: str, targets: list[dict[str, str]], conversation_id: str = "", operation_cursor: int = 0,
+    session_id: str, targets: Annotated[list[Target], Field(min_length=1, max_length=10)],
+    conversation_id: str = "", operation_cursor: Offset = 0,
     include_context: bool | None = None,
     response_detail: Literal["summary", "full"] = "summary", parameter_paths: list[str] | None = None,
 ) -> dict[str, Any]:
@@ -162,7 +167,7 @@ def inspect_edit_context(
 @traced_tool
 def read_edit_value(
     session_id: str, group_key: str, node_key: str, path: str, conversation_id: str = "",
-    item_key: dict[str, Any] | None = None, offset: int = 0, max_output_bytes: int = 16384,
+    item_key: dict[str, Any] | None = None, offset: Offset = 0, max_output_bytes: ValueBudget = 16384,
 ) -> dict[str, Any]:
     """Read one exact session-bound parameter/row. Large values use canonical JSON text pages with character offsets and a UTF-8 byte budget; keep binding/hash unchanged and follow next_offset. Fragments are not complete old values; use the signed guard_ref for parameter updates. evidence_gaps/fallback are unsigned continuation guidance, not a gate waiver. Every page rechecks ownership/draft/relations/compiler. No writes."""
     return service(conversation_id).read_edit_value(session_id, group_key, node_key, path, item_key=item_key,
@@ -179,9 +184,9 @@ def inspect_component_contract(component_type: str, conversation_id: str = "") -
 @mcp.tool()
 @traced_tool
 def plan_canvas_patch(
-    session_id: str, operations: list[dict[str, Any]], conversation_id: str = "",
-    review_spec: dict[str, Any] | None = None,
-    response_detail: str = "summary",
+    session_id: str, operations: list[CanvasOperation], conversation_id: str = "",
+    review_spec: ReviewSpec | None = None,
+    response_detail: Literal["summary", "full"] = "summary",
     generation_mode: Literal["full", "incremental", "auto"] = "full",
 ) -> dict[str, Any]:
     """Compile a canvas batch and compare original/candidate JS against declarative business expectations.
@@ -212,10 +217,11 @@ def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
 @mcp.tool()
 @traced_tool
 def read_plan_review(
-    plan_id: str, section: str = "summary", offset: int = 0, limit: int = 10,
+    plan_id: str, section: Literal["summary", "requirements", "changes", "scenarios", "canvas_checks", "spec"] = "summary",
+    offset: Offset = 0, limit: Annotated[int, Field(ge=1, le=20, strict=True)] = 10,
     item_id: str = "", conversation_id: str = "",
-    detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: int = 0,
-    max_output_bytes: int = 16384,
+    detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: Offset = 0,
+    max_output_bytes: ValueBudget = 16384,
 ) -> dict[str, Any]:
     """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. evidence_gaps/fallback guide bounded continuation without changing review status or signed evidence. detail=full returns exact rows within max_output_bytes; oversized rows provide a summary read descriptor, then use field_path for exact values."""
     return service(conversation_id).read_plan_review(
@@ -225,14 +231,14 @@ def read_plan_review(
 
 @mcp.tool()
 @traced_tool
-def open_plan_review(plan_id: str, conversation_id: str = "", response_detail: str = "summary") -> dict[str, Any]:
+def open_plan_review(plan_id: str, conversation_id: str = "", response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
     """Optional standalone preview, only when explicitly requested by the user. Ready plans go directly to prepare_write; failed plans use read_plan_review without a window. Never approves or writes."""
     return service(conversation_id).open_plan_review(plan_id, response_detail=response_detail)
 
 
 @mcp.tool()
 @traced_tool
-def prepare_write(plan_id: str, conversation_id: str = "", response_detail: str = "summary") -> dict[str, Any]:
+def prepare_write(plan_id: str, conversation_id: str = "", response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
     """Submit this draft's batched edits in one validated plan and one approval transaction/window. Canvas/JS/C# share one UPDATE and one approval; actual additional SQL is approved separately by bound parameters and target row."""
     return service(conversation_id).prepare_write(plan_id, response_detail=response_detail)
 
