@@ -358,8 +358,9 @@ def launch_window(*, executable: str | Path, script: str | Path, arguments: list
     if lifecycle_mode not in {"auto", "direct"}:
         raise ValueError("Invalid lifecycle mode")
     extra_env = extra_env or {}
-    if any(key not in {"GXP_EDITOR_QUEUE_LAUNCH_TOKEN", "GXP_EDITOR_QUEUE_GENERATION"}
-           or not isinstance(value, str) or len(value) > 128 for key, value in extra_env.items()):
+    if any(key not in {"GXP_EDITOR_QUEUE_LAUNCH_TOKEN", "GXP_EDITOR_QUEUE_GENERATION", "GXP_EDITOR_QUEUE_ISOLATED_CANDIDATES"}
+           or not isinstance(value, str) or len(value) > (16384 if key == "GXP_EDITOR_QUEUE_ISOLATED_CANDIDATES" else 128)
+           for key, value in extra_env.items()):
         raise ValueError("Invalid queue launch environment")
     if extra_env and (not extra_env.get("GXP_EDITOR_QUEUE_GENERATION", "").isdigit()
             or not extra_env.get("GXP_EDITOR_QUEUE_LAUNCH_TOKEN")):

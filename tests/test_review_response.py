@@ -39,15 +39,38 @@ class ReviewResponseTests(unittest.TestCase):
         self.assertEqual(review_page(self.review, "changes", item_id="missing")["items"], [])
 
     def test_page_budget_never_silently_truncates_a_record(self):
-        self.review["changes"] = [{"id": "a", "data": "x" * 150000}, {"id": "b", "data": "x" * 150000}]
-        page = review_page(self.review, "changes")
+        self.review["changes"] = [{"id": "a", "data": "x" * 40000}, {"id": "b", "data": "x" * 40000}]
+        page = review_page(self.review, "changes", max_output_bytes=65536)
         self.assertEqual(page["next_offset"], 1)
         self.assertEqual(page["items"], self.review["changes"][:1])
         self.review["changes"][0]["data"] *= 2
-        page = review_page(self.review, "changes")
+        page = review_page(self.review, "changes", max_output_bytes=65536)
         self.assertEqual(page["items"], [])
         self.assertEqual(page["oversized_item"]["id"], "a")
         self.assertIn("response_detail='full'", page["hint"])
+
+    def test_full_rows_respect_explicit_budget_and_can_continue_by_owned_field_read(self):
+        self.review["changes"] = [{"id": "large", "before": "中文" * 3000}]
+        original = copy.deepcopy(self.review)
+        page = review_page(self.review, "changes", detail="full", max_output_bytes=4096,
+                           plan_id="plan", conversation_id="owner")
+        self.assertEqual([], page["items"])
+        self.assertFalse(page["complete"])
+        self.assertIsNone(page["next_offset"])
+        self.assertLessEqual(len(json.dumps(page, ensure_ascii=False).encode()), 4096)
+        descriptor = page["next_read"]
+        self.assertEqual("read_plan_review", descriptor["tool"])
+        summary = review_page(self.review, **descriptor["arguments"])
+        pointer = summary["items"][0]["fields"][0]["field_path"]
+        first = review_page(self.review, "changes", item_id="large", field_path=pointer,
+            max_output_bytes=4096, plan_id="plan", conversation_id="owner")
+        descriptor = first["evidence_gaps"][0]["next_read"]
+        self.assertEqual("owner", descriptor["arguments"]["conversation_id"])
+        second = review_page(self.review, **descriptor["arguments"])
+        self.assertEqual(first["value_sha256"], second["value_sha256"])
+        self.assertEqual(first["next_offset"], second["offset"])
+        self.assertLessEqual(len(json.dumps(second, ensure_ascii=False).encode()), 4096)
+        self.assertEqual(original, self.review)
 
     def test_transport_metadata_counts_large_lists_but_full_evidence_stays_intact(self):
         evidence = {"valid": True, "checks": [{"huge": "x" * 1000}] * 1000, "warning": "x" * 2000}

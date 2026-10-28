@@ -43,6 +43,8 @@ class PayloadReductionTests(unittest.TestCase):
         operation = node["edit_options"]["parameter_operations"][0]
         self.assertEqual(operation["required_inputs"], ["value"])
         self.assertIn("guard_ref", operation["template"])
+        self.assertEqual(self.h.owner, node["parameters"][0]["read_value"]["arguments"]["conversation_id"])
+        self.assertEqual(self.h.owner, node["full_context"]["arguments"]["conversation_id"])
         self.assertEqual(self.service.inspect_edit_context(self.session_id, self.targets)["context_detail"], "full_context")
         self.assertEqual(self.context(include_context=True)["context_detail"], "full_context")
         self.assertEqual(self.context(include_context=False)["context_detail"], "compact_guards")
@@ -230,7 +232,10 @@ class ValuePagingTests(unittest.TestCase):
         self.assertFalse(last["complete"])
         self.assertIsNone(last["evidence_gaps"][0]["next_read"])
         self.assertEqual("verify_fragment_assembly", last["fallback"]["stop_reason"])
-        self.assertEqual(review_page(report, "changes", detail="full")["items"], [row])
+        oversized = review_page(report, "changes", detail="full")
+        self.assertFalse(oversized["complete"])
+        self.assertEqual(oversized["items"], [])
+        self.assertEqual("big", oversized["oversized_item"]["id"])
         self.assertEqual(report, snapshot)
 
     def test_generation_summary_replaces_unbounded_key_lists(self):

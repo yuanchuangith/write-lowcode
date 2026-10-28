@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 import math
+import inspect
 import time
 import uuid
 from contextlib import contextmanager
@@ -76,6 +77,28 @@ def timed(name):
     return decorate
 
 
+def _failure_next_read(function, args, kwargs, result):
+    """Offer one existing read-only entry, never an automatic retry or launch."""
+    try:
+        arguments = inspect.signature(function).bind_partial(*args, **kwargs).arguments
+    except (TypeError, ValueError):
+        arguments = kwargs
+    marker = arguments.get("conversation_id", result.get("conversation_id", ""))
+    if "self" in arguments:
+        marker = getattr(arguments["self"], "conversation_id", marker)
+    transaction_id = result.get("transaction_id") or arguments.get("transaction_id")
+    session_id = result.get("session_id") or result.get("active_session_id") or arguments.get("session_id")
+    name = function.__name__
+    if transaction_id and name != "get_write_status":
+        return {"tool": "get_write_status", "arguments": {"transaction_id": transaction_id, "conversation_id": marker}}
+    if session_id and name != "inspect_session_cancellation":
+        return {"tool": "inspect_session_cancellation", "arguments": {"session_id": session_id, "conversation_id": marker}}
+    if name == "database_settings":
+        return None if arguments.get("operation", "status") == "status" else {
+            "tool": "database_settings", "arguments": {"operation": "status"}}
+    return None if name == "editor_status" else {"tool": "editor_status", "arguments": {"conversation_id": marker}}
+
+
 def traced_tool(function):
     """Wrap only public responses, so timings cannot enter plans or hashes."""
     @wraps(function)
@@ -101,15 +124,20 @@ def traced_tool(function):
             _DEPTH.reset(depth_token)
             _ORIGIN.reset(origin_token)
             _ACTIVE.reset(token)
-        if isinstance(result, dict) and (result.get("error") or result.get("error_code")):
+        if isinstance(result, dict) and (result.get("error") or result.get("error_code")
+                or result.get("approval_window_error") or result.get("blocked")
+                or result.get("reason_code") and result.get("approval_window_opened") is False
+                and result.get("approval_window_starting") is False):
             # Normalize only the transport envelope, including failures returned
             # by a tool instead of raised. Do not alter stored review artifacts.
             details = result.get("error_details")
             details = details if isinstance(details, dict) else {}
             failed = next((item["stage"] for item in reversed(trace["timings"]) if item.get("error_code")), function.__name__)
-            result = {**result,
+            result = {**result, "blocked": True,
                       "failure_stage": details.get("phase") or failed,
-                      "error_code": result.get("error_code") or details.get("reason_code") or "request_failed"}
+                      "error_code": result.get("error_code") or result.get("reason_code") or details.get("reason_code") or "request_failed"}
+            if "next_read" not in result:
+                result["next_read"] = _failure_next_read(function, args, kwargs, result)
             if "evidence_gaps" not in result:
                 result.update(guidance(result["error_code"], "requested_conclusion",
                     next_read=result.get("next_read"), can_continue=("previously_confirmed_facts",),

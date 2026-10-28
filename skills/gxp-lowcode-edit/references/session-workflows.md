@@ -158,10 +158,17 @@ does not imply that the original canvas is valid.
 
 ## Restore workflow
 
-- Call prepare_restore with the session backup identifier.
+- Call `prepare_restore(session_id, backup_id, conversation_id)` with that session's immutable backup identifier.
+- A completed verified save can start a new restore approval only while the current
+  unpublished draft and complete relations still match its saved receipt. The tool
+  atomically reacquires local occupancy; an active conflicting session or a later
+  saved editing session blocks it. Inspect the current draft rather than bypassing
+  this guard or changing the original backup/baseline.
 - Restoration is a new approval transaction; never describe it as automatic rollback.
 - Poll get_write_status, then call verify_saved_draft.
 - Finish only when the restored hashes match the immutable backup.
+- A rejected restore preparation creates no executable approval. Cancelling an
+  unexecuted restore retains the prior saved transaction for verification and finish.
 
 ## Session recovery
 
@@ -267,7 +274,10 @@ does not imply that the original canvas is valid.
 ## Approval status and polling
 
 Use `get_write_status` for an existing transaction and follow its `next_action`
-and `poll_after_ms`. A tool receipt describes the current phase; it does not
+and `poll_after_ms`. When supplied, `next_read.tool` and `next_read.arguments`
+identify the concrete next call, including this dialogue's `conversation_id`;
+abstract action names such as `inspect_window_failure` are not tool names.
+A tool receipt describes the current phase; it does not
 authorize another approval window, SQL approval or execution. Query only this
 dialogue's transaction. Keep waits bounded so a progress update can be sent
 within 30 seconds when work is still active.
@@ -280,6 +290,13 @@ within 30 seconds when work is still active.
 | Saved but not verified/released | Follow the returned verification/recovery action. A successful SQL result alone does not complete the workflow. |
 | `verified=true` and `session_released=true` | Stop transaction polling, report the verified save/publication targets and handle the stored graph-review state. |
 | Startup failure, interrupted execution or uncertain result | Follow the matching recovery branch above. Retry startup once only when its artifact is valid; repeated failures use the returned alternatives. |
+
+A failure explicitly proven to precede the execution claim leaves an unexecuted
+approval: inspect/cancel that stale approval under the existing confirmation
+rules and replan. Do not send it to execution-result recovery. Unknown execution
+still requires recovery. A handling window reporting an unverified outcome keeps
+the session; only `session_released=true` confirms release. Its slow operations
+run in the background; do not repeat an operation while it is pending.
 
 If an older response lacks these hints, distinguish its transaction state and
 startup receipt using the same rules. A human review state needs no rapid poll;

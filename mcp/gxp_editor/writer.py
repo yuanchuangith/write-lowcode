@@ -62,7 +62,8 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
             error.details = {"transaction_id": transaction_id, "session_id": artifact["session_id"],
                              "expected_binding_sha256": expected_compiler.get("compiler_binding_sha256"),
                              "current_binding_sha256": actual_compiler.get("compiler_binding_sha256"),
-                             "execution_claimed": False}
+                             "execution_claimed": False,
+                             "next_action": "inspect_session_cancellation", "replan_required": True}
             raise error
 
     # Persist protocol identity before claiming execution, so a process crash

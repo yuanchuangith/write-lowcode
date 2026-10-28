@@ -194,13 +194,18 @@ UTF-8 bytes. For fragments, follow `next_offset` as the next `value_offset`
 until `continuation_complete=true`, then parse the collected JSON. Previews and
 individual fragments are not complete values.
 This handles a single oversized row without opening a window. Request
-`detail="full"` for complete legacy rows only when needed; a truncated or omitted
-row is not absent evidence. Response projection never changes complete plan or
+`detail="full"` for exact rows only when needed; it also respects `max_output_bytes`.
+An oversized row returns `complete=false` and a summary-read descriptor; use its
+field paths to read only the necessary exact evidence. An omitted row is not
+absent evidence. Response projection never changes complete plan or
 approval evidence. A standalone `open_plan_review` requires an explicit user
 request, including when evidence is large.
 
 `no_changes=true` means the requested state already matches: no new plan or
 approval was created. Stop that planning path without `prepare_write`.
+`session_released=true` confirms a fresh session with no plan or transaction was
+closed. `session_released=false` means existing work remains; do not report the
+whole session finished or automatically cancel it.
 An existing plan is retained, not replaced or cancelled; inspect the returned
 `existing_plan_id` and `existing_plan_status` if present. Do not automatically
 prepare that older candidate merely because the latest request made no changes.

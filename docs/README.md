@@ -24,6 +24,8 @@
 
 ## 最新优化交付与附件
 
+[2026-10-28 操作衔接修复](workflow-usability-repair-2026-10-28.md)记录会话收尾、备份恢复、窗口响应、队列隔离及工具指引修复；仅源码交付，未更新客户端安装。
+
 [编辑工具故障修复实施计划](editor-incident-repair-plan-2026-10-27.md)保留原计划状态；实际源码、验证和未部署边界见[故障修复交付记录](editor-incident-repair-delivery-2026-10-27.md)。本次未安装插件或启动实际 UI 宿主。
 
 `create_conversation` 返回类型热修复见[2026-10-27 修复记录](conversation-response-hotfix-2026-10-27.md)。这是传输契约修复，不改变已冻结的优化测量。

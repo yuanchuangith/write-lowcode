@@ -17,7 +17,7 @@ from .baseline_comparison import compare_baseline, require_baseline_match, Basel
 from .telemetry import stage, add_external, timed
 from .config import ConfigurationError, approval_secret, default_config_path, load_config, runtime_root
 from .db import EditorDatabase
-from .hashing import relation_snapshot_hash, sha256_json, sha256_text
+from .hashing import design_content_hash, relation_snapshot_hash, sha256_json, sha256_text
 from .handoff_store import environment_scope
 from .repository import EditorRepository, _flag
 from .runtime_validation import RuntimeCsharpValidator
@@ -785,8 +785,10 @@ class EditorService:
                 row["required_inputs"] = ["value"]
             for descriptor in node.get("parameters", []):
                 descriptor["read_value"]["arguments"]["session_id"] = session["id"]
+                descriptor["read_value"]["arguments"]["conversation_id"] = self.conversation_id
             if "full_context" in node:
                 node["full_context"]["arguments"]["session_id"] = session["id"]
+                node["full_context"]["arguments"]["conversation_id"] = self.conversation_id
         context["context_binding"] = {"session_id": session["id"], "owner_revision": session.get("owner_revision", 0),
             "baseline_content_hash": session["baseline"]["content_hash"],
             "relation_sha256": relation_snapshot_hash(session["baseline"].get("relations") or []),
@@ -864,8 +866,11 @@ class EditorService:
         if not page.get("complete"):
             from .evidence_guidance import guidance
             result.update(guidance("value_incomplete", "complete_old_value",
-                next_read={"tool": "read_edit_value", "arguments": {"offset": page.get("next_offset")},
-                           "reuse_original_arguments": True} if page.get("next_offset") is not None else None,
+                next_read={"tool": "read_edit_value", "arguments": {
+                    "session_id": session_id, "conversation_id": self.conversation_id,
+                    "group_key": group_key, "node_key": node_key, "path": path,
+                    "item_key": item_key, "offset": page.get("next_offset"),
+                    "max_output_bytes": max_output_bytes}} if page.get("next_offset") is not None else None,
                 can_continue=("signed_guard_reference",), stop_reason="required_value_fragment_unread"
                 if page.get("next_offset") is not None else "verify_fragment_assembly"))
         return result
@@ -878,7 +883,8 @@ class EditorService:
         self._validate_plan_review(plan, session, artifact)
         report = artifact["business_review"]
         page = review_page(report, section, offset, limit, item_id, detail=detail, field_path=field_path,
-                           value_offset=value_offset, max_output_bytes=max_output_bytes)
+                           value_offset=value_offset, max_output_bytes=max_output_bytes,
+                           plan_id=plan_id, conversation_id=self.conversation_id)
         latest = self._owned_session(session["id"], include_baseline=False)
         if latest.get("owner_revision", 0) != session.get("owner_revision", 0):
             raise EditorServiceError("Session ownership changed while reading the plan report")
@@ -1150,7 +1156,7 @@ class EditorService:
             "write_executed": False,
             **({"reference_repairs": plan_artifact["reference_repairs"]} if response_detail == "full" else
                {"reference_repair_count": len(plan_artifact["reference_repairs"])}),
-            **review_response(business_review, plan_id, response_detail),
+            **review_response(business_review, plan_id, response_detail, conversation_id=self.conversation_id),
             "ready_for_approval": business_review["status"] != "failed",
             "blocked_reasons": ["业务验收未通过，请按 review_issues 查看失败的配置、范围或场景证据。"] if business_review["status"] == "failed" else [],
         }
@@ -1164,13 +1170,23 @@ class EditorService:
         return value
 
     def _no_changes_response(self, session):
-        existing = self.state.get_plan(session["plan_id"]) if session.get("plan_id") else None
+        self.state.finish_no_changes(session["id"], conversation_id=self.conversation_id,
+                                     owner_revision=session.get("owner_revision", 0))
+        latest = self._owned_session(session["id"], include_baseline=False)
+        released = latest["state"] not in ACTIVE_STATES
+        existing = self.state.get_plan(latest["plan_id"]) if latest.get("plan_id") else None
         return {"session_id": session["id"], "no_changes": True, "plan_created": False,
                 "ready_for_approval": False, "write_executed": False,
+                "session_released": released, "state": latest["state"],
+                "next_action": "report_no_changes" if released else "preserve_existing_work",
+                **({"next_read": {"tool": "read_plan_review", "arguments": {
+                    "plan_id": existing["id"], "conversation_id": self.conversation_id,
+                    "section": "summary", "detail": "summary"}}} if existing else {}),
                 "existing_plan_id": existing["id"] if existing else None,
                 "existing_plan_status": existing["status"] if existing else None,
                 "message": "目标身份和原值已核对，全部参数与原值相同，本次无需新计划或审批。" +
-                           ("先前计划仍保留，本次调用未替换或取消它。" if existing else "")}
+                           ("新建的空操作会话已结束并释放。" if released else
+                            "先前计划或流程仍保留，本次调用未替换或取消它。")}
 
     def open_plan_review(self, plan_id: str, *, response_detail: str = "full") -> dict[str, Any]:
         """Open an immutable plan report without creating or approving a transaction."""
@@ -1217,7 +1233,7 @@ class EditorService:
         except OSError as exc:
             window = {"review_window_opened": False, "review_window_error": str(exc)}
         return {
-            "plan_id": plan_id, **review_response(report, plan_id, response_detail),
+            "plan_id": plan_id, **review_response(report, plan_id, response_detail, conversation_id=self.conversation_id),
             **({key: artifact.get(key) for key in ("diff", "reference_repairs", "validation",
                 "event_binding_validation", "runtime_validation", "compiler_binding")}
                if response_detail == "full" else {}),
@@ -1299,7 +1315,7 @@ class EditorService:
         from contextlib import ExitStack
         from .execution_lock import approval_queue_lock, approval_window_lock, execution_lock
         from .ui_launch import launch_window
-        from .queue_protocol import queue_snapshot, reserve_launch, release_launch, TOKEN_ENV, GENERATION_ENV
+        from .queue_protocol import queue_snapshot, reserve_launch, release_launch, TOKEN_ENV, GENERATION_ENV, ISOLATED_ENV
         transaction = self.state.get_transaction(transaction_id)
         session = self._owned_session(transaction["session_id"], include_baseline=False)
         revision = session.get("owner_revision", 0)
@@ -1307,6 +1323,7 @@ class EditorService:
             raise EditorServiceError("会话归属已变化，原请求不能打开审批。")
         queue_id = self._approval_queue_id(session)
         reservation, queue_view, extra_env, checked_artifacts = None, None, None, {}
+        isolated_candidates = {}
         if not queue_id and approval_fingerprint is None:
             approved = load_artifact(transaction["artifact_path"])
             validate_transaction_artifact(approved)
@@ -1325,17 +1342,27 @@ class EditorService:
                 if item["conversation_id"] != self.conversation_id or item["owner_revision"] != item["queued_owner_revision"]:
                     continue
                 if item.get("transaction_state") == "awaiting_approval":
+                    from .candidate_safety import candidate_fingerprint, pending_candidate
                     candidate_tx = self.state.get_transaction(item["transaction_id"])
-                    candidate_session = self._owned_session(item["id"], include_baseline=False)
-                    candidate = load_artifact(candidate_tx["artifact_path"])
-                    validate_transaction_artifact(candidate)
-                    require_write_business_review(candidate)
-                    if (candidate.get("transaction_id") != candidate_tx["id"]
-                            or candidate.get("session_id") != item["id"] or candidate.get("design_id") != candidate_session["design_id"]
-                            or candidate.get("execution_started") or candidate.get("executed")):
-                        raise self._evidence_error("execution_result_uncertain", "Queue candidate identity or execution markers changed")
-                    self._approval_preflight(candidate_tx, candidate_session, candidate)
-                    checked_artifacts[candidate_tx["artifact_path"]] = sha256_json(candidate)
+                    with execution_lock(candidate_tx["artifact_path"]):
+                        candidate_tx, candidate_session, candidate = pending_candidate(
+                            self.state, item["transaction_id"], self.conversation_id, queue_id=queue_id,
+                            owner_revision=item["queued_owner_revision"], artifact_path=item["artifact_path"])
+                        fingerprint = candidate_fingerprint(candidate_tx["artifact_path"])
+                        try:
+                            validate_transaction_artifact(candidate)
+                            require_write_business_review(candidate)
+                            self._approval_preflight(candidate_tx, candidate_session, candidate)
+                        except Exception:
+                            # Retain the pending approval; quarantine only its UI
+                            # review after proving the writer has not claimed it.
+                            pending_candidate(self.state, item["transaction_id"], self.conversation_id,
+                                queue_id=queue_id, owner_revision=item["queued_owner_revision"],
+                                artifact_path=item["artifact_path"])
+                            isolated_candidates[item["transaction_id"]] = "candidate_preflight_failed"
+                        if candidate_fingerprint(candidate_tx["artifact_path"]) != fingerprint:
+                            raise self._evidence_error("queue_candidate_changed", "Queue candidate changed during preflight")
+                        checked_artifacts[candidate_tx["artifact_path"]] = (fingerprint, item)
         # Lock order: queue lifetime probe -> transaction window -> execution ->
         # short SQLite control. No business reads or user waits under control.
         with ExitStack() as locks:
@@ -1359,14 +1386,18 @@ class EditorService:
                     or approval_fingerprint is not None and sha256_json(candidate) != approval_fingerprint):
                 raise self._evidence_error("approval_artifact_changed", "Approval artifact changed during preflight")
             if queue_id:
-                for artifact_path, expected_hash in checked_artifacts.items():
-                    if sha256_json(load_artifact(artifact_path)) != expected_hash:
+                for artifact_path, (expected_hash, item) in checked_artifacts.items():
+                    pending_candidate(self.state, item["transaction_id"], self.conversation_id,
+                        queue_id=queue_id, owner_revision=item["queued_owner_revision"], artifact_path=artifact_path)
+                    if candidate_fingerprint(artifact_path) != expected_hash:
                         raise self._evidence_error("queue_candidate_changed", "Queue candidate changed during preflight")
                 reservation = reserve_launch(self.state, queue_id, self.conversation_id, queue_view,
                     previous_exited={"generation": startup.get("queue_generation"),
                         "launch_token_sha256": startup.get("queue_launch_token_sha256")}
                         if startup.get("process_state") == "exited" else False)
                 extra_env = {TOKEN_ENV: reservation["launch_token"], GENERATION_ENV: str(reservation["generation"])}
+                if isolated_candidates:
+                    extra_env[ISOLATED_ENV] = json.dumps(isolated_candidates, separators=(",", ":"))
         plugin_root = Path(__file__).resolve().parents[2]
         script = plugin_root / "scripts" / "approval_app.py"
         python = Path(sys.executable)
@@ -1415,7 +1446,7 @@ class EditorService:
         self._validate_plan_review(plan, session, artifact)
         if plan["status"] == "blocked" or artifact["business_review"]["status"] == "failed":
             return {
-                "plan_id": plan_id, **review_response(artifact["business_review"], plan_id, response_detail),
+                "plan_id": plan_id, **review_response(artifact["business_review"], plan_id, response_detail, conversation_id=self.conversation_id),
                 "ready_for_approval": False, "approval_window_opened": False, "write_executed": False,
                 "blocked_reasons": ["业务验收未通过，请修正失败的配置、范围或场景后重新规划。"],
             }
@@ -1552,7 +1583,7 @@ class EditorService:
                 "event_binding_validation": evidence_summary(compiler_evidence.get("event_binding_validation")),
             },
             "manual_publication_required": True,
-            **review_response(artifact["business_review"], plan_id, response_detail),
+            **review_response(artifact["business_review"], plan_id, response_detail, conversation_id=self.conversation_id),
         }
 
     def _graph_review(self, session: dict[str, Any], transaction: dict[str, Any]) -> dict[str, Any] | None:
@@ -1618,7 +1649,8 @@ class EditorService:
             "handling_available": True,
             "handling_options": self._handling_options(session),
             "window_startup": window_startup,
-            **write_status_guidance(transaction, session, window_startup, artifact_valid=validation_error is None),
+            **write_status_guidance(transaction, session, window_startup, artifact_valid=validation_error is None,
+                                    conversation_id=self.conversation_id),
             "statement_count": len(artifact["statements"]) if isinstance(artifact.get("statements"), list) else 0,
             "approved_count": len(artifact["approvals"]) if isinstance(artifact.get("approvals"), dict) else 0,
             "verified": (session.get("transaction_id") == transaction_id
@@ -1717,16 +1749,29 @@ class EditorService:
             raise EditorServiceError("Database restore safety gates are not ready")
         config, _, repository, _, runtime_validator = self._components()
         database_safety = self._database_safety_binding(config, repository)
-        if session["state"] not in {"saved", "saved_state_pending", "verified"}:
+        if session["state"] not in {"saved", "saved_state_pending", "verified", "finished"}:
             raise EditorServiceError(f"Session state {session['state']!r} cannot start a restore")
         if backup_id != session["backup_id"]:
             raise EditorServiceError("Restore is limited to the immutable backup created by this session")
         backup = BackupStore(integrity_key=approval_secret(config)).load(session["ref_id"], backup_id)
-        current = repository.load_draft_by_id(session["design_id"])
+        with repository.database.read_session() as db_session:
+            current = repository.load_draft_by_id(session["design_id"], session=db_session)
+            current_relations = repository._relations(session["design_id"], db_session)
         if _flag(current.get("is_publish")) or _flag(current.get("isDeleted")):
             raise EditorServiceError("The target is no longer an active unpublished draft")
+        if str(current.get("id") or "") != session["design_id"] or str(current.get("ref_id") or "") != session["ref_id"]:
+            raise EditorServiceError("Current draft identity does not match the restore session")
         if str(backup["manifest"].get("design_id") or "") != session["design_id"]:
             raise EditorServiceError("Backup design identity does not match the active session")
+        finished_receipt = None
+        if session["state"] == "finished":
+            previous = self.state.get_transaction(session["transaction_id"]) if session.get("transaction_id") else None
+            finished_receipt = saved_verification(session, previous) if previous else None
+            if (not finished_receipt or current.get("is_publish") is None or current.get("isDeleted") is None
+                    or design_content_hash(current) != finished_receipt["content_hash"]
+                    or relation_snapshot_hash(current_relations) != finished_receipt["relation_hash"]):
+                raise self._evidence_error("restore_saved_snapshot_changed",
+                    "Current draft no longer matches this completed save; inspect the current draft before restoring")
         original = backup["design.json"]
         runtime_validation = self._runtime_validation_evidence(
             runtime_validator,
@@ -1746,7 +1791,7 @@ class EditorService:
                 "csharp_code": original.get("csharp_code") or "",
                 "last_modification_time": original["last_modification_time"],
             },
-            current_relations=repository.load_relations(session["design_id"]),
+            current_relations=current_relations,
             desired_relations=backup["relations.json"],
             database_safety=database_safety,
             runtime_validation=runtime_validation,
@@ -1756,7 +1801,8 @@ class EditorService:
         tx_path = tx_dir / f"{transaction_id}.json"
         save_artifact(tx_path, transaction_artifact)
         self.state.create_transaction(session_id, None, "restore", str(tx_path), transaction_id=transaction_id,
-                                      conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0))
+                                      conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0),
+                                      expected_finished_save=finished_receipt)
         approval_window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
         return {
             "transaction_id": transaction_id,

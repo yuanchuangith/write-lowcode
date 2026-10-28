@@ -8,7 +8,24 @@ from gxp_editor.workflow_guidance import write_status_guidance
 class WorkflowGuidanceTests(unittest.TestCase):
     def guide(self, state="awaiting_approval", session_state="awaiting_approval", startup=None, **kwargs):
         return write_status_guidance({"id": "tx", "state": state},
-            {"state": session_state, "transaction_id": "tx"}, startup or {}, **kwargs)
+            {"id": "session", "state": session_state, "transaction_id": "tx", "conversation_id": "owner"}, startup or {}, **kwargs)
+
+    def test_inspection_and_recovery_actions_have_owned_callable_descriptors(self):
+        failure = self.guide(startup={"startup_status": "failed"})
+        self.assertEqual(failure["next_read"], {"tool": "inspect_session_cancellation",
+            "arguments": {"session_id": "session", "conversation_id": "owner"}})
+        recovery = self.guide(state="saved_state_pending")
+        self.assertEqual(recovery["next_read"], {"tool": "recover_edit_session",
+            "arguments": {"session_id": "session", "conversation_id": "owner"}})
+        poll = self.guide(startup={"startup_status": "starting"}, conversation_id="explicit-owner")
+        self.assertEqual(poll["next_read"], {"tool": "get_write_status",
+            "arguments": {"transaction_id": "tx", "conversation_id": "explicit-owner"}})
+        self.assertIsNone(self.guide(startup={"startup_status": "ready"})["next_read"])
+
+    def test_historical_action_reads_current_dialogue_without_reusing_old_transaction(self):
+        result = write_status_guidance({"id": "old", "state": "saved"},
+            {"id": "session", "state": "restore_pending", "transaction_id": "new"}, {}, conversation_id="owner")
+        self.assertEqual(result["next_read"], {"tool": "editor_status", "arguments": {"conversation_id": "owner"}})
 
     def test_startup_then_human_wait_then_execution_then_completion_trace(self):
         responses = [self.guide(startup={"startup_status": "starting", "window_starting": True}),

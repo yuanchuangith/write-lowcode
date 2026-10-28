@@ -20,7 +20,7 @@ def evidence_summary(evidence):
     return result
 
 
-def review_response(review, plan_id, detail="summary"):
+def review_response(review, plan_id, detail="summary", *, conversation_id=""):
     if detail not in {"summary", "full"}:
         raise ValueError("response_detail must be summary or full")
     issues = []
@@ -47,7 +47,7 @@ def review_response(review, plan_id, detail="summary"):
         issue = issues[0] if issues else {"section": "summary", "index": 0}
         result.update(guidance("business_review_" + review["status"], "business_verification",
             next_read={"tool": "read_plan_review", "arguments": {"plan_id": plan_id,
-                "section": issue["section"], "offset": issue["index"], "limit": 1}},
+                "conversation_id": conversation_id, "section": issue["section"], "offset": issue["index"], "limit": 1}},
             can_continue=("focused_readonly_investigation", "human_review") if review["status"] == "unverified"
                          else ("repair_from_immutable_baseline",),
             stop_reason="failed_review_blocks_approval" if review["status"] == "failed" else "business_evidence_unverified"))
@@ -71,7 +71,7 @@ def _row_summary(row):
 
 
 def review_page(review, section="summary", offset=0, limit=10, item_id="", *, detail="full",
-                field_path="", value_offset=0, max_output_bytes=16384):
+                field_path="", value_offset=0, max_output_bytes=16384, plan_id="", conversation_id=""):
     if type(offset) is not int or offset < 0 or type(limit) is not int or not 1 <= limit <= 20:
         raise ValueError("Use offset >= 0 and limit between 1 and 20")
     if detail not in {"summary", "full"}:
@@ -91,6 +91,16 @@ def review_page(review, section="summary", offset=0, limit=10, item_id="", *, de
     rows = collections[section]
     if item_id:
         rows = [row for row in rows if row.get("id") == item_id]
+
+    def next_read(**updates):
+        arguments = {"section": section, "offset": offset, "limit": limit, "item_id": item_id,
+                     "detail": detail, "field_path": field_path, "value_offset": value_offset,
+                     "max_output_bytes": max_output_bytes, "conversation_id": conversation_id, **updates}
+        if plan_id:
+            arguments["plan_id"] = plan_id
+        return {"tool": "read_plan_review", "arguments": arguments,
+                **({} if plan_id else {"reuse_original_arguments": True})}
+
     if field_path:
         if max_output_bytes < 2048:
             raise ValueError("Field continuation requires max_output_bytes >= 2048")
@@ -100,32 +110,41 @@ def review_page(review, section="summary", offset=0, limit=10, item_id="", *, de
             raise ValueError("item_id must identify exactly one report row")
         row = rows[offset]
         metadata = {"section": section, "item_id": row.get("id"), "row_offset": offset, "field_path": field_path}
-        overhead = len(json.dumps(metadata, ensure_ascii=False).encode("utf-8")) + 768
+        continuation = guidance("review_field_incomplete", "business_verification",
+            next_read=next_read(value_offset=0), stop_reason="required_report_fragment_unread")
+        overhead = (len(json.dumps(metadata, ensure_ascii=False).encode("utf-8"))
+                    + len(json.dumps(continuation, ensure_ascii=False).encode("utf-8")) + 512)
         if max_output_bytes - overhead < 1024:
             raise ValueError("Byte budget is too small for this report field; request a larger max_output_bytes")
         page = value_page(field_value(row, field_path), offset=value_offset, max_output_bytes=max_output_bytes - overhead)
         result = {**metadata, **page, "max_output_bytes": max_output_bytes}
         if not page.get("complete"):
             result.update(guidance("review_field_incomplete", "business_verification",
-                next_read={"tool": "read_plan_review", "arguments": {"value_offset": page.get("next_offset")},
-                           "reuse_original_arguments": True} if page.get("next_offset") is not None else None,
+                next_read=next_read(value_offset=page["next_offset"]) if page.get("next_offset") is not None else None,
                 stop_reason="required_report_fragment_unread" if page.get("next_offset") is not None
                             else "verify_fragment_assembly"))
         return result
-    page, size = [], 0
+    page = []
+
+    def response(items):
+        continuation = offset + len(items)
+        return {"section": section, "items": items, "offset": offset, "total": len(rows), "detail": detail,
+                "next_offset": continuation if continuation < len(rows) else None}
+
     for row in rows[offset:offset + limit]:
         if detail == "summary":
             row = _row_summary(row)
-        length = len(json.dumps(row, ensure_ascii=False).encode("utf-8"))
-        budget = max_output_bytes - 512 if detail == "summary" else 256 * 1024
-        if size + length > budget:
+        # Full rows are exact, never truncated; their explicit byte budget has
+        # the same meaning as summary/field requests. Leave room for the outer
+        # plan identity and transport observations.
+        candidate = response([*page, row])
+        if len(json.dumps(candidate, ensure_ascii=False).encode("utf-8")) > max_output_bytes - 512:
             if not page:
-                return {"section": section, "items": [], "offset": offset, "total": len(rows),
-                        "oversized_item": {"index": offset, "id": row.get("id"), "bytes": length},
+                return {**response([]), "next_offset": None, "complete": False,
+                        "oversized_item": {"index": offset, "id": row.get("id"),
+                                           "bytes": len(json.dumps(row, ensure_ascii=False).encode("utf-8"))},
+                        "next_read": next_read(detail="summary", limit=1, max_output_bytes=max(16384, max_output_bytes)),
                         "hint": "Use this section/row with field_path and value_offset for bounded exact evidence. Complete evidence remains in the plan and formal approval window; open_plan_review(response_detail='full') is only for an explicitly requested standalone preview."}
             break
         page.append(deepcopy(row))
-        size += length
-    next_offset = offset + len(page)
-    return {"section": section, "items": page, "offset": offset, "total": len(rows), "detail": detail,
-            "next_offset": next_offset if next_offset < len(rows) else None}
+    return response(page)

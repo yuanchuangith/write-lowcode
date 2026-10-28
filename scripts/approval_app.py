@@ -32,6 +32,7 @@ from gxp_editor.approval_display import (
 from gxp_editor.compiler import CompilerBridge
 from gxp_editor.component_preview import component_changes
 from gxp_editor.config import load_config
+from gxp_editor.candidate_safety import pending_candidate
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_queue_lock, approval_window_lock, execution_lock
 from gxp_editor.hashing import sha256_text
 from gxp_editor.qt_review_ui import CodeReview, ComponentReview
@@ -70,7 +71,7 @@ messagebox = MessageBoxes()
 
 class ExecutionThread(QThread):
     completed = Signal(object)
-    failed = Signal(str)
+    failed = Signal(object)
 
     def __init__(self, transaction_id, parent=None):
         super().__init__(parent)
@@ -80,7 +81,9 @@ class ExecutionThread(QThread):
         try:
             self.completed.emit(execute_approved_transaction(self.transaction_id))
         except Exception as exc:
-            self.failed.emit(str(exc))
+            details = getattr(exc, "details", {})
+            self.failed.emit({"message": str(exc), "reason_code": getattr(exc, "code", "execution_error"),
+                              "error_details": details if isinstance(details, dict) else {}})
 
 
 class PreviewMetadataThread(QObject):
@@ -630,8 +633,9 @@ class ApprovalWindow(QObject):
         messagebox.showinfo("执行结果", execution_result_message(result), parent=self.root)
         self.close()
 
-    @Slot(str)
+    @Slot(object)
     def _execution_failure(self, error):
+        error = error.get("message", "保存未完成") if isinstance(error, dict) else str(error)
         self.worker.wait()
         self._executing = False
         try:
@@ -640,6 +644,14 @@ class ApprovalWindow(QObject):
                 retained = self.state.get_session(self.transaction["session_id"])["state"] == "saved"
                 messagebox.showerror("恢复未完成，已回到原保存状态" if retained else "保存未完成，已释放会话占用", error + ("\n本次恢复未生效，可核对原保存结果或重新发起恢复审批。" if retained else "\n本次未写入或已经回滚，请重新生成计划和审批。"), parent=self.root)
                 self.close()
+                return
+            if self.transaction["state"] == "awaiting_approval":
+                with execution_lock(self.path):
+                    pending_candidate(self.state, self.transaction_id, self.conversation_id,
+                        owner_revision=self.owner_revision, artifact_path=self.path)
+                instruction = "保存前校验未通过，未进入执行。原审批仍保留，请回到当前对话取消失效审批并重新规划。"
+                self._block_review(instruction)
+                messagebox.showerror("保存前校验未通过", error + "\n\n" + instruction, parent=self.root)
                 return
             self.artifact = load_artifact(self.path)
             self._block_review("执行结果需要核对，请回到当前对话恢复会话。")
@@ -722,8 +734,21 @@ class ApprovalQueueWindow(ApprovalWindow):
         lock.__enter__()
         self._queue_lock = lock
         try:
-            from gxp_editor.queue_protocol import claim_window
+            import os
+            from gxp_editor.queue_protocol import claim_window, ISOLATED_ENV
             claim_window(self.state, self.queue_id, self.conversation_id)
+            isolated = json.loads(os.environ.get(ISOLATED_ENV, "{}"))
+            if (not isinstance(isolated, dict) or len(isolated) > 256
+                    or any(not isinstance(key, str) or len(key) > 128
+                           or value != "candidate_preflight_failed" for key, value in isolated.items())):
+                raise StateError("队列候选隔离提示无效，请在当前对话重新核对队列。")
+            for item in self._queue_items:
+                if item.get("transaction_id") in isolated and self._item_owned(item):
+                    with execution_lock(item["artifact_path"]):
+                        pending_candidate(self.state, item["transaction_id"], self.conversation_id,
+                            queue_id=self.queue_id, owner_revision=item["queued_owner_revision"],
+                            artifact_path=item["artifact_path"])
+                    self._isolated_candidates[item["transaction_id"]] = "保存前校验未通过；原审批仍保留，请在当前对话取消失效审批并重新规划。"
             self.qt_app = application()
             self.root = ApprovalShell(self)
             self.timer = QTimer(self.root)
@@ -813,7 +838,7 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.retry_candidates_button.setVisible(bool(self._isolated_candidates))
         self.retry_candidates_button.setEnabled(not self._executing and not self._queue_stopped)
         notice = publication_notice(queue_publication_targets(items, self.conversation_id))
-        isolated_note = (f"已隔离 {len(self._isolated_candidates)} 个未执行候选，其余动作可继续审批。请在当前对话重新规划这些动作，再点击重试。"
+        isolated_note = (f"已隔离 {len(self._isolated_candidates)} 个未执行候选，其余动作可继续审批。失效审批请在当前对话取消后重新规划；新审批会自动加入队列。临时读取问题可点击重试。"
                          if self._isolated_candidates else "")
         self.queue_result.setText("\n\n".join(part for part in (self._last_queue_result, isolated_note, notice) if part)
                                  or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。")
@@ -898,15 +923,8 @@ class ApprovalQueueWindow(ApprovalWindow):
             # The writer must claim state under this same execution lock first.
             try:
                 with execution_lock(self.path):
-                    current = self.state.get_transaction(self.transaction_id)
-                    if current["state"] != "awaiting_approval":
-                        raise StateError("该动作已尝试执行，不能作为未执行候选隔离。")
-                    try:
-                        on_disk = load_artifact(self.path)
-                    except (OSError, ValueError):
-                        on_disk = None
-                    if isinstance(on_disk, dict) and (on_disk.get("execution_started") or on_disk.get("executed")):
-                        raise StateError("审批文件记录已尝试执行，需要先核对结果。")
+                    pending_candidate(self.state, self.transaction_id, self.conversation_id,
+                        queue_id=self.queue_id, owner_revision=self.owner_revision, artifact_path=self.path)
                     self._isolated_candidates[self.transaction_id] = str(exc)[:1000]
                 ApprovalWindow._release_window_lock(self)
                 # At most one iteration per queue item; isolated IDs are excluded.
@@ -950,15 +968,8 @@ class ApprovalQueueWindow(ApprovalWindow):
         if not self._executing and self._active_review:
             try:
                 with execution_lock(self.path):
-                    current = self.state.get_transaction(self.transaction_id)
-                    if current["state"] != "awaiting_approval":
-                        raise StateError("执行结果需要核对。")
-                    try:
-                        on_disk = load_artifact(self.path)
-                    except (OSError, ValueError):
-                        on_disk = None
-                    if isinstance(on_disk, dict) and (on_disk.get("execution_started") or on_disk.get("executed")):
-                        raise StateError("执行结果需要核对。")
+                    pending_candidate(self.state, self.transaction_id, self.conversation_id,
+                        queue_id=self.queue_id, owner_revision=self.owner_revision, artifact_path=self.path)
                     self._isolated_candidates[self.transaction_id] = str(error)[:1000]
                 ApprovalWindow._release_window_lock(self)
                 self._advance_queue()
@@ -997,8 +1008,9 @@ class ApprovalQueueWindow(ApprovalWindow):
         if not self._queue_stopped:
             self.timer.start(1000)
 
-    @Slot(str)
+    @Slot(object)
     def _execution_failure(self, error):
+        error = error.get("message", "保存未完成") if isinstance(error, dict) else str(error)
         self.worker.wait()
         self._executing = False
         self.worker.deleteLater()
@@ -1008,6 +1020,17 @@ class ApprovalQueueWindow(ApprovalWindow):
                 messagebox.showerror("当前动作未保存", error + "\n本动作未写入或已经回滚，队列将继续显示其他待审批动作。", parent=self.root)
                 self._last_queue_result = f"上一动作未保存：{self.session['action_name']}。{error}"
                 self._advance_queue()
+                if not self._queue_stopped:
+                    self.timer.start(1000)
+                return
+            if transaction["state"] == "awaiting_approval":
+                with execution_lock(self.path):
+                    pending_candidate(self.state, self.transaction_id, self.conversation_id,
+                        queue_id=self.queue_id, owner_revision=self.owner_revision, artifact_path=self.path)
+                instruction = "保存前校验未通过，未进入执行。原审批仍保留，请在当前对话取消失效审批并重新规划；其他动作可继续审批。"
+                self._last_queue_result = instruction
+                self._block_review(instruction + "\n" + error)
+                messagebox.showerror("保存前校验未通过", error + "\n\n" + instruction, parent=self.root)
                 if not self._queue_stopped:
                     self.timer.start(1000)
                 return

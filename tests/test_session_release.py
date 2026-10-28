@@ -272,6 +272,7 @@ class SessionReleaseTests(unittest.TestCase):
         self.assertEqual((current["state"], current["transaction_id"]), ("saved_state_pending", self.tx))
 
     def test_human_declining_archive_or_stale_window_does_not_release(self):
+        from tests.test_abort_session_responsiveness import drain_operations
         spec = importlib.util.spec_from_file_location("release_ui", PLUGIN_ROOT / "scripts" / "abort_session_app.py")
         app = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(app)
@@ -279,14 +280,17 @@ class SessionReleaseTests(unittest.TestCase):
         window.state, window.session_id = self.store, self.session["id"]
         window.conversation_id, window.owner_revision = self.owner, 0
         window.root = Mock()
+        window._initialize_operations()
         with patch.object(app.messagebox, "askyesno", return_value=False), patch("gxp_editor.recovery.archive_edit_session") as archive:
             window.archive()
+            drain_operations(window)
             archive.assert_not_called()
         window.root.destroy.assert_not_called()
         other = self.store.create_conversation()["conversation_id"]
         self.store.transfer_session(self.session["id"], other, expected_owner=self.owner, expected_revision=0, expected_transaction_id=self.tx)
         with patch.object(app.messagebox, "showerror"), patch.object(app.messagebox, "askyesno") as confirm:
             window.archive()
+            drain_operations(window)
             confirm.assert_not_called()
 
 

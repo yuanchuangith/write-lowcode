@@ -8,6 +8,7 @@ from pathlib import Path
 from unittest.mock import Mock, patch
 
 from tests.helpers import PLUGIN_ROOT, baseline
+from tests.test_abort_session_responsiveness import drain_operations
 from gxp_editor.state import StateError, StateStore
 
 
@@ -28,6 +29,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         self.window.conversation_id = self.owner
         self.window.owner_revision = 0
         self.window.root = Mock()
+        self.window._initialize_operations()
 
     def transfer(self, destination):
         current = self.state.get_session(self.session["id"])
@@ -73,6 +75,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
             for action in (self.window.abort, self.window.reopen, self.window.recover):
                 with self.subTest(action=action.__name__):
                     action()
+                    drain_operations(self.window)
                     self.assertIn("已转交", error.call_args.args[1])
             with self.assertRaises(StateError):
                 self.window._finish()
@@ -87,6 +90,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         self.transfer(self.owner)
         with patch.object(self.app.messagebox, "showerror") as error:
             self.window.abort()
+            drain_operations(self.window)
             self.assertIn("已转交", error.call_args.args[1])
         self.assertEqual(self.state.get_session(self.session["id"])["state"], "locked")
 
@@ -99,6 +103,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         with patch.object(self.window, "_owned_session", side_effect=transfer_after_check), \
              patch.object(self.app.messagebox, "showerror") as error:
             self.window.abort()
+            drain_operations(self.window)
             error.assert_called_once()
         self.assertEqual(self.state.get_session(self.session["id"])["state"], "locked")
 
@@ -120,6 +125,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         service.reopen_approval.return_value = {"approval_window_opened": True}
         with patch.object(self.app, "EditorService", return_value=service) as factory:
             self.window.reopen()
+            drain_operations(self.window)
             factory.assert_called_once_with(conversation_id=self.owner)
             service.reopen_approval.assert_called_once_with("tx-1", owner_revision=0)
         self.window.root.destroy.assert_called_once()
@@ -130,6 +136,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         service.reopen_approval.return_value = {"approval_window_opened": False, "approval_window_error": "launch failed"}
         with patch.object(self.app, "EditorService", return_value=service), patch.object(self.app.messagebox, "showerror") as error:
             self.window.reopen()
+            drain_operations(self.window)
             self.assertIn("launch failed", error.call_args.args[1])
         self.window.root.destroy.assert_not_called()
 
@@ -141,6 +148,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
         with patch("gxp_editor.recovery.recover_session", side_effect=verified) as recover, \
              patch.object(self.app.messagebox, "showinfo"):
             self.window.recover()
+            drain_operations(self.window)
             recover.assert_called_once_with(
                 self.session["id"], state=self.state, conversation_id=self.owner, owner_revision=0,
             )
@@ -155,6 +163,7 @@ class AbortSessionOwnershipTests(unittest.TestCase):
              patch.object(self.app.messagebox, "askyesno", side_effect=transfer_during_prompt), \
              patch.object(self.app.messagebox, "showerror") as error:
             self.window.recover()
+            drain_operations(self.window)
             self.assertIn("已转交", error.call_args.args[1])
             self.assertEqual(recover.call_count, 1)
         self.assertEqual(self.state.get_session(self.session["id"])["state"], "saved")

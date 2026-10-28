@@ -190,7 +190,8 @@ def plan_canvas_patch(
     scenarios with schema_version=1/cases and optional canvas_assertions. Default scope_policy=strict
     requires targeted requirements and blocks changes outside them. manual_review is explicit.
     Omission reuses previous expectations. Unchanged guarded parameters return no_changes without
-    creating a new plan. Summary responses retain report identity; use read_plan_review for details
+    creating a new plan. Fresh empty sessions are released; session_released=false preserves existing work.
+    Summary responses retain report identity; use read_plan_review for details
     or response_detail=full. generation_mode defaults to full; incremental preserves unchanged
     saved action functions; auto chooses using actual changed groups and dependency scope.
     Report generation_selection with its reason. Failed checks block approval. No database write.
@@ -216,7 +217,7 @@ def read_plan_review(
     detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: int = 0,
     max_output_bytes: int = 16384,
 ) -> dict[str, Any]:
-    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. evidence_gaps/fallback guide bounded continuation without changing review status or signed evidence. detail=full retains complete legacy rows."""
+    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. evidence_gaps/fallback guide bounded continuation without changing review status or signed evidence. detail=full returns exact rows within max_output_bytes; oversized rows provide a summary read descriptor, then use field_path for exact values."""
     return service(conversation_id).read_plan_review(
         plan_id, section=section, offset=offset, limit=limit, item_id=item_id, detail=detail,
         field_path=field_path, value_offset=value_offset, max_output_bytes=max_output_bytes)
@@ -290,7 +291,7 @@ def verify_saved_draft(session_id: str, conversation_id: str = "") -> dict[str, 
 @mcp.tool()
 @traced_tool
 def prepare_restore(session_id: str, backup_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Open one approval transaction/window to restore the immutable session backup. Approve each actual SQL with its bound parameters and target row, not each component change."""
+    """Open a new human approval to restore the immutable session backup. A completed verified save must still match the current draft/relations; reacquiring occupancy refuses active conflicts or later saved editing sessions. Approve each actual SQL with its bound parameters and target row, not each component change."""
     return service(conversation_id).prepare_restore(session_id, backup_id)
 
 

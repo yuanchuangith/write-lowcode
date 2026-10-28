@@ -271,6 +271,7 @@ class RuntimeCsharpValidator:
                 capture_output=True,
                 timeout=self.DOTNET_STATUS_TIMEOUT_SECONDS,
                 check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
         except subprocess.TimeoutExpired as exc:
             raise RuntimeValidationError("dotnet runtime check timed out", code="checker_timeout") from exc

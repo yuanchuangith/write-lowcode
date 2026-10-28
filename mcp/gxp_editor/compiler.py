@@ -127,6 +127,7 @@ class CompilerBridge:
             encoding=None if binary else "utf-8",
             timeout=20,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
         )
         if process.returncode != 0:
             error = process.stderr if isinstance(process.stderr, str) else process.stderr.decode("utf-8", "replace")
@@ -195,6 +196,7 @@ class CompilerBridge:
             cwd=self.config.frontend_repo,
             timeout=timeout_seconds,
             check=False,
+            creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
             self._verify_node_binary(node)
         # Reject changes during the isolated command as well as before launch.
@@ -314,7 +316,8 @@ class CompilerBridge:
                 raise CompilerError("Node executable was not found")
             executable_hash = hashlib.sha256(Path(executable).read_bytes()).hexdigest()
             result = subprocess.run([executable, "--version"], stdin=subprocess.DEVNULL,
-                capture_output=True, text=True, encoding="utf-8", timeout=10, check=False)
+                capture_output=True, text=True, encoding="utf-8", timeout=10, check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
             if result.returncode != 0 or not re.fullmatch(r"v\d+\.\d+\.\d+\s*", result.stdout):
                 raise CompilerError("Cannot determine Node compiler version")
             if hashlib.sha256(Path(executable).read_bytes()).hexdigest() != executable_hash:

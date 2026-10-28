@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-def write_status_guidance(transaction, session, startup, *, artifact_valid=True):
+def write_status_guidance(transaction, session, startup, *, artifact_valid=True, conversation_id=None):
     state, session_state = transaction["state"], session["state"]
     startup_state = startup.get("startup_status")
     if state == "saved" and session_state == "finished" and session.get("transaction_id") == transaction["id"]:
@@ -31,7 +31,19 @@ def write_status_guidance(transaction, session, startup, *, artifact_valid=True)
         phase, action, interval = "awaiting_human", "wait_for_user", 10000
     else:
         phase, action, interval = "window_unknown", "inspect_window_failure", None
-    return {"workflow_phase": phase, "next_action": action, "poll_after_ms": interval,
+    # Keep the established action names, but make inspection/recovery hints
+    # callable without inventing a tool or dropping the dialogue's ownership.
+    marker = session.get("conversation_id", "") if conversation_id is None else conversation_id
+    session_id = session.get("id") or transaction.get("session_id")
+    next_read = None
+    if action == "get_write_status":
+        next_read = {"tool": action, "arguments": {"transaction_id": transaction["id"], "conversation_id": marker}}
+    elif action == "inspect_current_session":
+        next_read = {"tool": "editor_status", "arguments": {"conversation_id": marker}}
+    elif action in {"recover_edit_session", "verify_saved_draft", "finish_edit_session", "inspect_session_cancellation", "inspect_window_failure"} and session_id:
+        next_read = {"tool": "inspect_session_cancellation" if action == "inspect_window_failure" else action,
+                     "arguments": {"session_id": session_id, "conversation_id": marker}}
+    return {"workflow_phase": phase, "next_action": action, "next_read": next_read, "poll_after_ms": interval,
             "progress_update_after_ms": 30000,
             "polling_policy": "Report progress at least every 30 seconds while working. When awaiting_human, report and yield; poll_after_ms is only a minimum delay for a requested recheck, not an instruction to keep polling. Human approval has no deadline; never respawn or approve. Diagnose execution without progress for 30 seconds; elapsed time never proves failure or permits clearing locks.",
             "startup_check_budget_ms": 30000 if phase == "starting" else None}

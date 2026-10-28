@@ -320,14 +320,18 @@ class WindowScriptReceiptTests(unittest.TestCase):
                 dialogs.showinfo.assert_not_called()
 
     def test_pending_reopen_keeps_the_handling_window(self):
+        from tests.test_abort_session_responsiveness import drain_operations
         service, root = Mock(), Mock()
         service.reopen_approval.return_value = {
             "approval_window_opened": False, "approval_window_starting": True}
-        controller = SimpleNamespace(conversation_id="fixture-owner", owner_revision=0, root=root,
-                                     _owned_session=Mock(return_value={"transaction_id": "fixture-tx"}))
+        controller = object.__new__(self.abort.AbortSessionWindow)
+        controller.conversation_id, controller.owner_revision, controller.root = "fixture-owner", 0, root
+        controller._owned_session = Mock(return_value={"transaction_id": "fixture-tx"})
+        controller._initialize_operations()
         with patch.object(self.abort, "EditorService", return_value=service), \
              patch.object(self.abort, "messagebox") as dialogs:
             self.abort.AbortSessionWindow.reopen(controller)
+            drain_operations(controller)
             dialogs.showinfo.assert_called_once()
             dialogs.showerror.assert_not_called()
         root.destroy.assert_not_called()

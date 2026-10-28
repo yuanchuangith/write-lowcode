@@ -354,6 +354,21 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             row["baseline"] = json.loads(baseline_json)
         return row
 
+    def finish_no_changes(self, session_id: str, *, conversation_id: str,
+                          owner_revision: int) -> bool:
+        """Release a fresh no-op only; never discard a concurrent or older plan."""
+        with self._connection() as db:
+            db.execute("BEGIN IMMEDIATE")
+            session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
+            self._assert_owner(session, conversation_id, owner_revision)
+            if (session["state"] != "locked" or session["plan_id"] or session["transaction_id"]
+                    or db.execute("SELECT 1 FROM plans WHERE session_id=?", (session_id,)).fetchone()
+                    or db.execute("SELECT 1 FROM transactions WHERE session_id=?", (session_id,)).fetchone()):
+                return False
+            db.execute("UPDATE sessions SET state='finished',updated_at=? WHERE id=?",
+                       (datetime.now().isoformat(timespec="seconds"), session_id))
+        return True
+
     @staticmethod
     def _review_spec_payload(session, spec):
         baseline = json.loads(session["baseline_json"])
@@ -478,6 +493,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         conversation_id: str | None = "",
         owner_revision: int | None = None,
         expected_review_checkpoint: Any = _UNSET_PLAN,
+        expected_finished_save: dict[str, Any] | None = None,
     ) -> str:
         transaction_id = transaction_id or uuid.uuid4().hex
         now = datetime.now().isoformat(timespec="seconds")
@@ -491,7 +507,31 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 raise StateError(f"Session already has an active approval transaction: {active['id']}")
             session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
             self._assert_owner(session, conversation_id, owner_revision)
+            if expected_finished_save is not None and session["state"] != "finished":
+                raise StateError("Completed save changed while preparing restoration; inspect the current session")
             allowed = {"planned"} if kind == "write" else {"saved", "saved_state_pending", "verified"}
+            if kind == "restore" and session["state"] == "finished":
+                previous = db.execute("SELECT * FROM transactions WHERE id=?", (session["transaction_id"],)).fetchone()
+                receipt = saved_verification(dict(session), dict(previous)) if previous else None
+                if not receipt or receipt != expected_finished_save:
+                    raise StateError("Finished restore requires the unchanged verified save receipt")
+                placeholders = ",".join("?" for _ in ACTIVE_STATES)
+                conflict = db.execute(
+                    f"SELECT id FROM sessions WHERE id!=? AND state IN ({placeholders}) "
+                    "AND (conversation_id=? OR design_id=? OR ref_id=?) LIMIT 1",
+                    (session_id, *ACTIVE_STATES, session["conversation_id"], session["design_id"], session["ref_id"]),
+                ).fetchone()
+                if conflict:
+                    raise StateError(f"Another edit session is active: {conflict['id']}; finish it before restoring")
+                later_save = db.execute(
+                    "SELECT s.id FROM sessions s JOIN transactions t ON t.session_id=s.id "
+                    "WHERE s.rowid>(SELECT rowid FROM sessions WHERE id=?) "
+                    "AND (s.design_id=? OR s.ref_id=?) AND t.state IN ('saved','saved_state_pending') LIMIT 1",
+                    (session_id, session["design_id"], session["ref_id"]),
+                ).fetchone()
+                if later_save:
+                    raise StateError("The draft has a later saved editing session; review its current backup before restoring")
+                allowed.add("finished")
             if not session or session["state"] not in allowed or (kind == "write" and session["plan_id"] != plan_id):
                 raise StateError("Session can no longer enter approval")
             self._assert_review_checkpoint(db, session, expected_review_checkpoint)
