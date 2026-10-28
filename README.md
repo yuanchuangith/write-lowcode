@@ -15,7 +15,7 @@
 | 查看或修改本机数据库设置 | [统一设置](skills/gxp-lowcode-edit/references/database-settings.md) |
 | 查专题参考、优化交付及历史测量 | [资料索引](docs/README.md) |
 
-当前版本以 [.codex-plugin/plugin.json](.codex-plugin/plugin.json) 为准（0.1.47）。源码开发和维护统一从 [DEVELOPMENT.md](DEVELOPMENT.md) 开始。
+当前版本以 [.codex-plugin/plugin.json](.codex-plugin/plugin.json) 为准。源码开发和维护统一从 [DEVELOPMENT.md](DEVELOPMENT.md) 开始。
 
 ## 最短使用流程
 

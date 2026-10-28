@@ -51,6 +51,26 @@
 
 数据库设置仅按用户明确要求通过 [database_settings.py](scripts/database_settings.py) 或本机工具处理；具体见[统一设置](skills/gxp-lowcode-edit/references/database-settings.md)。普通开发和离线验证不读取凭据、不访问业务库、不保存或发布草稿。
 
+### 客户端安装与加载核对
+
+客户端安装或更新仅在用户明确要求时执行。先完成源码、技能镜像和运行包校验，再更新指定客户端；已有依赖可用时不重复运行 `setup.ps1`。保留活动实例依赖的旧版本目录，不停止现有进程或关闭审批窗口。
+
+Codex 使用本机已注册的 `bianpan-local` 市场，其目录为 `C:/Users/yuanchuan/Desktop/git/bianpanMcpAndSkill`。将 Git 跟踪的完整插件包同步到该市场的 `plugins/gxp-lowcode-editor`，保留原包备份，在最终包字节上校验 runtime manifest，再执行官方 CLI：
+
+```powershell
+codex plugin add gxp-lowcode-editor@bianpan-local --json
+```
+
+Claude 当前采用用户级 MCP 加技能 Junction。`%USERPROFILE%/.claude/skills/gxp-lowcode-edit` 指向本仓库 `skills/gxp-lowcode-edit`；`%USERPROFILE%/.claude.json` 的 `mcpServers.gxp-lowcode-editor` 指向本仓库启动器。沿用这一种注册方式，避免另装同名 marketplace 插件造成重复工具。需要重新注册时先备份配置，再在 PowerShell 中使用 `claude.cmd`，避免 `claude.ps1` 转发时丢失 `--`、将 `-NoProfile` 误交给 Claude 解析：
+
+```powershell
+& "$env:APPDATA/npm/claude.cmd" mcp add --scope user --transport stdio gxp-lowcode-editor -- powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:/Users/yuanchuan/Desktop/git/low_code/write/scripts/start_mcp.ps1
+```
+
+安装后分别从 Codex 新缓存及 Claude 注册的入口启动全新 stdio 客户端，核对 `initialize`、`ping`、`tools/list` 和新版工具说明。握手只证明新进程加载正常，不能代替实际工具响应转换回归或业务验证；现有聊天连接不会因此热替换，需要新开会话加载新版。
+
+2026-10-28 经用户授权，两个客户端均已更新到 `0.1.53+codex.local-20261028-workflow-ux`：Codex 新包位于 `%USERPROFILE%/.codex/plugins/cache/bianpan-local/gxp-lowcode-editor/0.1.53+codex.local-20261028-workflow-ux`，旧 `0.1.52` 缓存保留；Claude 继续使用上述仓库入口和有效 Junction，其他 MCP 注册项保持不变。两端新进程均完成握手并列出 29 个工具，`prepare_restore` 说明包含 `completed verified save`。此次安装未重装依赖、停止活动进程或调用业务工具，也未热重载原聊天连接。具体交付证据见[操作衔接修复记录](docs/workflow-usability-repair-2026-10-28.md)。
+
 ### 运行资源与窗口生命周期
 
 源码发布前，在所有运行文件及插件版本确定后执行 `python scripts/build_runtime_manifest.py`。manifest 按实际文件字节构建；打包或 checkout 若转换换行，必须在最终打包字节上重建。`start_mcp.ps1` 验证完整包后，将其原子复制到 `%LOCALAPPDATA%/GxpLowcodeEditor/runtime/packages/<manifest_sha256>/`，再从固定快照运行。MCP、UI 各持身份租约；不会自动删除快照。运行快照保护成功启动的实例，无法保护启动前已被删除的插件入口。
@@ -69,9 +89,11 @@
 4. 若改变工具契约或可安装行为，同步 manifest 版本、技能参考和测量限制；历史报告及原始附件保持冻结。
 5. 审阅差异后本地提交。客户端安装更新按具体请求执行，和源码交付分别记录。
 
-本次恢复对话业务流程只交付仓库源码、技能镜像和离线验证；不安装、更新客户端插件，不改安装缓存、不重启 MCP，也不操作现有业务草稿。后续部署须由用户另行提出，不能把源码验证写成客户端已经生效。
+源码开发默认交付仓库源码、技能镜像和离线验证，不自动更新客户端安装、重启 MCP 或操作现有业务草稿。用户另行要求安装后，单独记录安装入口、版本和加载验证；不能把源码验证写成客户端已经生效。2026-10-28 后续授权安装状态见上文“客户端安装与加载核对”。
 
 本轮操作衔接修复继续采用上述对话业务流程：新建空操作会话仅在原子确认没有任何计划或事务时释放，已有工作保留；已完成保存的备份恢复先核对当前草稿及完整关系与保存回执，再原子检查占用和后续保存记录，创建新的人工审批。窗口只在明确释放后报告结束，耗时处理不阻塞界面心跳。队列仅隔离可证明未执行的失效候选，身份或执行不明仍阻断。工具指引携带实际入口及对话参数，失败信封统一，报告完整行也遵守显式字节预算。Git、Node 和 dotnet 探测子进程隐藏控制台，来源及编译检查保留。实现及验证范围见[操作衔接修复记录](docs/workflow-usability-repair-2026-10-28.md)。
+
+保存时黑窗闪烁的回归来自 `1031850` 新增的保存前 `CompilerBridge(config).compiler_binding()` 复核：点击保存增加了 Git / Node 调用，却遗漏隐藏控制台参数。本轮提交 `0e8c6a2` 为这些后台调用及 SDK 探测补齐 `CREATE_NO_WINDOW`，保留来源漂移拒绝和完整编译检查；不能通过删除复核来消除闪烁。
 
 文档或技能改动的最小检查：
 
@@ -90,6 +112,7 @@ git diff --check
 | 需求、场景与报告 | `test_business_review_service`、`test_business_accuracy_corpus`、`test_scenario_oracle`、`test_review_response` |
 | 生成、绑定与就绪复用 | `test_codegen_consistency`、`test_generation_modes`、`test_service_optimization`、`test_service_readiness` |
 | 执行与恢复 | `test_writer`、`test_transaction`、`test_session_release`、`test_recovery_service` |
+| 空操作收尾、旧会话窗口与队列隔离 | `test_workflow_session_completion`、`test_abort_session_responsiveness`、`test_queue_candidate_safety` |
 
 ## 技能镜像维护
 
