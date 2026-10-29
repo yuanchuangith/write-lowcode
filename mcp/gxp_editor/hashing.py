@@ -38,10 +38,17 @@ def sha256_json(value: Any) -> str:
 
 def compiler_binding_payload(binding: dict[str, Any]) -> dict[str, Any]:
     """Canonical fields shared by compiler fingerprints and approval validation."""
-    return {field: binding.get(field) for field in (
+    payload = {field: binding.get(field) for field in (
         "bridge_sha256", "adapter_sha256", "registry_hash", "rule_source_sha256",
         "frontend_version", "source_provenance",
     )}
+    provenance = payload["source_provenance"]
+    if isinstance(provenance, dict) and provenance.get("binding_scope") == "compiler_inputs_v1":
+        # Source bytes are bound above by bridge/adapter/registry/rule hashes.
+        # Git commit, branch and unrelated workspace changes remain audit data.
+        payload["source_provenance"] = {field: provenance.get(field) for field in (
+            "ready", "frontend_repo", "bridge_path", "binding_scope")}
+    return payload
 
 
 def design_content_hash(row: dict[str, Any]) -> str:

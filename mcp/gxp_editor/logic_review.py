@@ -8,6 +8,8 @@ from typing import Any
 
 from .canvas_assertions import CanvasAssertionError, build_canvas_checks, normalize_canvas_assertions, validate_json_value
 from .hashing import canonical_json, design_content_hash, sha256_json, sha256_text
+from .review_targets import scope_path, path_covers, resolve_review_targets
+from .planning_limits import MAX_REVIEW_BYTES
 
 
 class LogicReviewError(ValueError):
@@ -48,8 +50,8 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
         raise LogicReviewError("review_spec 包含未知字段：" + ", ".join(sorted(unknown)))
     revision = _text(spec.get("revision"), "review_spec.revision", limit=128)
     requirements = spec.get("requirements")
-    if not isinstance(requirements, list) or len(requirements) > 100:
-        raise LogicReviewError("review_spec.requirements 须为不超过 100 条规则的数组。")
+    if not isinstance(requirements, list):
+        raise LogicReviewError("review_spec.requirements 须为规则数组。")
     seen = set()
     normalized = []
     for item in requirements:
@@ -60,8 +62,8 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
             raise LogicReviewError("预期规则 id 不能重复。")
         seen.add(identifier)
         targets = item.get("targets", [])
-        if not isinstance(targets, list) or len(targets) > 100:
-            raise LogicReviewError("requirement.targets 须为不超过 100 项的数组。")
+        if not isinstance(targets, list):
+            raise LogicReviewError("requirement.targets 须为数组。")
         checked_targets = []
         for target in targets:
             if not isinstance(target, dict) or set(target) - {"group_key", "node_key", "field_path"}:
@@ -70,6 +72,8 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
             for field in ("node_key", "field_path"):
                 if field in target:
                     checked[field] = _text(target[field], "target." + field, limit=512, empty=True)
+                    if field == "field_path" and not legacy_scope:
+                        checked[field] = scope_path(checked[field])
             checked_targets.append(checked)
         normalized.append({"id": identifier, "text": _text(item.get("text"), "requirement.text"),
                            "source_text": _text(item.get("source_text"), "requirement.source_text"),
@@ -96,7 +100,7 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
             raise LogicReviewError(str(exc)) from exc
     if "change_source_text" in spec:
         result["change_source_text"] = _text(spec["change_source_text"], "review_spec.change_source_text")
-    if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > 2 * 1024 * 1024:
+    if len(json.dumps(result, ensure_ascii=False).encode("utf-8")) > MAX_REVIEW_BYTES:
         raise LogicReviewError("review_spec 超过 2 MiB 限制。")
     return result
 
@@ -124,9 +128,8 @@ def _base_hash(design: dict[str, Any]) -> str:
 
 
 def _matches(target: dict[str, Any], group_key: str, node_key: str, field_path: str) -> bool:
-    path = target.get("field_path") or ""
     return (target["group_key"] == group_key and (not target.get("node_key") or target["node_key"] == node_key)
-            and (not path or field_path == path or field_path.startswith(path + "/")))
+            and path_covers(target.get("field_path"), field_path))
 
 
 def _scope_coverage(spec, actual_targets):
@@ -490,7 +493,8 @@ def _review_summary(spec, changes, report, requirements=None, canvas_checks=None
     return summary, gate, "failed" if failures else "unverified" if unknowns else "passed"
 
 
-def build_business_review(*, review_spec, baseline_design, candidate_design, compiler_binding, scenario_report=None):
+def build_business_review(*, review_spec, baseline_design, candidate_design, compiler_binding, scenario_report=None,
+                          source_spec=None, target_bindings=None):
     spec = normalize_review_spec(review_spec)
     hashes = _candidate_hashes(candidate_design)
     if "relation_sha256" not in hashes:
@@ -517,6 +521,9 @@ def build_business_review(*, review_spec, baseline_design, candidate_design, com
               "browser_verified": False, "runtime_verified": False}
     if canvas_checks is not None:
         review["canvas_checks"] = canvas_checks
+    if source_spec is not None:
+        review["source_spec"] = normalize_review_spec(source_spec)
+        review["target_bindings"] = deepcopy(target_bindings)
     review["review_sha256"] = sha256_json(review)
     validate_business_review(review, baseline_design=baseline_design, candidate_design=candidate_design, compiler_binding=compiler_binding)
     return review
@@ -530,6 +537,15 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
     spec = normalize_review_spec(review.get("spec"), legacy_scope=True)
     if spec != review.get("spec"):
         raise LogicReviewError("业务审查预期规则未规范化。")
+    if "source_spec" in review or "target_bindings" in review:
+        try:
+            source = normalize_review_spec(review["source_spec"])
+            candidate = _canvas(candidate_design) if candidate_design is not None else None
+            if source != review["source_spec"] or normalize_review_spec(resolve_review_targets(
+                    source, review["target_bindings"], candidate)) != spec:
+                raise ValueError("Review alias mapping does not match the original requirements")
+        except (ValueError, KeyError, TypeError) as exc:
+            raise LogicReviewError("业务审查的新建目标映射与原始要求不一致。") from exc
     binding = review.get("bindings")
     if not isinstance(binding, dict) or binding.get("review_spec_sha256") != sha256_json(spec):
         raise LogicReviewError("业务审查未绑定当前预期规则。")
@@ -638,6 +654,9 @@ def plan_binding_hash(artifact: dict[str, Any]) -> str:
     for field in ("generation_mode", "generation_selection"):
         if field in artifact:
             binding[field] = artifact[field]
+    if artifact.get("planning_protocol") == "composable_v1":
+        for field in ("planning_protocol", "operations", "diff"):
+            binding[field] = artifact.get(field)
     return sha256_json(binding)
 
 

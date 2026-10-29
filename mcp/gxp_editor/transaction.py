@@ -735,10 +735,15 @@ def validate_transaction_artifact(artifact: dict[str, Any]) -> None:
         provenance = binding.get("source_provenance")
         if not isinstance(provenance, dict) or provenance.get("ready") is not True:
             raise TransactionPlanError("Frontend source provenance is not verified")
-        if not re.fullmatch(r"[0-9a-f]{40,64}", str(provenance.get("commit") or "").lower()):
-            raise TransactionPlanError("Frontend source commit is invalid")
-        if not re.fullmatch(r"[0-9a-f]{64}", str(provenance.get("workspace_sha256") or "").lower()):
-            raise TransactionPlanError("Frontend source workspace hash is invalid")
+        if provenance.get("binding_scope") == "compiler_inputs_v1":
+            if not all(isinstance(provenance.get(key), str) and provenance[key].strip()
+                       for key in ("frontend_repo", "bridge_path")):
+                raise TransactionPlanError("Frontend compiler input identity is invalid")
+        else:
+            if not re.fullmatch(r"[0-9a-f]{40,64}", str(provenance.get("commit") or "").lower()):
+                raise TransactionPlanError("Frontend source commit is invalid")
+            if not re.fullmatch(r"[0-9a-f]{64}", str(provenance.get("workspace_sha256") or "").lower()):
+                raise TransactionPlanError("Frontend source workspace hash is invalid")
         if validation.get("valid") is not True or compiler_evidence.get("code_generation_complete") is not True:
             raise TransactionPlanError("Candidate canvas or generated-code validation is not complete")
         if validation.get("registry_hash") != binding.get("registry_hash"):

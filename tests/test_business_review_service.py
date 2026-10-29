@@ -395,8 +395,8 @@ class BusinessReviewServiceTests(unittest.TestCase):
             spec = copy.deepcopy(original["review_report"]["spec"])
             spec["revision"] = "new-requirements-failed-to-compile"
             self.service.state.save_review_spec_checkpoint(self.session_id, spec, expected_sha256=None)
-            return self.compiler_evidence()
-        self.compiler.verify_candidate_artifact.side_effect = update_during_verification
+            return self.compiler.compiler_binding()
+        self.compiler.verify_binding = Mock(side_effect=update_during_verification)
         with self.assertRaisesRegex(StateError, "已确认要求已变化"):
             self.service.prepare_write(original["plan_id"])
         self.assertEqual(self.service.state.session_transactions(self.session_id), [])
@@ -539,9 +539,7 @@ class BusinessReviewServiceTests(unittest.TestCase):
         if not prepare:
             return result, plan, artifact
         pending = self.service.prepare_write(result["plan_id"])
-        verification = self.compiler.verify_candidate_artifact.call_args.kwargs
-        self.assertEqual(verification["generation_mode"], requested)
-        self.assertEqual(verification["baseline_artifacts"]["js_code"], self.draft["js_code"])
+        self.compiler.verify_candidate_artifact.assert_not_called()
         tx = self.service.state.get_transaction(pending["transaction_id"])
         transaction = load_artifact(tx["artifact_path"])
         self.assertEqual(transaction["compiler_evidence"]["generation_selection"], selection)

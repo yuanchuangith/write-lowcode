@@ -9,14 +9,13 @@ from pathlib import Path
 from typing import Any
 
 from .canvas_assertions import CanvasAssertionError, validate_json_value
+from .planning_limits import MAX_OPERATION_BYTES
 
 
 CONTRACT_PATH = Path(__file__).with_name("operation_contracts.json")
 CONTRACT = json.loads(CONTRACT_PATH.read_text(encoding="utf-8"))
 SCHEMA_VERSION = CONTRACT["schema_version"]
 MAX_ISSUES = 20
-MAX_OPERATIONS = 100
-MAX_OPERATION_BYTES = 2 * 1024 * 1024
 UNSAFE = set(CONTRACT["unsafe_keys"])
 _PARAMETER_OPS = {"set_parameter", "set_array_item"}
 _ALIAS_CREATORS = {"append_node", "insert_in_block", "insert_before", "insert_after"}
@@ -252,8 +251,8 @@ def preflight_batch(design: Any, operations: Any) -> dict[str, Any]:
         if len(pending) < MAX_ISSUES:
             pending.append({**location(index, op), "reason_code": reason})
 
-    if type(operations) is not list or not 1 <= len(operations) <= MAX_OPERATIONS:
-        issue(None, {}, "invalid_operation_batch", "Canvas patch requires 1 to 100 operation objects")
+    if type(operations) is not list or not operations:
+        issue(None, {}, "invalid_operation_batch", "Canvas patch requires a nonempty array of operation objects")
     else:
         try:
             validate_json_value(operations)

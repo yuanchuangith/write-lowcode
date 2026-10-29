@@ -6,7 +6,7 @@ from typing import Any
 from .approval import load_artifact, save_artifact, verify_approvals
 from .action_context import publication_target
 from .config import load_config
-from .compiler import CompilerBridge
+from .compiler import CompilerBridge, CompilerError
 from .db import EditorDatabase
 from .hashing import relation_snapshot_hash
 from .handoff_store import environment_scope
@@ -55,7 +55,12 @@ def _execute_approved_transaction(transaction_id: str) -> dict[str, Any]:
         # actual frontend/adapter/rules/Node provenance immediately before the
         # execution claim, without regenerating or changing the signed plan.
         expected_compiler = artifact["compiler_evidence"]["compiler_binding"]
-        actual_compiler = CompilerBridge(config).compiler_binding()
+        try:
+            actual_compiler = CompilerBridge(config).verify_binding(expected_compiler)
+        except (CompilerError, ValueError) as exc:
+            error = WriteExecutionError("Compiler input source changed after approval planning; create a new plan")
+            error.code = "compiler_binding_changed"
+            raise error from exc
         if actual_compiler != expected_compiler:
             error = WriteExecutionError("Compiler binding changed after approval planning; create a new plan")
             error.code = "compiler_binding_changed"

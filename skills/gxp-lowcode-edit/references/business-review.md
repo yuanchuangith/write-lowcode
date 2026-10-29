@@ -8,7 +8,7 @@ or replace the existing compiler, backup, ownership and human approval checks.
 
 Extract rules from the current user request and previously confirmed business
 rules. Preserve the user's words in `source_text`; `text` is a short explanation.
-Identify the real existing group/node using current draft evidence. Include
+Identify existing groups/nodes using current draft evidence. For targets created in this plan, use declared @group_alias / @node_alias identities in requirements and assertions; scenario calls can use @group_alias. Native generation resolves these identities before checks run. Original requirements and their resolved targets are bound together in the report. Include
 behavior that must remain unchanged. Ask about a missing critical rule rather
 than guessing what an empty value, unmatched event or return value means.
 
@@ -70,9 +70,9 @@ covers the quoted request. Add the relevant creation/empty/boundary cases.
   `change_source_text`, never as an automatic fallback. Changing policy requires
   a new `revision` and new user basis. Old reports without a policy remain
   viewable; preparing new approval requires replanning under the current policy.
-- Each case needs an `id`, 1–10 `steps`, and can have `title`, `requirement_ids`,
+- Each case needs an `id`, a nonempty `steps` array, and can have `title`, `requirement_ids`,
   `environment`, and `expect`. A requirement without linked executed cases stays
-  unverified. There are at most 20 cases, within a 1 MiB scenario specification.
+  unverified. Cases and continuous steps have no count cap; the scenario specification is bounded by 1 MiB and execution time budgets.
 - Environment supports `page_mode`, `fields` and `child_fields`. Field fixtures
   declare `value`, `text` or `selected_rows`; undeclared reads stay unverified.
 - Steps are `call_group` (`group_key`, JSON `args`), `set_inputs`
@@ -144,7 +144,7 @@ zero-based decimal numbers.
   missing candidate parameter paths fail; missing baseline paths also fail for
   `unchanged`. JSON null is different from an absent path.
 
-At most 100 assertions are allowed, within the overall 2 MiB review specification.
+Requirements, targets and assertions have no count cap within the overall 2 MiB review specification. A provably missing locator may be corrected to an existing target under the same user requirement and a new revision; existing target expansion still requires user evidence. For new nodes, equals/contains inspect the candidate; unchanged still requires a matching baseline target.
 JSON nesting is bounded; non-finite numbers and executable expressions are not
 supported. A changed or removed existing assertion, including its requirement
 links, needs a new `revision` and new user evidence in `source_text` or

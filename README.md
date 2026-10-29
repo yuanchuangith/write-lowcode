@@ -17,6 +17,8 @@
 
 当前版本以 [.codex-plugin/plugin.json](.codex-plugin/plugin.json) 为准。源码开发和维护统一从 [DEVELOPMENT.md](DEVELOPMENT.md) 开始。
 
+规划按 2 MiB 体积控制操作清单，不再限制 100 项；可用 `append_to_plan_id` 继续追加到最新计划，最终统一审批。新分组和节点的别名也可用于需求、断言和场景。候选内容、编译器及引用未变化时，审批复用已有生成和编译结果。
+
 ## 最短使用流程
 
 1. 首次业务编辑明确调用 `$gxp-lowcode-edit`，提供已有动作 code / RefId、修改要求及需要保留的行为。同一已授权对话和草稿可继续，不重复启用。普通只读排查和“按方案继续”本身不激活编辑。

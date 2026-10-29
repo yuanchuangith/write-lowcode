@@ -261,6 +261,19 @@ class RuntimeCsharpValidator:
     def status(self) -> dict[str, Any]:
         return self._probe("status", timeout=self.STATUS_TIMEOUT_SECONDS)
 
+    def reuse_evidence(self, evidence: dict[str, Any], csharp_code: str) -> dict[str, Any] | None:
+        """Reuse a bound successful build when code and reference bytes are unchanged."""
+        if not csharp_code.strip():
+            return self.no_source_evidence(csharp_code)
+        if (evidence.get("csharp_sha256") != sha256_text(csharp_code)
+                or evidence.get("success") is not True or evidence.get("compilation_succeeded") is not True
+                or evidence.get("available") is not True):
+            return None
+        manifest = self._manifest(self._references())
+        if any(evidence.get(key) != value for key, value in manifest.items()):
+            return None
+        return {**evidence, "build_reused": True}
+
     def _status(self) -> dict[str, Any]:
         references = self._references()
         try:

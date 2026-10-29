@@ -141,7 +141,7 @@ def _operations():
 CanvasOperation = _operations()
 Requirement = _shape("Requirement", {
     "id": Required[Nonblank], "text": Required[Nonblank], "source_text": Required[Nonblank],
-    "targets": NotRequired[Annotated[list[RuleTarget], Field(max_length=100)]],
+    "targets": NotRequired[list[RuleTarget]],
 })
 FieldFixture = _shape("FieldFixture", {
     "value": NotRequired[Any], "text": NotRequired[Any], "selected_rows": NotRequired[list[Any]],
@@ -174,11 +174,11 @@ Expectation = _shape("Expectation", {
 ScenarioCase = _shape("ScenarioCase", {
     "id": Required[Nonempty], "title": NotRequired[str], "requirement_ids": NotRequired[list[Nonempty]],
     "environment": NotRequired[Environment],
-    "steps": Required[Annotated[list[ScenarioStep], Field(min_length=1, max_length=10)]],
+    "steps": Required[Annotated[list[ScenarioStep], Field(min_length=1)]],
     "expect": NotRequired[Expectation],
 })
 Scenarios = _shape("Scenarios", {
-    "schema_version": Required[SchemaVersion], "cases": Required[Annotated[list[ScenarioCase], Field(max_length=20)]],
+    "schema_version": Required[SchemaVersion], "cases": Required[list[ScenarioCase]],
 })
 AssertionTarget = _shape("AssertionTarget", {
     "group_key": Required[Nonblank], "node_key": Required[Nonblank], "element_key": Required[Nonblank],
@@ -195,8 +195,8 @@ UnchangedAssertion = _shape("UnchangedAssertion", {
 })
 ReviewSpec = _shape("ReviewSpec", {
     "schema_version": Required[SchemaVersion], "revision": Required[Nonblank],
-    "requirements": Required[Annotated[list[Requirement], Field(max_length=100)]],
+    "requirements": Required[list[Requirement]],
     "scenarios": NotRequired[Scenarios], "scope_policy": NotRequired[Literal["strict", "manual_review"]],
     "change_source_text": NotRequired[Nonblank],
-    "canvas_assertions": NotRequired[Annotated[list[Union[ValueAssertion, UnchangedAssertion]], Field(max_length=100)]],
+    "canvas_assertions": NotRequired[list[Union[ValueAssertion, UnchangedAssertion]]],
 })

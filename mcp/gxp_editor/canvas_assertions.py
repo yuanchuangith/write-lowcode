@@ -6,6 +6,8 @@ import re
 from copy import deepcopy
 from typing import Any
 
+from .review_targets import path_covers
+
 
 class CanvasAssertionError(ValueError):
     pass
@@ -54,8 +56,8 @@ def _tokens(path):
 
 
 def normalize_canvas_assertions(assertions, requirements):
-    if type(assertions) is not list or len(assertions) > 100:
-        raise CanvasAssertionError("canvas_assertions 必须是不超过 100 条的数组。")
+    if type(assertions) is not list:
+        raise CanvasAssertionError("canvas_assertions 必须是数组。")
     rules = {rule["id"]: rule for rule in requirements}
     result, seen = [], set()
     for item in assertions:
@@ -67,7 +69,7 @@ def normalize_canvas_assertions(assertions, requirements):
             raise CanvasAssertionError("画布断言 id 不能重复。")
         seen.add(identifier)
         identifiers = item["requirement_ids"]
-        if (type(identifiers) is not list or not identifiers or len(identifiers) > 100
+        if (type(identifiers) is not list or not identifiers
                 or any(type(key) is not str or key not in rules for key in identifiers)
                 or len(set(identifiers)) != len(identifiers)):
             raise CanvasAssertionError("画布断言必须关联不重复且存在的 requirement_ids。")
@@ -86,10 +88,8 @@ def normalize_canvas_assertions(assertions, requirements):
             covered = any(
                 scope["group_key"] == target["group_key"]
                 and (not scope.get("node_key") or scope["node_key"] == target["node_key"])
-                and (not scope.get("field_path") or native_path == scope["field_path"].lstrip("/")
-                     or native_path.startswith(scope["field_path"].lstrip("/") + "/")
-                     or (operator in {"equals", "unchanged"}
-                         and scope["field_path"].lstrip("/").startswith(native_path + "/")))
+                and (path_covers(scope.get("field_path"), native_path)
+                     or (operator in {"equals", "unchanged"} and path_covers(native_path, scope.get("field_path"))))
                 for scope in rules[key]["targets"])
             if not covered:
                 raise CanvasAssertionError("画布断言目标超出关联需求的 targets 范围。")
@@ -145,7 +145,7 @@ def _result(assertion, before, after):
         return "unverified", "缺少候选画布，无法核对配置"
     if after["target_status"] != "matched":
         return "failed", "候选目标不存在或元件类型不匹配"
-    if before["target_status"] in {"missing", "type_mismatch"}:
+    if before["target_status"] == "type_mismatch":
         return "failed", "基线目标不存在或元件类型不匹配"
     if before["target_status"] == "matched" and before["action_type"] != after["action_type"]:
         return "failed", "目标分组代码类型发生变化"
@@ -155,6 +155,8 @@ def _result(assertion, before, after):
     if operator == "unchanged":
         if before["target_status"] == "unavailable":
             return "unverified", "缺少基线画布，无法核对保持不变"
+        if before["target_status"] != "matched":
+            return "failed", "基线目标不存在，无法核对保持不变"
         if not before["present"]:
             return "failed", "基线参数路径不存在"
         passed = _equal(before["value"], after["value"])

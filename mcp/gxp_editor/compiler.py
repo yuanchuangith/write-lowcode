@@ -14,6 +14,7 @@ from typing import Any
 
 from .config import EditorConfig
 from .hashing import compiler_binding_payload, sha256_json, sha256_text
+from .planning_limits import MAX_OPERATION_BYTES
 from .reference_repair import scan_references
 from .telemetry import stage
 from .runtime_package import MANIFEST_NAME, RuntimeResourceError, assert_runtime_resources
@@ -109,6 +110,8 @@ class CompilerBridge:
         self._registry_key_value = None
         self._verified_call = None
         self._binding_call_active = False
+        self._compiled_result = None
+        self._compiled_result_sha256 = None
 
     @property
     def frontend_repo(self) -> Path:
@@ -155,26 +158,13 @@ class CompilerBridge:
         if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
             raise CompilerError("Configured frontend repository returned an invalid commit id")
         branch = "DETACHED" if branch == "HEAD" else branch
-        status = self._git("status", "--porcelain=v1", "-z", "--untracked-files=all", binary=True)
-        diff = self._git("diff", "--no-ext-diff", "--binary", "HEAD", "--", binary=True)
-        if not isinstance(status, bytes) or not isinstance(diff, bytes):
-            raise CompilerError("Configured frontend repository returned invalid Git evidence")
-        dirty_entries = [entry for entry in status.split(b"\0") if entry]
-        workspace_hash = hashlib.sha256()
-        workspace_hash.update(commit.encode("ascii"))
-        workspace_hash.update(b"\0")
-        workspace_hash.update(status)
-        workspace_hash.update(b"\0")
-        workspace_hash.update(diff)
         return {
             "ready": True,
             "frontend_repo": str(root),
             "commit": commit,
             "branch": branch,
-            "dirty": bool(dirty_entries),
-            "dirty_file_count": len(dirty_entries),
-            "workspace_sha256": workspace_hash.hexdigest(),
             "bridge_path": relative_bridge.as_posix(),
+            "binding_scope": "compiler_inputs_v1",
         }
 
     def _call(self, payload: dict[str, Any], *, timeout_seconds: int = 60) -> dict[str, Any]:
@@ -459,6 +449,21 @@ class CompilerBridge:
         binding["compiler_binding_sha256"] = sha256_json(binding)
         return binding
 
+    def verify_binding(self, expected: dict[str, Any]) -> dict[str, Any]:
+        """Check compiled input bytes without starting Git, Node or a generator."""
+        provenance = expected.get("source_provenance", {})
+        if provenance.get("binding_scope") != "compiler_inputs_v1":
+            return self.compiler_binding()  # Legacy fingerprints retain their original contract.
+        if expected.get("compiler_binding_sha256") != sha256_json(compiler_binding_payload(expected)):
+            raise CompilerError("Compiler binding hash is invalid")
+        current = self._source_key()
+        paths_match = (provenance.get("frontend_repo") == str(self.frontend_repo)
+                       and provenance.get("bridge_path") == self.path.resolve().relative_to(self.frontend_repo).as_posix())
+        if not paths_match or any(expected.get(field) != value for field, value in zip(
+                ("bridge_sha256", "adapter_sha256", "rule_source_sha256"), current[2:5])):
+            raise CompilerError("Compiler input source changed after planning")
+        return deepcopy(expected)
+
     def registry_and_binding(self) -> tuple[dict[str, Any], dict[str, Any]]:
         """One verified snapshot for adjacent registry and binding consumers.
 
@@ -587,8 +592,21 @@ class CompilerBridge:
         event_validation = result.get("event_binding_validation")
         if not isinstance(event_validation, dict) or not isinstance(event_validation.get("binding_node_keys"), list):
             raise CompilerError("Event binding validation evidence is missing; regenerate the plan")
-        revalidation = self._verify_candidate(design, result, binding_node_keys=event_validation["binding_node_keys"],
-            baseline_design=baseline_design, baseline_artifacts=baseline_artifacts, generation_mode=generation_mode)
+        if self._compiled_result is result:
+            if self._compiled_fingerprint(result) != self._compiled_result_sha256:
+                raise CompilerError("Compiler result or generation evidence changed after native generation")
+            same_context = (baseline_design == context.get("baseline_design")
+                            and baseline_artifacts == context.get("baseline_artifacts")
+                            and generation_mode == context.get("generation_mode"))
+        else:
+            same_context = False
+        if same_context:
+            # This exact object came from the source-checked native process,
+            # including canvas, JS syntax and binding checks. Do not run it twice.
+            revalidation = result
+        else:
+            revalidation = self._verify_candidate(design, result, binding_node_keys=event_validation["binding_node_keys"],
+                baseline_design=baseline_design, baseline_artifacts=baseline_artifacts, generation_mode=generation_mode)
         if revalidation["event_binding_validation"] != event_validation:
             raise CompilerError("Event binding validation evidence changed")
         if revalidation.get("validation") != result.get("validation"):
@@ -749,12 +767,10 @@ class CompilerBridge:
         self.preflight_operations(design, operations)
         if not operations:
             raise CompilerError("At least one canvas operation is required")
-        if len(operations) > 100:
-            raise CompilerError("A single plan may contain at most 100 canvas operations")
         if any(not isinstance(operation, dict) for operation in operations):
             raise CompilerError("Every canvas operation must be an object")
         operation_bytes = len(json.dumps(operations, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
-        if operation_bytes > 2 * 1024 * 1024:
+        if operation_bytes > MAX_OPERATION_BYTES:
             raise CompilerError("Canvas operations exceed the 2 MiB planning limit")
         forbidden = {"js_code", "csharp_code", "sql", "key", "depth", "relation_data"}
         for index, operation in enumerate(operations):
@@ -773,7 +789,15 @@ class CompilerBridge:
         result = self._call_and_bind(payload)
         result["_generation_context"] = {"baseline_design": deepcopy(baseline_design if baseline_design is not None else design),
             "baseline_artifacts": deepcopy(baseline_artifacts), "generation_mode": generation_mode}
+        self._compiled_result = result
+        self._compiled_result_sha256 = self._compiled_fingerprint(result)
         return result
+
+    @staticmethod
+    def _compiled_fingerprint(result):
+        return sha256_json({field: result.get(field) for field in (
+            "design", "js_code", "csharp_code", "relation_data", "compiler_binding", "validation",
+            "event_binding_validation", "generation", "generation_selection", "interface_metadata", "_generation_context")})
 
     @staticmethod
     def preflight_operations(design, operations):
@@ -792,12 +816,12 @@ class CompilerBridge:
         This never validates a candidate or supplies compiler evidence. All other
         operation shapes fall through to the real compiler.
         """
-        if not isinstance(operations, list) or not operations or len(operations) > 100 or any(
+        if not isinstance(operations, list) or not operations or any(
             not isinstance(op, dict) or op.get("operation") != "set_parameter" for op in operations
         ):
             return False
         try:
-            if len(json.dumps(operations, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")) > 2 * 1024 * 1024:
+            if len(json.dumps(operations, ensure_ascii=False, separators=(",", ":"), allow_nan=False).encode("utf-8")) > MAX_OPERATION_BYTES:
                 return False
         except (TypeError, ValueError, RecursionError):
             return False

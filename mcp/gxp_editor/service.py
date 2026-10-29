@@ -33,6 +33,9 @@ from .logic_review import (
     require_write_business_review, validate_business_review,
 )
 from .logic_scenarios import LogicScenarioRunner
+from .review_targets import (native_alias_bindings, resolve_review_targets, requirements_spec,
+                             only_invalid_locator_corrections)
+from .planning_limits import planning_limits
 
 
 _COMPONENT_REQUEST = ContextVar("gxp_editor_component_request", default=None)
@@ -266,6 +269,7 @@ class EditorService:
         status endpoint always verifies all gates.
         """
         result: dict[str, Any] = {
+            "planning_limits": planning_limits(),
             "configured": False,
             "planning_ready": False,
             "noncompiler_write_ready": False,
@@ -678,6 +682,7 @@ class EditorService:
                 "write_executed": False}} if edit_context is not None else {}),
             **({"evidence_candidates": evidence_candidates} if evidence_candidates is not None else {}),
             "supported_operations": registry.get("supported_operations") or [],
+            "planning_limits": planning_limits(),
             "source_repositories": status.get("source_repositories") or {},
             "readiness_snapshot": {key: status[key] for key in
                 ("planning_ready", "write_ready", "production_ready", "gates") if key in status},
@@ -894,13 +899,13 @@ class EditorService:
 
     def plan_canvas_patch(
         self, session_id: str, operations: list[dict[str, Any]], review_spec: dict[str, Any] | None = None,
-        *, response_detail: str = "full", generation_mode: str = "full",
+        *, response_detail: str = "full", generation_mode: str = "full", append_to_plan_id: str = "",
     ) -> dict[str, Any]:
         session = self._owned_session(session_id)
         if session.get("session_mode", "edit") != "edit":
             raise EditorServiceError("Reference repair sessions require plan_reference_repairs")
         return self._plan_patch(session_id, operations, review_spec=review_spec, response_detail=response_detail,
-                                generation_mode=generation_mode)
+                                generation_mode=generation_mode, append_to_plan_id=append_to_plan_id)
 
     def inspect_reference_repairs(self, session_id: str, *, offset: int = 0, limit: int = 30) -> dict[str, Any]:
         if offset < 0 or not 1 <= limit <= 100:
@@ -935,7 +940,7 @@ class EditorService:
         return self._plan_patch(session_id, repaired["operations"], repaired=repaired, review_spec=review_spec,
                                 response_detail=response_detail)
 
-    def _resolve_review_spec(self, session: dict[str, Any], supplied: dict[str, Any] | None) -> tuple[dict[str, Any], str]:
+    def _resolve_review_spec(self, session: dict[str, Any], supplied: dict[str, Any] | None, *, operations=()) -> tuple[dict[str, Any], str]:
         previous = None
         checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
                                                        owner_revision=session.get("owner_revision", 0))
@@ -953,7 +958,7 @@ class EditorService:
                 raise error from exc
             if old_artifact.get("business_review") is not None:
                 self._validate_plan_review(old_plan, session, old_artifact)
-                previous = old_artifact["business_review"]["spec"]
+                previous = requirements_spec(old_artifact["business_review"])
             elif old_plan.get("new_hash") != sha256_json(old_artifact.get("hashes")):
                 raise EditorServiceError("已有计划的业务验收证据被移除或损坏，不能清空预期后重试。")
         if supplied is None and previous is not None:
@@ -982,7 +987,9 @@ class EditorService:
                 for assertion_id, assertion in old_assertions.items()
             )
             changed_scope_policy = spec.get("scope_policy") != previous.get("scope_policy", "manual_review")
-            if old_rules != new_rules or changed_existing_cases or changed_existing_assertions or changed_scope_policy:
+            locator_correction = (old_rules != new_rules and only_invalid_locator_corrections(
+                previous, spec, self._compiler_design(session["baseline"]), operations))
+            if (old_rules != new_rules and not locator_correction) or changed_existing_cases or changed_existing_assertions or changed_scope_policy:
                 old_sources = {str(item.get("source_text") or "").strip() for item in previous.get("requirements", [])}
                 new_sources = {str(item.get("source_text") or "").strip() for item in spec.get("requirements", [])}
                 change_source = str(spec.get("change_source_text") or "").strip()
@@ -1011,22 +1018,39 @@ class EditorService:
             artifact["business_review"], baseline_design=session["baseline"],
             candidate_design=artifact.get("desired"), compiler_binding=artifact.get("compiler_binding"),
         )
+        if "target_bindings" in artifact["business_review"]:
+            if native_alias_bindings(artifact.get("diff", [])) != artifact["business_review"]["target_bindings"]:
+                raise EditorServiceError("业务审查的目标身份与原生生成记录不一致。")
 
     @component_request
     def _plan_patch(
         self, session_id: str, operations: list[dict[str, Any]], *, repaired=None,
         review_spec: dict[str, Any] | None = None, response_detail: str = "full", generation_mode: str = "full",
+        append_to_plan_id: str = "",
     ) -> dict[str, Any]:
         if response_detail not in {"summary", "full"}:
             raise EditorServiceError("response_detail must be summary or full")
         if generation_mode not in ("full", "incremental", "auto"):
             raise EditorServiceError("generation_mode must be full, incremental, or auto")
+        if type(append_to_plan_id) is not str:
+            raise EditorServiceError("append_to_plan_id must be a plan id")
         config, _, repository, compiler, runtime_validator = self._components()
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned"}:
             raise StateError(f"Session state {session['state']!r} cannot be planned")
         current, current_relations, comparison = self._baseline_snapshot(session, repository)
-        spec, checkpoint_sha = self._resolve_review_spec(session, review_spec)
+        added_operation_count = len(operations) if type(operations) is list else 0
+        if append_to_plan_id:
+            if repaired is not None or session.get("plan_id") != append_to_plan_id:
+                raise EditorServiceError("只能向当前会话的最新画布计划追加操作，请读取当前 plan_id 后重试。")
+            prior_plan = self.state.get_plan(append_to_plan_id)
+            prior_artifact = load_artifact(prior_plan["artifact_path"])
+            self._validate_plan_review(prior_plan, session, prior_artifact)
+            if prior_artifact.get("planning_protocol") != "composable_v1":
+                raise EditorServiceError("旧计划未绑定完整操作清单，请先用新版重新规划后追加。")
+            if type(operations) is not list or not operations:
+                raise EditorServiceError("追加批次必须包含操作。")
+            operations = prior_artifact["operations"] + operations
         guarded = type(operations) is list and any(type(op) is dict and "guard_ref" in op for op in operations)
         if guarded:
             from .edit_guards import expand_guard_operations
@@ -1036,6 +1060,7 @@ class EditorService:
                                                   operations, approval_secret(config))
         if repaired is None:
             CompilerBridge.preflight_operations(self._compiler_design(session["baseline"]), operations)
+        spec, checkpoint_sha = self._resolve_review_spec(session, review_spec, operations=operations)
         if repaired is None and type(operations) is list and operations and CompilerBridge.guarded_no_changes(
                 self._compiler_design(session["baseline"]), operations):
             return self._no_changes_response(session)
@@ -1076,19 +1101,23 @@ class EditorService:
             desired["csharp_code"],
         )
         self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
+        target_bindings = native_alias_bindings(result.get("diff") or [])
+        resolved_spec = normalize_review_spec(resolve_review_targets(spec, target_bindings, design))
         with stage("review.scenarios"):
             execution_mapping = compiler_evidence.get("event_binding_validation", {}).get("execution_coverage")
             scenario_report = LogicScenarioRunner(config).run_pair(
-                str(session["baseline"].get("js_code") or ""), desired["js_code"], spec["scenarios"],
+                str(session["baseline"].get("js_code") or ""), desired["js_code"], resolved_spec["scenarios"],
                 **({"candidate_coverage": execution_mapping, "compiler_binding": binding}
                    if execution_mapping is not None else {}),
             )
         with stage("review.business_checks"):
             business_review = build_business_review(
-                review_spec=spec, baseline_design=session["baseline"], candidate_design=desired,
+                review_spec=resolved_spec, baseline_design=session["baseline"], candidate_design=desired,
                 compiler_binding=binding, scenario_report=scenario_report,
+                **({"source_spec": spec, "target_bindings": target_bindings} if resolved_spec != spec else {}),
             )
         plan_artifact = {
+            "planning_protocol": "composable_v1",
             "session_id": session_id,
             "action_context": action_context(session["baseline"]),
             "base_content_hash": current["content_hash"],
@@ -1134,6 +1163,9 @@ class EditorService:
             "plan_id": plan_id,
             "session_id": session_id,
             "operation_count": len(operations),
+            "added_operation_count": added_operation_count,
+            "appended_to_plan_id": append_to_plan_id or None,
+            "planning_limits": planning_limits(),
             "action_context": plan_artifact["action_context"],
             **({"diff": plan_artifact["diff"]} if response_detail == "full" else {"diff_count": len(plan_artifact["diff"])}),
             "validation": plan_artifact["validation"] if response_detail == "full" else evidence_summary(plan_artifact["validation"]),
@@ -1309,7 +1341,7 @@ class EditorService:
                 raise self._evidence_error("compiler_binding_changed", "Compiler binding changed; create a new plan")
         checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
             owner_revision=session.get("owner_revision", 0))
-        if transaction["kind"] == "write" and checkpoint and sha256_json(checkpoint["spec"]) != sha256_json(artifact["business_review"]["spec"]):
+        if transaction["kind"] == "write" and checkpoint and sha256_json(checkpoint["spec"]) != sha256_json(requirements_spec(artifact["business_review"])):
             raise self._evidence_error("review_requirements_changed", "Review requirements changed; create a new plan")
         plan = self.state.get_plan(transaction["plan_id"]) if transaction.get("plan_id") else None
         if transaction["kind"] == "write" and plan and (session.get("plan_id") != plan["id"] or artifact.get("plan_id") != plan["id"]):
@@ -1460,7 +1492,7 @@ class EditorService:
             raise EditorServiceError("旧计划缺少修改范围策略，只可查看；请重新生成计划后审批。")
         checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
                                                       owner_revision=session.get("owner_revision", 0))
-        if checkpoint is not None and sha256_json(checkpoint["spec"]) != sha256_json(artifact["business_review"]["spec"]):
+        if checkpoint is not None and sha256_json(checkpoint["spec"]) != sha256_json(requirements_spec(artifact["business_review"])):
             raise EditorServiceError("已确认要求已变化；旧计划只可查看，请按当前要求重新生成计划。")
         status = self._readiness_status(probe_runtime=False, defer_compiler=True)
         if not status["noncompiler_write_ready"]:
@@ -1472,7 +1504,11 @@ class EditorService:
         current, current_relations, comparison = self._baseline_snapshot(session, repository)
         if plan.get("base_hash") != artifact.get("base_content_hash") or current["content_hash"] != artifact.get("base_content_hash"):
             raise self._evidence_error("draft_baseline_changed", "Draft changed after the plan was generated", comparison)
-        registry, binding = compiler.registry_and_binding()
+        reusable_plan = artifact.get("planning_protocol") == "composable_v1"
+        if reusable_plan and session.get("session_mode") != "reference_repair":
+            registry, binding = None, compiler.verify_binding(artifact["compiler_binding"])
+        else:
+            registry, binding = compiler.registry_and_binding()
         if (
             plan.get("compiler_hash") != artifact.get("compiler_hash")
             or session.get("compiler_hash") != artifact.get("compiler_hash")
@@ -1513,11 +1549,17 @@ class EditorService:
                 for key in expected_nodes
             ):
                 raise EditorServiceError("Candidate parameters differ from the recorded reference repairs")
-        compiler_evidence = compiler.verify_candidate_artifact(
-            candidate_design, desired, baseline_design=self._compiler_design(session["baseline"]),
-            **({"baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"])}
-               if artifact.get("generation") or artifact.get("generation_selection") else {}),
-            generation_mode=artifact.get("generation_mode", "full"))
+        if reusable_plan:
+            compiler_evidence = {key: artifact[key] for key in (
+                "compiler_binding", "validation", "event_binding_validation", "code_generation_complete",
+                "generated_code_consistency_verified", "interface_metadata", "generation", "generation_selection")
+                if key in artifact}
+        else:
+            compiler_evidence = compiler.verify_candidate_artifact(
+                candidate_design, desired, baseline_design=self._compiler_design(session["baseline"]),
+                **({"baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"])}
+                   if artifact.get("generation") or artifact.get("generation_selection") else {}),
+                generation_mode=artifact.get("generation_mode", "full"))
         if (
             compiler_evidence.get("validation") != artifact.get("validation")
             or compiler_evidence.get("event_binding_validation") != artifact.get("event_binding_validation")
@@ -1531,11 +1573,14 @@ class EditorService:
             or artifact.get("code_generation_complete") is not True
         ):
             raise EditorServiceError("Candidate canvas validation or generated-code evidence is no longer valid")
-        runtime_validation = self._runtime_validation_evidence(
-            runtime_validator,
-            str(current.get("code") or ""),
-            desired["csharp_code"],
-        )
+        runtime_validation = None
+        reuse_runtime = getattr(runtime_validator, "reuse_evidence", None)
+        if reusable_plan and callable(reuse_runtime):
+            with stage("runtime.reuse_build"):
+                runtime_validation = reuse_runtime(artifact["runtime_validation"], desired["csharp_code"])
+        if runtime_validation is None:
+            runtime_validation = self._runtime_validation_evidence(
+                runtime_validator, str(current.get("code") or ""), desired["csharp_code"])
         self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
         transaction_id = uuid.uuid4().hex
         transaction_artifact = build_transaction_artifact(

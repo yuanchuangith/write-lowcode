@@ -188,6 +188,7 @@ def plan_canvas_patch(
     review_spec: ReviewSpec | None = None,
     response_detail: Literal["summary", "full"] = "summary",
     generation_mode: Literal["full", "incremental", "auto"] = "full",
+    append_to_plan_id: str = "",
 ) -> dict[str, Any]:
     """Compile a canvas batch and compare original/candidate JS against declarative business expectations.
 
@@ -200,11 +201,14 @@ def plan_canvas_patch(
     or response_detail=full. generation_mode defaults to full; incremental preserves unchanged
     saved action functions; auto chooses using actual changed groups and dependency scope.
     Report generation_selection with its reason. Failed checks block approval. No database write.
+    Operation counts are not capped; operations must fit 2 MiB. append_to_plan_id adds this batch
+    to the latest plan, regenerating and checking the complete candidate for one final approval.
+    Requirements, assertions and scenario calls may use declared @group_alias/@node_alias identities.
     """
     try:
         return service(conversation_id).plan_canvas_patch(
             session_id, operations, review_spec=review_spec, response_detail=response_detail,
-            generation_mode=generation_mode)
+            generation_mode=generation_mode, **({"append_to_plan_id": append_to_plan_id} if append_to_plan_id else {}))
     except CompilerError as exc:
         return _compiler_failure(exc)
 

@@ -12,6 +12,7 @@ from pathlib import Path
 from typing import Any
 
 from .hashing import sha256_json, sha256_text
+from .planning_limits import MAX_SCENARIO_BYTES
 
 
 class LogicScenarioSpecError(ValueError):
@@ -19,12 +20,10 @@ class LogicScenarioSpecError(ValueError):
 
 
 RUNNER_VERSION = "2"
-MAX_SPEC_BYTES = 1024 * 1024
+MAX_SPEC_BYTES = MAX_SCENARIO_BYTES
 MAX_SOURCE_BYTES = 2 * 1024 * 1024
-MAX_CASES = 20
-MAX_STEPS = 10
 MAX_SAFE_INTEGER = 2**53 - 1
-_GROUP = re.compile(r"[A-Za-z_$][A-Za-z0-9_$]{0,127}\Z")
+_GROUP = re.compile(r"@?[A-Za-z_$][A-Za-z0-9_$]{0,127}\Z")
 
 
 def _object(value: Any, allowed: set[str], label: str) -> dict[str, Any]:
@@ -43,8 +42,8 @@ def _name(value: Any, label: str) -> str:
 
 
 def _fields(value: Any, label: str, *, expected: bool = False) -> None:
-    if not isinstance(value, dict) or len(value) > 100:
-        raise LogicScenarioSpecError(f"{label} must contain at most 100 declared fields")
+    if not isinstance(value, dict):
+        raise LogicScenarioSpecError(f"{label} must contain declared fields")
     for name, field in value.items():
         _name(name, label + " ID")
         item = _object(field, {"value"} if expected else {"value", "text", "selected_rows"}, label + "." + name)
@@ -76,8 +75,8 @@ def validate_scenario_spec(spec: Any) -> dict[str, Any]:
     if type(spec.get("schema_version")) is not int or spec["schema_version"] != 1:
         raise LogicScenarioSpecError("scenarios.schema_version must be 1")
     cases = spec.get("cases")
-    if not isinstance(cases, list) or len(cases) > MAX_CASES:
-        raise LogicScenarioSpecError("scenarios.cases must be an array of at most 20 cases")
+    if not isinstance(cases, list):
+        raise LogicScenarioSpecError("scenarios.cases must be an array")
     seen: set[str] = set()
     for case in cases:
         case = _object(case, {"id", "title", "requirement_ids", "environment", "steps", "expect"}, "scenario")
@@ -87,8 +86,8 @@ def validate_scenario_spec(spec: Any) -> dict[str, Any]:
         seen.add(case_id)
         if "requirement_ids" in case:
             links = case["requirement_ids"]
-            if not isinstance(links, list) or len(links) > 100:
-                raise LogicScenarioSpecError("scenario.requirement_ids must be an array of at most 100 IDs")
+            if not isinstance(links, list):
+                raise LogicScenarioSpecError("scenario.requirement_ids must be an array of IDs")
             for link in links:
                 _name(link, "scenario requirement ID")
             if len(set(links)) != len(links):
@@ -102,8 +101,8 @@ def validate_scenario_spec(spec: Any) -> dict[str, Any]:
         if "page_mode" in environment:
             _name(environment["page_mode"], "environment.page_mode")
         steps = case.get("steps")
-        if not isinstance(steps, list) or not steps or len(steps) > MAX_STEPS:
-            raise LogicScenarioSpecError("Each scenario needs 1 to 10 steps")
+        if not isinstance(steps, list) or not steps:
+            raise LogicScenarioSpecError("Each scenario needs a nonempty steps array")
         for step in steps:
             if not isinstance(step, dict):
                 raise LogicScenarioSpecError("Scenario steps must be objects")

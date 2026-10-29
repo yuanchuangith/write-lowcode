@@ -10,7 +10,7 @@ The configured bridge is normally `dist/action-design-compiler/bridge.js`. It ex
 
 The compiler binding contains:
 
-- frontend Git root, branch, commit, dirty-file count, and a workspace fingerprint;
+- verified frontend root and bridge path; Git branch and commit remain registry audit metadata;
 - bridge path and SHA-256;
 - plugin compiler-runner and structured-operation adapter SHA-256;
 - frontend version;
@@ -18,7 +18,7 @@ The compiler binding contains:
 - stable element-registry SHA-256;
 - a SHA-256 over the complete binding.
 
-The working tree may be dirty, but its exact fingerprint is bound. Any binding change between session start, planning, and `prepare_write` invalidates the current workflow. Do not rebuild, reset, format, or modify the frontend repository as part of an edit request.
+The binding covers actual compiler input bytes, not unrelated workspace files. A documentation-only change does not invalidate a plan. Actual bridge, adapter, rule or dependency drift still blocks. New plans bind their operation list, native diff and complete review; prepare/save reuse that evidence after content/source checks, without launching generators again. Do not rebuild, reset, format, or modify the frontend repository as part of an edit request.
 
 ## Structured group and component operations
 
@@ -30,7 +30,7 @@ The plugin runner loads the configured native bundle with a narrow in-memory dis
 
 Auto policy `action_groups_v1` selects incremental only with a complete saved baseline and original canvas, unchanged shared metadata, no action-type/language transition, at most 3 affected groups (including dependent and removed groups), at most 30 actually changed node keys (added/deleted/changed), and an affected-group ratio strictly below 50% of the before/after group union. Otherwise it selects full. `generation_selection` records requested/selected mode, reason code, policy version, counts, thresholds, scope and baseline/candidate fingerprints. Explicit incremental does not fall back on source-mapping failures.
 
-Incremental generation uses the session's immutable saved baseline, not model-supplied source. Its minimum boundary is a whole action function. Shared context changes regenerate all groups; unknown or ambiguous source boundaries block rather than silently rebuilding or rewriting business logic. JS spans use Babel AST; C# spans use a conservative lexer supporting regular, verbatim and interpolated strings (raw strings currently block C# splicing). Every independent verification recomputes the actual mode and dependency scope, runs native generators, reconstructs the complete candidate and compares exact JS/C#/relations and generation evidence. `generation` records regenerated/preserved groups and baseline/candidate fingerprints; together with `generation_selection` it is bound into the plan and approval. Nonblank complete candidate C# compilation and human approval remain mandatory in every mode. Explicit reference repair retains full native generation.
+Incremental generation uses the session's immutable saved baseline, not model-supplied source. Its minimum boundary is a whole action function. Shared context changes regenerate all groups; unknown or ambiguous source boundaries block rather than silently rebuilding or rewriting business logic. JS spans use Babel AST; C# spans use a conservative lexer supporting regular, verbatim and interpolated strings (raw strings currently block C# splicing). The native call computes the actual mode/dependency scope and produces the complete candidate with JS syntax and binding checks. Its exact in-memory output is fingerprinted and reused within that request; changed output is rejected. Imported or copied artifacts still require regeneration. Approval reuses that bound result when candidate and compiler input bytes match. `generation` records regenerated/preserved groups and baseline/candidate fingerprints; together with `generation_selection` it is bound into the plan and approval. Nonblank complete candidate C# compilation and human approval remain mandatory in every mode. Explicit reference repair retains full native generation.
 
 All JS groups undergo syntax/lexical inspection in every mode, including unchanged, byte-preserved groups. The number of changed fields and generation scope never exempt lexical checks. Only newly introduced reachable undeclared references block. Compare each concrete reference against the immutable pre-edit saved source: match its group, identifier, normalized member/call expression and occurrence count. Location/formatting changes alone do not create a new problem. Existing reachable findings become nonblocking `baseline_diagnostics`, including when their group is regenerated; retain current/baseline locations, baseline source SHA-256, reference SHA-256, `status: "unverified"` and `blocks_changed_candidate: false`. Do not treat an existing identifier somewhere in the group as permission to add more bad references. Missing declarations introduced by this edit, added occurrences and references made reachable from a previously unreachable branch block. An unreadable or absent baseline provides no proof that a finding preexists. The normal session always supplies its immutable saved baseline; lower-level offline calls without saved artifacts derive baseline source through native generation.
 
@@ -67,8 +67,7 @@ signed approval evidence.
 ## Reusable preparation and timings
 
 Preparation may be reused only under its verified source/SDK/reference binding;
-candidate success is never cached. Fresh independent generation, complete
-candidate compilation before planning and approval, source/reference checks and
+candidate success is never reused across different content/source/reference bindings. Planning performs native generation and complete candidate compilation; approval reuses their bound evidence. Source/reference checks and
 timeouts retain their blocking meaning. Cache identity, workspace cleanup,
 cold/warm failure handling and interpretation of `trace_id`, `total_elapsed_ms`
 and `timings` are maintained in [timing and reusable preparation](batch-repair-and-performance.md#timing-and-reusable-preparation).
@@ -144,7 +143,7 @@ artifacts, SQL, approval requirements, or executable code.
 
 `prepare_write` parses and revalidates the stored candidate, recomputes every hash, compares the complete compiler binding, and binds the resulting evidence into the approval transaction. Failure occurs before transaction creation and before the approval application is launched.
 
-Nonblank candidate C# compilation against local read-only references is also mandatory before planning and approval. Its UTF-8 subprocess protocol preserves the exact candidate hash. Timeout, protocol errors, missing SDK/reference packs and C# errors are reported separately and block the candidate; local success does not prove production runtime behavior.
+Nonblank candidate C# compilation against local read-only references is mandatory during planning. Approval reuses the successful result when code and reference bytes match; changed references require a fresh successful build. Its UTF-8 subprocess protocol preserves the exact candidate hash. Timeout, protocol errors, missing SDK/reference packs and C# errors are reported separately and block the candidate; local success does not prove production runtime behavior.
 
 ## Legacy reference repair adapter
 

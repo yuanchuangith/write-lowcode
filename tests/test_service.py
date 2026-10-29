@@ -46,6 +46,9 @@ class FakeRepository:
 
 
 class FakeCompiler:
+    def verify_binding(self, expected):
+        return self.compiler_binding()
+
     def compiler_binding(self):
         payload = {
             "bridge_sha256": "a" * 64,

@@ -3,8 +3,8 @@ from copy import deepcopy
 import unittest
 from unittest.mock import Mock, patch
 
-from gxp_editor.service import EditorServiceError
 from tests.payload_fixtures import PayloadHarness
+from gxp_editor.service import EditorServiceError
 
 
 class ServiceReadinessTests(unittest.TestCase):
@@ -30,15 +30,15 @@ class ServiceReadinessTests(unittest.TestCase):
                 loaded = old_load(identifier, session=session)
                 changed = True
                 return loaded
-            original = harness.compiler.registry_and_binding
-            def fresh_binding():
+            original = harness.compiler.verify_binding
+            def fresh_binding(expected):
                 if changed:
                     raise ValueError("source changed after draft IO")
-                return original()
+                return original(expected)
             grants = Mock(wraps=harness.repository.grant_status)
             with patch.object(harness.repository, "load_draft_by_id", side_effect=load_then_drift), \
                  patch.object(harness.repository, "grant_status", grants), \
-                 patch.object(harness.compiler, "registry_and_binding", side_effect=fresh_binding):
+                 patch.object(harness.compiler, "verify_binding", side_effect=fresh_binding):
                 with self.assertRaisesRegex(ValueError, "source changed after draft IO"):
                     harness.service.prepare_write(plan["plan_id"])
             self.assertEqual(grants.call_count, 1)

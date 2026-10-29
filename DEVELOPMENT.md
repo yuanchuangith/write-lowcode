@@ -4,7 +4,7 @@
 
 ## 架构与代码入口
 
-服务处理已有未发布 ActionDesign 草稿：注册对话 → 建立独占会话及不可变备份 → 定位与读取 → 固定需求并规划 → 原生生成和独立复验 → 业务复核 → 人工 SQL 审批 → 保存核对及释放。Look 是可选的只读证据来源；不需要先完成诊断或导出交接包。
+服务处理已有未发布 ActionDesign 草稿：注册对话 → 建立独占会话及不可变备份 → 定位与读取 → 固定需求并规划 → 原生生成及结果绑定 → 业务复核 → 人工 SQL 审批 → 保存核对及释放。Look 是可选的只读证据来源；不需要先完成诊断或导出交接包。
 
 | 改动内容 | 主要入口 |
 | --- | --- |
@@ -27,12 +27,16 @@
 | 授权与范围 | 首次业务编辑显式启用，同一已授权对话和草稿继续复用；设置入口不授予编辑权限。见[技能入口](skills/gxp-lowcode-edit/SKILL.md)及[安全契约](skills/gxp-lowcode-edit/references/safety-contract.md)。 |
 | 定位与旧值 | 目标来自会话备份；`guard_ref` 与完整旧值二选一，签名只代表不可变基线，批次中间值仍用完整格式。见[目标读取](skills/gxp-lowcode-edit/references/targeting-and-source.md)和[操作契约](skills/gxp-lowcode-edit/references/patch-schema.md)。 |
 | 响应体积 | MCP 默认摘要，显式完整模式保留；显式 `include_context` 优先按旧语义。值分片偏移为 Unicode 码点，预算为 UTF-8 字节，默认 16 KiB、上限 64 KiB。 |
-| 生成与编译 | 默认全量生成，与响应摘要独立；独立复验及完整候选 C# 编译保留。见[生成模式](docs/incremental-generation.md)和[编译器契约](skills/gxp-lowcode-edit/references/frontend-compiler-contract.md)。 |
+| 生成与编译 | 默认全量生成，与响应摘要独立；原生结果绑定及完整候选 C# 编译保留。见[生成模式](docs/incremental-generation.md)和[编译器契约](skills/gxp-lowcode-edit/references/frontend-compiler-contract.md)。 |
 | 业务准确性 | 先从原始需求固定期望，不从候选反推或放宽。`passed` 需要完整唯一断言与观察值核对，`failed` 和 `unverified` 分开。见[业务复核及报告读取](skills/gxp-lowcode-edit/references/business-review.md)。 |
 | 审批与恢复 | 人工审批实际 SQL 及参数；验证并释放才完成保存，不代表发布或运行通过。见[会话流程](skills/gxp-lowcode-edit/references/session-workflows.md)。 |
 | 证据与图谱 | 先复用有效证据，缺口按需补查。写后图谱修改需单独同意，完整案例及 CAS 合并；草稿不证明发布。见[证据复用](skills/gxp-lowcode-edit/references/evidence-and-performance.md)和[写后图谱复核](skills/gxp-lowcode-edit/references/post-write-graph-review.md)。 |
 
 精确工具签名以当前 MCP schema 为准；修改外部参数时同步检查服务、验证器、技能参考及调用方，不能只改说明。
+
+2026-10-29 起，规划不设操作、需求、断言或场景步骤的条数门槛；共享体积预算由 `planning_limits.py` 维护并通过入口返回。`append_to_plan_id` 合并最新计划和新增操作后，从不可变基线生成完整候选，最后只审批一次。`review_targets.py` 统一路径及新建目标的别名解析，原始要求和真实目标同时绑定在复核报告中。
+
+规划完成原生生成及必要的 C# 编译后，同次生成的原始输出通过内存对象及内容指纹复用，不再重复生成。开启审批时按计划摘要和实际源文件指纹复用结果；引用内容变化才重新编译。最终保存比对编译器输入字节，不再启动 Git / Node 加载元件目录。Git 分支、提交及无关文档变化不使新计划失效，实际生成器和依赖变化仍阻断。修复与离线验证范围见[规划和保存修复记录](docs/planning-workflow-repair-2026-10-29.md)。
 
 公开工具经 `@traced_tool` 包装后会附加列表型 `timings` 和数值型 `total_elapsed_ms`，失败响应还含布尔、字典及列表。字典响应的公开返回注解使用 `dict[str, Any]`，内部仅含字符串的返回类型可以保留。回归须通过 `mcp.call_tool` 验证成功和失败响应的实际输出转换；只验证启动或工具列表无法发现返回校验错误。
 

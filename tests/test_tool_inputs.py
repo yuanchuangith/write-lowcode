@@ -7,6 +7,20 @@ from tests.test_conversation_tools import SERVER
 
 
 class ToolInputTests(unittest.TestCase):
+    def test_large_composable_plan_reaches_service_without_count_caps(self):
+        operation = {"operation": "append_node", "action_group_key": "@child", "node_alias": "first",
+                     "element_key": "SetVariable", "input_params": {}, "output_params": {}}
+        review = {"schema_version": 1, "revision": "r1", "requirements": [{"id": "r", "text": "Create values",
+                  "source_text": "Create values", "targets": [{"group_key": "@child"}]}],
+                  "scenarios": {"schema_version": 1, "cases": [{"id": f"case{i}",
+                  "steps": [{"kind": "call_group", "group_key": "@child"}] * 11} for i in range(21)]}}
+        with patch.object(SERVER, "service") as factory:
+            factory.return_value.plan_canvas_patch.return_value = {"ready_for_approval": True, "operation_count": 101}
+            self.call("plan_canvas_patch", {"session_id": "s", "operations": [operation] * 101,
+                      "review_spec": review, "append_to_plan_id": "current-plan"})
+            self.assertEqual(len(factory.return_value.plan_canvas_patch.call_args.args[1]), 101)
+            self.assertEqual(factory.return_value.plan_canvas_patch.call_args.kwargs["append_to_plan_id"], "current-plan")
+
     def call(self, name, arguments):
         return asyncio.run(SERVER.mcp.call_tool(name, arguments))
 

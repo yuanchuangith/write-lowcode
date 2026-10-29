@@ -38,7 +38,6 @@ class LogicScenarioSpecTests(unittest.TestCase):
         item = specification(); item["cases"].append(deepcopy(item["cases"][0])); examples.append(item)
         item = specification(); item["cases"][0]["requirement_ids"] *= 2; examples.append(item)
         item = specification(expect={"last_return": None, "last_return_undefined": True}); examples.append(item)
-        item = specification(); item["cases"][0]["steps"] *= 11; examples.append(item)
         for spec in examples:
             with self.subTest(spec=spec), self.assertRaises(LogicScenarioSpecError):
                 validate_scenario_spec(spec)
