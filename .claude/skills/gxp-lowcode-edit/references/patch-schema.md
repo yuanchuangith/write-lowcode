@@ -44,7 +44,7 @@ set_event_callback_contract fields: action_group_key, component_type, event_name
 
 Node input_params and output_params remain the actual element's parameter dictionaries. Inspect the registry and its real parameter editor; nested table fields are not interchangeable with plain ParamInput records. A block operation addresses its complete levelMarker/endMarker range. Anchors and targets must exist in the selected group. New node keys, depth, raw title/description, generated code, SQL and relation data are forbidden.
 
-For readable generated captions, use the native ParamInput `label` for the business meaning of custom expressions while keeping `value` and `code` equal to the real expression. Existing reference records retain their native identities and link metadata. Use native `CustomExt` nodes with single-line `input_params.content` for useful business notes. Read [readability.md](readability.md) when choosing labels or child-action boundaries; do not override generated node metadata or add another compilation pass.
+Keep native captions showing actual variable names and values. For new custom ParamInput values, `label`, `value` and `code` contain the same actual identifier, literal or expression; do not hide them behind Chinese explanations. Native selector records retain their own labels, identities and link metadata. Define complex IF/loop expressions as meaningful variables at the original evaluation point, then reference them. Use single-line native `CustomExt` notes only as a supplement. Follow [readability.md](readability.md); do not override node metadata or add a compilation pass.
 
 ### Referencing newly generated nodes in one batch
 

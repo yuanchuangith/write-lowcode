@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.56+codex.local-20261029-readability",
+  "version": "0.1.57+codex.local-20261029-native-variables",
   "description": "Guarded GXP ActionDesign draft editing with business expectation review, before/after generated-JS scenarios, bound compiler evidence, immutable backups, human approval and restore support.",
   "author": {
     "name": "Local developer"

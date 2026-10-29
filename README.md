@@ -10,7 +10,7 @@
 | 启用编辑、定位草稿、规划和审批 | [编辑技能](skills/gxp-lowcode-edit/SKILL.md) |
 | 查某类操作、原值守卫或参数路径 | [操作契约](skills/gxp-lowcode-edit/references/patch-schema.md)和[目标定位](skills/gxp-lowcode-edit/references/targeting-and-source.md) |
 | 固定需求、场景和业务验收 | [业务复核](skills/gxp-lowcode-edit/references/business-review.md) |
-| 生成便于排查和维护的编排 | [业务标签、主线和子动作](skills/gxp-lowcode-edit/references/readability.md) |
+| 生成便于排查和维护的编排 | [真实变量、条件变量和子动作](skills/gxp-lowcode-edit/references/readability.md) |
 | 处理审批状态、恢复、取消或多动作队列 | [会话流程](skills/gxp-lowcode-edit/references/session-workflows.md)，只读对应分支 |
 | 选择全量、增量或自动生成 | [生成模式](docs/incremental-generation.md) |
 | 查看或修改本机数据库设置 | [统一设置](skills/gxp-lowcode-edit/references/database-settings.md) |

@@ -1,39 +1,58 @@
-# 生成人能维护的编排
+# 保留真实变量与原生显示的可读编排
 
-生成结果要让维护者从画布读出业务主线、关键判断和处理去向。根据实际业务复杂度组织结构，直接纳入原有规划流程，不增加审批回合、工具调用或重复编译。
+维护者应能从画布对应到真实变量、取值、判断和调用。保留原生生成的说明格式，通过有意义的变量和清楚的子动作组织逻辑。直接在原有规划中完成，不增加审批回合、工具调用、重复编译或评分门禁。
 
-## 先解决画布上显示什么
+## 显示真实变量和取值
 
-原生 `convertToHtml` 优先使用参数对象的 `label` 生成节点说明；表达式执行使用 `code`，自定义参数编辑框显示 `value`。复杂表达式如果把三者全部填成代码，画布就会显示整段代码。
+原生 `convertToHtml` 会优先用参数对象的 `label` 生成画布说明。不要通过修改它把真实变量或表达式替换成中文业务概述。
 
-- 自定义表达式的 `value` 和 `code` 保持相同的真实表达式；`label` 写准确、简短的业务含义。不要为了显示中文而把 `value` 或 `code` 改成中文说明。
-- 条件标签说明判断对象和关系，例如“任务、参训记录或计划任一已取消/关闭”，而非“状态校验”“复杂条件”或整段 `Contains(Convert.ToString(...))`。
-- 明确“任一/全部”“已满足/未满足”、阈值及单位，保留对业务有影响的空值含义。不能把 OR 概括成 AND，也不能用好看的说明掩盖条件实际行为。
-- 变量取值同样提供语义标签，例如 `learningPlanRows[0]` 的标签可以是“查询结果中的首条培训计划记录”。保留执行表达式和索引行为。
-- 对选择器生成的字段、组件、模型及动作引用，保留其原生标识、类型、链接属性和正确名称，不把整个记录替换成自定义文本。
-- 编辑现有参数时保留已有准确标签；表达式改变后同步更新对应含义。其他字段、回调参数和外部绑定不因命名美化而改动。
+- 自定义变量引用和取值沿用实际标识及原生显示。新建自定义参数时，`value`、`code`、`label` 使用同一个真实变量、常量或表达式，不把 `sourceMaintenanceContext` 显示成“本次来源维护步骤上下文”，也不把 `true` 显示成“是”。
+- 定义变量应能读到实际变量名和实际初值，例如“定义 字符串 变量 variableName 的值为 1”。`learningPlanRows[0]` 保持可见，不替换成中文概述。
+- 以上适用于自定义值。原生选择器生成的字段、组件、模型和动作引用保留原有标识、标签、链接及类型，不将引用记录改成自定义文本，不强行让这些记录的 `label/value/code` 相等。
+- 新变量采用与职责一致、便于检索的名称，例如 `shouldBindQualification`、`sourceMaintenanceContext`、`affectedPeriodicIds`。现有变量沿用真实名称，不为显示而改名或影响外部绑定。
+- 中文业务解释放在必要的原生注释、分组说明和参数说明里作为补充，不能覆盖变量名、实际取值和原生节点说明。分组仍可使用明确的业务名称。
 
-### 复杂条件的显示示例
+## 复杂判断先定义变量，IF 和 FOR 引用变量
 
-下面只展示一个原生条件谓词。它表达三个来源任一已终止时命中；这是可读性示例，不是其他动作默认应采用的业务规则。
+避免在 IF、循环入口中直接堆复合表达式。先通过原生 `SetVariable` 定义有意义的布尔变量，再用原生条件配置判断该变量。例如：
+
+```text
+定义 布尔类型 变量 shouldBindQualification 的值为
+  operation == "bind_qualification" || operation == "handover_qualification"
+IF 条件判断：shouldBindQualification 等于 true
+  ...绑定或接续资格来源...
+End IF
+```
+
+定义节点使用 `variableType: "boolean"`；其 `variableValue` 的 `value/code/label` 都填写真实复合表达式，输出 `variableName` 的三者都填写 `shouldBindQualification`。随后 IF 使用原生变量引用，保留 `localVariable` 类型和引用值。以下是其 `input_params` 示例，实际仍按当前元件契约构造：
 
 ```json
 {
-  "target": {
-    "paramTypes": "custom",
-    "dataType": "boolean",
-    "value": "new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningTask[\"status\"])) || new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningTrainee[\"status\"])) || new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningPlan[\"status\"]))",
-    "code": "new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningTask[\"status\"])) || new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningTrainee[\"status\"])) || new [] { \"canceled\", \"closed\" }.Contains(Convert.ToString(learningPlan[\"status\"]))",
-    "label": "任务、参训记录或计划任一已取消/关闭"
-  },
-  "equalTo": "Equal",
-  "value": {"paramTypes": "custom", "dataType": "boolean", "value": "true", "code": "true", "label": "是"}
+  "condition": {
+    "Logic": "And",
+    "Filters": [{
+      "target": {
+        "paramTypes": "localVariable",
+        "dataType": "boolean",
+        "value": "localVariable-shouldBindQualification",
+        "code": "shouldBindQualification",
+        "label": "shouldBindQualification"
+      },
+      "equalTo": "Equal",
+      "value": {"paramTypes": "custom", "dataType": "boolean", "value": "true", "code": "true", "label": "true"}
+    }]
+  }
 }
 ```
 
-画布应显示类似“任务、参训记录或计划任一已取消/关闭 等于 是”。打开参数仍能查看完整表达式。纯显示修改优先只改 `label`，保留既有表达式、条件结构及短路求值顺序；不要为了显得简洁而提前计算原本可能被短路跳过的表达式。
+### 放在正确的计算位置
 
-原生条件树的 `generateDescription` 会把多个子条件用顿号连接，不能仅凭这段摘要判断 AND/OR。优先采用能清楚显示关系的原生条件；保留复杂组合表达式时，在其标签中明确组合含义，不为可读性盲目拆成改变执行顺序的多个判断。
+- 定义放在原判断所在路径、输入就绪之后、使用之前；依赖循环项的判断在循环体内逐轮计算，不能提到循环外后使用旧值。
+- 原本只在父分支或锁内执行的表达式，定义仍留在同一分支或锁内。整段 OR/AND 表达式移入一个变量时保持短路关系，不提前分别求值所有子条件。
+- FOR 的复杂集合表达式先使用明确命名的集合变量，再让循环引用它；保留原来的延迟求值、迭代顺序和状态更新，不擅自加 `.ToList()` 改成快照。
+- for/while 退出条件依赖循环体更新的数据时，保持原求值频率，在原求值位置刷新变量或使用仍会重新求值的原生条件；覆盖 `continue` 路径，不能只在可能被跳过的循环末尾更新，也不能缓存首次计算的布尔值。不能证明等价时，先保留原生动态条件并说明待处理边界。
+- 简单变量、常量和原生比较不再套一层无意义变量；复杂表达式集中在有实际含义的定义或计算节点。临时变量不共享到全局，不新增查询、循环或调用来美化显示。
+- 既有中文别名需要纠正时，从真实参数的变量标识和执行值恢复显示，不从中文概述反推代码。
 
 ## 主动作表达流程，子动作承担业务步骤
 

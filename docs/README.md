@@ -10,7 +10,7 @@
 | 定位、模板、参数摘要与精确值 | [targeting-and-source.md](../skills/gxp-lowcode-edit/references/targeting-and-source.md) |
 | 操作字段、路径、数组选择器与守卫 | [patch-schema.md](../skills/gxp-lowcode-edit/references/patch-schema.md) |
 | 需求归因、场景、断言和报告读取 | [business-review.md](../skills/gxp-lowcode-edit/references/business-review.md) |
-| 业务标签、主线可读性及子动作划分 | [readability.md](../skills/gxp-lowcode-edit/references/readability.md) |
+| 原生变量显示、条件变量及子动作划分 | [readability.md](../skills/gxp-lowcode-edit/references/readability.md) |
 | 编译器绑定、事件、JS / C# 检查 | [frontend-compiler-contract.md](../skills/gxp-lowcode-edit/references/frontend-compiler-contract.md) |
 | 证据复用和按需补证 | [evidence-and-performance.md](../skills/gxp-lowcode-edit/references/evidence-and-performance.md) |
 | 写后图谱核对及完整案例合并 | [post-write-graph-review.md](../skills/gxp-lowcode-edit/references/post-write-graph-review.md) |

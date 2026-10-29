@@ -115,8 +115,11 @@ the review and give the exact component configuration field where it can be read
 For the known ParamInput fields in SetVariable (variableValue and variableName)
 and SetVariableValue (attributeValue), custom input displays `value`, and input
 commit writes that string to both `value` and `code`. Validation blocks missing or
-different custom `value`/`code` before approval. A human-readable `label` may differ;
-it is the canvas description, not the executable expression. Do not extend this
+different custom `value`/`code` before approval. Technically `label` may differ;
+it is the canvas description, not the executable expression. This skill preserves
+native variable/value displays: use the actual identifier or expression as the
+custom label, and extract complex conditions into named variables rather than
+hiding them behind Chinese descriptions. Native selector labels remain intact. Do not extend this
 equality rule to other element contracts without inspecting their actual editors.
 
 Report the action, group, canvas row, element name, adjacent visible elements,
