@@ -17,6 +17,8 @@ normal and empty inputs, each relevant branch, threshold boundaries, excluded
 page modes, and sequential events where retained values or handlers matter.
 Independent cases start fresh; steps inside one case share state.
 
+Apply [readability](readability.md) within the same candidate: business labels must accurately describe actual parameters, and child-action extraction must preserve evaluation order, lock scope, error exits and outputs. This is part of constructing the requested change, not a separate scoring gate or additional approval round.
+
 ## Planning protocol
 
 Both `plan_canvas_patch` and `plan_reference_repairs` accept an optional

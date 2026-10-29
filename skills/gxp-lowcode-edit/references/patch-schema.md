@@ -44,6 +44,8 @@ set_event_callback_contract fields: action_group_key, component_type, event_name
 
 Node input_params and output_params remain the actual element's parameter dictionaries. Inspect the registry and its real parameter editor; nested table fields are not interchangeable with plain ParamInput records. A block operation addresses its complete levelMarker/endMarker range. Anchors and targets must exist in the selected group. New node keys, depth, raw title/description, generated code, SQL and relation data are forbidden.
 
+For readable generated captions, use the native ParamInput `label` for the business meaning of custom expressions while keeping `value` and `code` equal to the real expression. Existing reference records retain their native identities and link metadata. Use native `CustomExt` nodes with single-line `input_params.content` for useful business notes. Read [readability.md](readability.md) when choosing labels or child-action boundaries; do not override generated node metadata or add another compilation pass.
+
 ### Referencing newly generated nodes in one batch
 
 When `supported_operations` advertises `insert_in_block`, `append_node`, `insert_before`, `insert_after` and `insert_in_block` also accept optional `node_alias`. Use a unique batch-local identifier without `@` (letters/underscores followed by letters, digits or underscores). It names the **first native generated node**, which is the opening node for a paired block. It never supplies or changes a persistent node key.
