@@ -17,6 +17,7 @@ from gxp_editor.approval import load_artifact, save_artifact, transaction_bindin
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_window_lock
 from gxp_editor.state import StateStore
 from gxp_editor.service import EditorService
+from gxp_editor.logic_review import plan_binding_hash
 
 
 class QtApprovalQueueTests(unittest.TestCase):
@@ -57,6 +58,39 @@ class QtApprovalQueueTests(unittest.TestCase):
         tx = self.state.create_transaction(session["id"], plan, "write", str(path), conversation_id=self.owner)
         artifact = transaction(draft=draft)
         artifact.update(transaction_id=tx, session_id=session["id"], plan_id=plan)
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        save_artifact(path, artifact)
+        return tx
+
+    def add_planned_action(self, number):
+        draft = baseline(id=f"planned-design-{number}", ref_id=f"planned-ref-{number}", code=f"Planned{number}", metadata={
+            "form_name": f"表单{number}", "action_name": f"动作{number}", "action_code": f"Planned{number}"})
+        session = self.state.create_session(draft, "backup", "compiler", conversation_id=self.owner, queue_id=self.queue)
+        desired = transaction(draft=draft)["desired_design"]
+        envelope = {"session_id": session["id"], "base_content_hash": draft["content_hash"], "desired": desired,
+                    "compiler_binding": {}, "hashes": {}, "business_review": {}}
+        path = self.root / f"planned-{number}.json"
+        save_artifact(path, envelope)
+        plan = self.state.create_plan(session["id"], str(path), draft["content_hash"], plan_binding_hash(envelope),
+                                      "compiler", conversation_id=self.owner)
+        return session["id"], plan
+
+    def choose_queue_row(self, index):
+        self.window.queue_choices.showPopup()
+        self.window.qt_app.processEvents()
+        view = self.window.queue_choices.view()
+        model_index = view.model().index(index, 0)
+        view.scrollTo(model_index)
+        self.window.qt_app.processEvents()
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=view.visualRect(model_index).center())
+        self.window.qt_app.processEvents()
+
+    def prepare_planned_action(self, selected, plan):
+        draft = self.state.get_session(selected)["baseline"]
+        path = self.root / f"prepared-{selected}.json"
+        tx = self.state.create_transaction(selected, plan, "write", str(path), conversation_id=self.owner)
+        artifact = transaction(draft=draft)
+        artifact.update(transaction_id=tx, session_id=selected, plan_id=plan)
         artifact["transaction_hash"] = transaction_binding_hash(artifact)
         save_artifact(path, artifact)
         return tx
@@ -203,6 +237,127 @@ class QtApprovalQueueTests(unittest.TestCase):
         self.assertEqual(self.window.transaction_id, self.first)
         self.assertEqual(self.artifact(self.first), signed)
         self.assertTrue(self.window.execute_button.isEnabled())
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_saved_and_planned_rows_can_be_clicked_without_signing_or_executing(self):
+        self.save_current()
+        planned_session, _ = self.add_planned_action(3)
+        self.window.refresh_approval_state()
+        unchanged_second = copy.deepcopy(self.artifact(self.second))
+        saved_first = copy.deepcopy(self.artifact(self.first))
+        self.choose_queue_row(0)
+        self.assertEqual(self.window.queue_choices.currentData(), saved_first["session_id"])
+        self.assertIn("已保存", self.window.badge.text())
+        self.assertGreaterEqual(self.window.queue_details.count(), 2)
+        self.assertFalse(self.window.approve_button.isEnabled())
+        self.assertFalse(self.window.execute_button.isEnabled())
+        self.window.approve_current()
+        self.window.execute()
+        self.choose_queue_row(2)
+        self.assertEqual(self.window.queue_choices.currentData(), planned_session)
+        self.assertIn("尚未提交审批", self.window.progress.text())
+        self.assertGreaterEqual(self.window.queue_details.count(), 2)
+        self.assertFalse(self.window._active_review)
+        self.window.approve_current()
+        self.window.execute()
+        self.assertEqual(self.state.session_transactions(planned_session), [])
+        self.assertEqual(self.artifact(self.first), saved_first)
+        self.assertEqual(self.artifact(self.second), unchanged_second)
+        self.execute_approved_transaction.assert_called_once_with(self.first)
+        self.choose_queue_row(1)
+        self.assertTrue(self.window._active_review)
+        self.assertEqual(self.window.transaction_id, self.second)
+
+    def test_open_popup_is_not_reset_by_timer_refresh_or_new_rows(self):
+        picker = self.window.queue_choices
+        picker.showPopup()
+        self.window.qt_app.processEvents()
+        view = picker.view()
+        view.setCurrentIndex(view.model().index(1, 0))
+        resets = Mock()
+        picker.model().modelReset.connect(resets)
+        self.add_action(3)
+        QTest.qWait(1100)
+        self.assertTrue(view.isVisible())
+        self.assertEqual(view.currentIndex().row(), 1)
+        resets.assert_not_called()
+        self.assertEqual(picker.count(), 2)
+        QTest.mouseClick(view.viewport(), Qt.MouseButton.LeftButton, pos=view.visualRect(view.currentIndex()).center())
+        self.window.qt_app.processEvents()
+        self.assertEqual(self.window.transaction_id, self.second)
+        self.assertEqual(self.window.queue_choices.count(), 3)
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_planned_rows_without_transactions_keep_distinct_selection(self):
+        third, _ = self.add_planned_action(3)
+        fourth, _ = self.add_planned_action(4)
+        self.window.refresh_approval_state()
+        self.choose_queue_row(2)
+        self.assertEqual(self.window.queue_choices.currentData(), third)
+        self.window.refresh_approval_state()
+        self.assertEqual(self.window.queue_choices.currentData(), third)
+        self.choose_queue_row(3)
+        self.assertEqual(self.window.queue_choices.currentData(), fourth)
+        self.assertIn("Planned4", self.window.queue_choices.currentText())
+        self.assertFalse(self.window.execute_button.isEnabled())
+        self.assertEqual(self.state.session_transactions(third), [])
+        self.assertEqual(self.state.session_transactions(fourth), [])
+
+    def test_selected_plan_follows_its_new_approval_after_readonly_refresh(self):
+        selected, plan = self.add_planned_action(3)
+        self.window.refresh_approval_state()
+        self.choose_queue_row(2)
+        tx = self.prepare_planned_action(selected, plan)
+        self.window.refresh_approval_state()
+        self.assertTrue(self.window._active_review)
+        self.assertEqual(self.window.transaction_id, tx)
+        self.assertEqual(self.window.queue_choices.currentData(), selected)
+        self.assertFalse(self.window.execute_button.isEnabled())
+        self.assertFalse(self.artifact(tx)["approvals"])
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_readonly_popup_keeps_choice_until_new_approval_can_be_shown(self):
+        selected, plan = self.add_planned_action(3)
+        self.window.refresh_approval_state()
+        self.choose_queue_row(2)
+        picker = self.window.queue_choices
+        page = self.window.root.centralWidget()
+        picker.showPopup()
+        self.window.qt_app.processEvents()
+        tx = self.prepare_planned_action(selected, plan)
+        self.window.refresh_approval_state()
+        self.assertIs(self.window.queue_choices, picker)
+        self.assertIs(self.window.root.centralWidget(), page)
+        self.assertTrue(picker.view().isVisible())
+        self.assertFalse(self.window._active_review)
+        picker.hidePopup()
+        self.window.refresh_approval_state()
+        self.assertTrue(self.window._active_review)
+        self.assertEqual(self.window.transaction_id, tx)
+        self.assertFalse(self.artifact(tx)["approvals"])
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_readonly_state_change_during_popup_is_rendered_after_close(self):
+        selected, _ = self.add_planned_action(3)
+        self.window.refresh_approval_state()
+        self.choose_queue_row(2)
+        picker = self.window.queue_choices
+        picker.showPopup()
+        self.window.qt_app.processEvents()
+        other = self.state.create_conversation()["conversation_id"]
+        self.state.transfer_session(selected, other, expected_owner=self.owner, expected_revision=0,
+                                    expected_transaction_id=None)
+        self.window.refresh_approval_state()
+        self.assertIs(self.window.queue_choices, picker)
+        self.assertTrue(picker.view().isVisible())
+        self.assertIn("尚未提交审批", self.window.progress.text())
+        picker.hidePopup()
+        self.window.refresh_approval_state()
+        self.assertIn("已转交", self.window.badge.text())
+        self.assertEqual(self.window.queue_choices.currentData(), selected)
+        self.assertEqual(self.window.queue_details.count(), 1)
+        self.assertFalse(self.window.execute_button.isEnabled())
         self.execute_approved_transaction.assert_not_called()
 
     def test_uncertain_failure_stops_queue_and_keeps_transaction_locked(self):

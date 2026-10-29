@@ -36,7 +36,7 @@ from gxp_editor.candidate_safety import pending_candidate
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_queue_lock, approval_window_lock, execution_lock
 from gxp_editor.hashing import sha256_text
 from gxp_editor.qt_review_ui import CodeReview, ComponentReview
-from gxp_editor.logic_review import require_write_business_review, validate_business_review
+from gxp_editor.logic_review import plan_binding_hash, require_write_business_review, validate_business_review
 from gxp_editor.logic_review_ui import LogicReview
 from gxp_editor.qt_theme import application, label, text_view
 from gxp_editor.single_row_checker import SingleRowCheckError
@@ -729,6 +729,9 @@ class ApprovalQueueWindow(ApprovalWindow):
         self._queue_stopped = False
         self._isolated_candidates = {}
         self._last_queue_result = ""
+        self._selected_session_id = None
+        self._readonly_selection = False
+        self._readonly_item_snapshot = None
         self._queue_items = self.state.edit_queue(queue_id, conversation_id)
         lock = approval_queue_lock(queue_id)
         lock.__enter__()
@@ -802,8 +805,10 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.queue_progress = label("", "eyebrow", wrap=True)
         layout.addWidget(self.queue_progress)
         self.queue_choices = QComboBox()
+        self._queue_choices_snapshot = None
         self.queue_choices.setSizeAdjustPolicy(QComboBox.SizeAdjustPolicy.AdjustToMinimumContentsLengthWithIcon)
         self.queue_choices.setMinimumContentsLength(20)
+        self.queue_choices.setMaxVisibleItems(12)
         layout.addWidget(self.queue_choices)
         self.queue_result = label(self._last_queue_result or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。", "muted", wrap=True)
         layout.addWidget(self.queue_result)
@@ -821,19 +826,26 @@ class ApprovalQueueWindow(ApprovalWindow):
         self._isolated_candidates = {key: value for key, value in self._isolated_candidates.items() if key in pending_ids}
         saved = sum(self._item_owned(item) and item.get("transaction_state") == "saved" for item in items)
         position = next((index + 1 for index, item in enumerate(items)
-                         if self._active_review and item.get("transaction_id") == self.transaction_id), None)
+                         if item["id"] == self._selected_session_id), None)
         self.queue_progress.setText(f"多表单连续审批 · {'动作 ' + str(position) + '/' + str(len(items)) + ' · ' if position else ''}已保存 {saved}/{len(items)}")
-        with QSignalBlocker(self.queue_choices):
-            self.queue_choices.clear()
-            for item in items:
-                title = f"{item['position']}. {context_summary(item['action_context'])} · {self._item_status(item)}"
-                self.queue_choices.addItem(title, item.get("transaction_id"))
-                reason = self._isolated_candidates.get(item.get("transaction_id"), "")
-                self.queue_choices.setItemData(self.queue_choices.count() - 1, title + ("\n" + reason if reason else ""), Qt.ItemDataRole.ToolTipRole)
-                enabled = (self._item_owned(item) and item.get("transaction_state") == "awaiting_approval"
-                           and item.get("transaction_id") not in self._isolated_candidates)
-                self.queue_choices.model().item(self.queue_choices.count() - 1).setEnabled(enabled)
-            self.queue_choices.setCurrentIndex(position - 1 if position else -1)
+        rows = []
+        for item in items:
+            code = item.get("action_code") or item["action_context"].get("action_code") or "编号待确认"
+            title = f"{item['position']}. {context_summary(item['action_context'])}（{code}） · {self._item_status(item)} · {item['id'][:8]}"
+            reason = self._isolated_candidates.get(item.get("transaction_id"), "")
+            rows.append((item["id"], title, title + ("\n" + reason if reason else "")))
+        # Never reset the model under an open popup, even if new rows arrive.
+        # Item data holds session identity, so the displayed row remains stable.
+        if not self.queue_choices.view().isVisible():
+            with QSignalBlocker(self.queue_choices):
+                if rows != self._queue_choices_snapshot:
+                    self.queue_choices.clear()
+                    for session_id, title, tooltip in rows:
+                        self.queue_choices.addItem(title, session_id)
+                        self.queue_choices.setItemData(self.queue_choices.count() - 1, tooltip, Qt.ItemDataRole.ToolTipRole)
+                    self._queue_choices_snapshot = rows
+                self.queue_choices.setCurrentIndex(self.queue_choices.findData(self._selected_session_id)
+                                                   if self._selected_session_id else -1)
         self.queue_choices.setEnabled(not self._executing and not self._queue_stopped)
         self.retry_candidates_button.setVisible(bool(self._isolated_candidates))
         self.retry_candidates_button.setEnabled(not self._executing and not self._queue_stopped)
@@ -874,9 +886,76 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.root.setCentralWidget(body)
         self.root.setWindowTitle("GXP 多表单连续审批 · " + self.queue_id[:8])
 
+    def _show_queue_item(self, item):
+        """Selection is viewing; it never prepares, signs or executes a plan."""
+        self._selected_session_id = item["id"]
+        self._readonly_selection = True
+        self._readonly_item_snapshot = copy.deepcopy(item)
+        self._review_blocked = True
+        self._metadata_request_id = None
+        self._metadata_pending = False
+        ApprovalWindow._release_window_lock(self)
+        status = self._item_status(item)
+        if not self._item_owned(item):
+            message = "此记录已转交其他对话，仅显示队列状态；请使用当前归属对话查看。"
+        elif item.get("transaction_id") in self._isolated_candidates:
+            message = self._isolated_candidates[item["transaction_id"]]
+        elif item.get("transaction_state") == "saved":
+            message = "草稿已保存。当前展示保存时的本地快照，可切换查看其他记录。"
+        elif item.get("state") == "planned":
+            message = ("此动作已有计划，尚未提交审批。可先查看候选；在当前对话提交此计划后，窗口会自动切换到审批内容。"
+                       if item.get("plan_status") != "blocked" else "此计划验收未通过，请在当前对话修正后重新提交审批。")
+        else:
+            message = "当前记录仅供查看；可在当前对话继续规划或核对其状态。"
+        self._show_waiting(message)
+        self.badge.setText(status + " · 只读查看")
+        self.approve_button.setText("当前记录仅供查看")
+        self.execute_button.setText("当前状态不可保存")
+        self.root.setWindowTitle("GXP 队列记录 · " + context_summary(item["action_context"]) + " · " + status)
+        details = QTabWidget()
+        self.queue_details = details
+        context = item["action_context"]
+        record_text = (f"动作：{context_summary(context)}\n"
+                       f"动作编号：{item.get('action_code') or context.get('action_code') or '待确认'}\n"
+                       f"状态：{status}\n\n会话：{item['id']}\n"
+                       f"计划：{item.get('plan_id') or '尚未生成'}\n"
+                       f"审批事务：{item.get('transaction_id') or '尚未提交'}")
+        details.addTab(text_view(record_text), "记录信息")
+        self.root.centralWidget().layout().insertWidget(3, details, 1)
+        if not self._item_owned(item):
+            return
+        try:
+            session = self.state.get_session(item["id"])
+            before = json.loads(session["baseline"]["data"])
+            if item.get("transaction_id"):
+                record = self.state.get_transaction(item["transaction_id"])
+                artifact = load_artifact(record["artifact_path"])
+                if artifact.get("session_id") != item["id"] or artifact.get("transaction_id") != record["id"]:
+                    raise StateError("审批快照与队列记录不一致。")
+                validate_transaction_artifact(artifact)
+                desired = artifact["desired_design"]
+            elif item.get("plan_id"):
+                plan = self.state.get_plan(item["plan_id"])
+                artifact = load_artifact(plan["artifact_path"])
+                if plan.get("session_id") != item["id"] or plan.get("new_hash") != plan_binding_hash(artifact):
+                    raise StateError("候选计划与队列记录不一致。")
+                desired = artifact["desired"]
+            else:
+                return
+            preview = ComponentReview({}, "只读本地快照；查看不会提交审批或执行保存。")
+            preview.render(before, json.loads(desired["data"]))
+            preview.trees["after"].headerItem().setText(0, "保存时的草稿快照" if item.get("transaction_state") == "saved"
+                                                      else "计划候选 · 未执行")
+            details.addTab(preview, "元件预览")
+            details.setCurrentWidget(preview)
+        except Exception as exc:
+            details.addTab(text_view("本地快照暂不可读，队列状态仍可查看：\n" + str(exc)), "快照读取说明")
+
     def _advance_queue(self, transaction_id=None):
         if self._executing or self._queue_stopped:
             return
+        self._readonly_selection = False
+        self._selected_session_id = None
         from gxp_editor.queue_protocol import validate_window
         validate_window(self.state, self.queue_id, self.conversation_id)
         self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
@@ -898,6 +977,7 @@ class ApprovalQueueWindow(ApprovalWindow):
             self._show_waiting("当前没有待审批动作。窗口会保持打开；同一队列新增审批内容后会自动显示，无需重新打开。")
             return
         self.transaction_id = item["transaction_id"]
+        self._selected_session_id = item["id"]
         self.owner_revision = item["queued_owner_revision"]
         self.transaction = self.state.get_transaction(self.transaction_id)
         self.path = Path(self.transaction["artifact_path"])
@@ -937,10 +1017,18 @@ class ApprovalQueueWindow(ApprovalWindow):
     def _select_queue_item(self, index):
         if self._executing or self._queue_stopped:
             return
-        if 0 <= index < len(self._queue_items):
-            item = self._queue_items[index]
-            if self._item_owned(item) and item.get("transaction_state") == "awaiting_approval":
+        if 0 <= index < self.queue_choices.count():
+            session_id = self.queue_choices.itemData(index)
+            self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
+            item = next((item for item in self._queue_items if item["id"] == session_id), None)
+            if item is None:
+                self._update_queue_banner()
+                return
+            if (self._item_owned(item) and item.get("transaction_state") == "awaiting_approval"
+                    and item.get("transaction_id") not in self._isolated_candidates):
                 self._advance_queue(item["transaction_id"])
+            else:
+                self._show_queue_item(item)
 
     def refresh_approval_state(self):
         if self._executing or self._queue_stopped:
@@ -957,7 +1045,19 @@ class ApprovalQueueWindow(ApprovalWindow):
                 self._update_queue_banner()
             else:
                 items = self.state.edit_queue(self.queue_id, self.conversation_id)
-                if items != self._queue_items or self._waiting_for_lock:
+                if self._readonly_selection:
+                    selected = next((item for item in items if item["id"] == self._selected_session_id), None)
+                    self._queue_items = items
+                    if self.queue_choices.view().isVisible():
+                        self._update_queue_banner()
+                    elif (selected and self._item_owned(selected) and selected.get("transaction_state") == "awaiting_approval"
+                            and selected.get("transaction_id") not in self._isolated_candidates):
+                        self._advance_queue(selected["transaction_id"])
+                    elif selected and selected != self._readonly_item_snapshot:
+                        self._show_queue_item(selected)
+                    else:
+                        self._update_queue_banner()
+                elif items != self._queue_items or self._waiting_for_lock:
                     self._advance_queue()
         except Exception as exc:
             self._block_review(str(exc))
