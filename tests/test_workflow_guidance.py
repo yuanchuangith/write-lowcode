@@ -2,10 +2,22 @@ from __future__ import annotations
 
 import unittest
 
-from gxp_editor.workflow_guidance import write_status_guidance
+from gxp_editor.workflow_guidance import batch_prepare_guidance, write_status_guidance
 
 
 class WorkflowGuidanceTests(unittest.TestCase):
+    def test_batch_guidance_yields_only_after_every_selected_action_is_prepared(self):
+        failed = batch_prepare_guidance("queue", "owner", complete=False, startup={})
+        self.assertEqual(failed["workflow_phase"], "batch_preparation_blocked")
+        self.assertIsNone(failed["poll_after_ms"])
+        self.assertEqual(failed["next_read"], {"tool": "get_edit_queue",
+                                              "arguments": {"queue_id": "queue", "conversation_id": "owner"}})
+        ready = batch_prepare_guidance("queue", "owner", complete=True, startup={"approval_window_opened": True})
+        self.assertEqual(ready["next_action"], "wait_for_user")
+        self.assertIsNone(ready["next_read"])
+        starting = batch_prepare_guidance("queue", "owner", complete=True, startup={"approval_window_starting": True})
+        self.assertEqual(starting["startup_check_budget_ms"], 30000)
+
     def guide(self, state="awaiting_approval", session_state="awaiting_approval", startup=None, **kwargs):
         return write_status_guidance({"id": "tx", "state": state},
             {"id": "session", "state": session_state, "transaction_id": "tx", "conversation_id": "owner"}, startup or {}, **kwargs)

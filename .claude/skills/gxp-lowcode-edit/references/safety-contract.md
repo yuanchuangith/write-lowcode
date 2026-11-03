@@ -7,6 +7,9 @@ returned issues and read-only evidence queries. `open_plan_review` is optional
 and requires an explicit user request for that separate window.
 Opening, previewing, navigating or reopening never approves or executes SQL;
 actual-SQL human approval and final execution confirmation remain in the app.
+Clicking an individual approval button is the human approval itself and does not
+open a second confirmation. Physical double-clicks cannot approve the next SQL.
+Shared-account information is included in the single final save confirmation.
 
 For one draft, combine all confirmed canvas operations into one plan, one
 `prepare_write` call and one approval transaction/window. The complete canvas,
@@ -16,6 +19,9 @@ produces one main-row SQL approval. Actual extra SQL for added/changed/removed
 relation rows is reviewed separately in that window: SQL plus bound parameters
 and target row identify the item, not the SQL template alone. Never split
 approvals by canvas operation or automatically approve every SQL as a batch.
+An explicit human batch review may approve selected actions together after
+displaying their complete SQL, bound parameters and target rows. It signs each
+exact statement separately and excludes actions arriving after selection.
 The final save confirmation executes the already-approved transaction; it does
 not approve those SQL statements again.
 
@@ -57,7 +63,7 @@ raw nodes remain available.
 - Fixed SQL templates, parameter counts, design ownership, one-row expectations, and the absence of a generic SQL tool are the enforcement boundary for shared accounts. They do not reduce that account's permissions in Navicat, application code, or any client outside this plugin.
 - The MCP server creates plans but has no tool that directly executes a write transaction.
 - Chat cancellation is limited to a specifically inspected, unexecuted edit flow after the user's explicit agreement. The cancellation fingerprint, ownership and current local records are checked atomically against execution, and the actual confirmation reply is retained in the audit. It cancels pending review and releases local occupancy without business SQL; it never approves a save or closes saved, restore or uncertain results. The manual handling window remains available.
-- The interactive approval application requires one manual approval per exact statement and one final execute click.
+- The interactive approval application requires explicit human approval of every exact statement, individually or through the selected-action batch review, and a separate final execution confirmation. Batch execution saves actions sequentially as independent transactions and stops on failure or an unverified/unreleased result.
 - Each SQL approval item contains exactly one statement targeting exactly one row. Multiple field/component changes to the same draft row stay together in its single UPDATE. Writes to different actual rows require separate statements with nonempty IDs, including when their SQL templates match; stacked SQL, batch VALUES, OR/IN/range guards, duplicate targets, and empty/list IDs are blocked by the independent single-row checker.
 - Before the first database write, the executor verifies a full single-column unique index on each target table's id, locks and checks every target, verifies relation ownership, and rejects zero/multiple existing matches or an already-existing insert ID. Every affected-row count must remain exactly one; all statements retain one atomic transaction.
 - The approval window defaults to a plain-language canvas location and before/after summary. Complete SQL, complete parameters and raw node evidence remain separate review tabs; an unsafe statement is blocked with a visible error before approval or execution.

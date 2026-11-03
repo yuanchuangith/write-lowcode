@@ -93,17 +93,29 @@ dedicated tool or automatically release a session after an error.
 For an explicitly authorized request covering several identified actions, call
 `create_edit_queue(conversation_id)` once and pass `queue_id` to each session
 entry. Keep expectations, backup, plan and transaction separate for each draft.
-`prepare_write` opens the queue window for the first ready action; later ready
-actions join that window automatically. Do not reopen each queued action.
+For batch generation followed by batch review, finish planning all requested
+actions before calling `prepare_write_batch(queue_id, plan_ids, conversation_id)`.
+It prepares each validated plan without opening a window, then opens the shared
+queue window once all requested plans are ready. A failed preparation leaves
+successful pending transactions intact without launching a window; inspect the
+per-plan result, fix the blocked plan and retry the batch. Reuse the pending
+transactions rather than generating duplicate approval artifacts.
+Ordinary `prepare_write` still opens the queue window for the first ready action;
+later ready actions join that window automatically. Do not reopen each action.
 Use `get_edit_queue` to track all items, including preparation still in progress.
 For each draft, batch its confirmed operations into one plan and one approval
 transaction/window, not one submission per component. The main draft-row UPDATE
 contains data, JS and C# together and is approved once. Only actual additional
 SQL is approved separately, by SQL plus bound parameters/target row even when
-templates match. The human's final save confirmation executes those approved
-statements rather than approving them again. Approvals are never inherited or
-automatically granted to the whole SQL list. These are independent transactions: a later failure
-does not roll back earlier saves. An unknown outcome pauses the queue for
+templates match. In the queue window, the human can select pending actions or
+select all, open batch review and inspect every selected action's full SQL,
+parameters and targets before explicitly approving the batch. Each exact SQL
+still receives its own bound signature. Selection, navigation, generation and
+late-arriving actions never receive automatic approval. A separate batch-save
+confirmation executes only the selected, approved transactions sequentially.
+These are independent transactions: a later failure does not roll back earlier
+saves. A failed save or an unverified/unreleased result stops the batch; inspect
+each transaction's status before retrying. An unknown outcome pauses the queue for
 recovery. Closing the window retains queued work; reopening neither signs nor
 writes. A transferred session leaves its original queue and opens independently.
 

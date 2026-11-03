@@ -61,7 +61,7 @@ class ConversationToolContractTests(unittest.TestCase):
         from types import ModuleType
 
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
-        self.assertEqual(29, len(tools))
+        self.assertEqual(30, len(tools))
         properties = tools["database_settings"].inputSchema["properties"]
         self.assertEqual({"operation", "changes", "expected_revision"}, set(properties))
         self.assertEqual("status", properties["operation"]["default"])
@@ -114,12 +114,30 @@ class ConversationToolContractTests(unittest.TestCase):
         tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
         self.assertIn("inspect_edit_context", tools)
         self.assertIn("read_plan_review", tools)
-        for name in ("plan_canvas_patch", "plan_reference_repairs", "prepare_write", "open_plan_review",
+        for name in ("plan_canvas_patch", "plan_reference_repairs", "prepare_write", "prepare_write_batch", "open_plan_review",
                      "begin_edit_session", "begin_reference_repair_session", "inspect_edit_context"):
             self.assertEqual(tools[name].inputSchema["properties"]["response_detail"]["default"], "summary")
         self.assertEqual(tools["read_plan_review"].inputSchema["properties"]["detail"]["default"], "summary")
         self.assertIn("read_edit_value", tools)
         self.assertIs(tools["editor_status"].inputSchema["properties"]["probe_runtime"]["default"], False)
+
+    def test_batch_prepare_requires_queue_owner_and_forwards_all_plan_ids(self):
+        from unittest.mock import Mock
+        tools = {tool.name: tool for tool in asyncio.run(SERVER.mcp.list_tools())}
+        schema = tools["prepare_write_batch"].inputSchema
+        self.assertEqual(set(schema["required"]), {"queue_id", "plan_ids", "conversation_id"})
+        self.assertEqual(schema["properties"]["plan_ids"]["minItems"], 1)
+        fake = Mock()
+        fake.prepare_write_batch.return_value = {"batch_prepared": True, "transaction_ids": ["tx-1", "tx-2"],
+                                                 "approval_granted": False, "write_executed": False}
+        with patch.object(SERVER, "service", return_value=fake) as scoped:
+            _, result = asyncio.run(SERVER.mcp.call_tool("prepare_write_batch", {
+                "queue_id": "queue", "plan_ids": ["plan-1", "plan-2"], "conversation_id": "owner"}))
+        scoped.assert_called_once_with("owner")
+        fake.prepare_write_batch.assert_called_once_with("queue", ["plan-1", "plan-2"], response_detail="summary")
+        self.assertEqual(result["transaction_ids"], ["tx-1", "tx-2"])
+        self.assertFalse(result["approval_granted"])
+        self.assertFalse(result["write_executed"])
 
     def test_compiler_error_location_survives_mcp_transport(self):
         from unittest.mock import Mock
@@ -194,7 +212,7 @@ class ConversationToolContractTests(unittest.TestCase):
             with self.subTest(tool=name):
                 schema = tool.inputSchema
                 self.assertEqual(schema["properties"]["conversation_id"]["type"], "string")
-                if name in {"attach_edit_session", "create_edit_queue", "get_edit_queue"}:
+                if name in {"attach_edit_session", "create_edit_queue", "get_edit_queue", "prepare_write_batch"}:
                     self.assertIn("conversation_id", schema["required"])
                     if name == "attach_edit_session":
                         self.assertIn("session_id", schema["required"])

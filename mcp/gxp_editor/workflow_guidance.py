@@ -2,6 +2,24 @@
 from __future__ import annotations
 
 
+def batch_prepare_guidance(queue_id, conversation_id, *, complete, startup):
+    """Batch creation never waits for an individual action's human approval."""
+    if not complete:
+        phase, action, interval = "batch_preparation_blocked", "review_batch_failure", None
+    elif startup.get("approval_window_starting"):
+        phase, action, interval = "starting", "get_edit_queue", 1000
+    elif startup.get("approval_window_opened"):
+        phase, action, interval = "awaiting_human", "wait_for_user", 10000
+    else:
+        phase, action, interval = "window_problem", "inspect_window_failure", None
+    return {"workflow_phase": phase, "next_action": action,
+            "next_read": None if action == "wait_for_user" else {
+                "tool": "get_edit_queue", "arguments": {"queue_id": queue_id, "conversation_id": conversation_id}},
+            "poll_after_ms": interval, "progress_update_after_ms": 30000,
+            "polling_policy": "Prepare all selected actions before yielding for human approval. A preparation failure keeps earlier pending transactions and opens no window; repair the failed plan and retry the batch. When awaiting_human, report and yield; never approve or execute for the user.",
+            "startup_check_budget_ms": 30000 if phase == "starting" else None}
+
+
 def write_status_guidance(transaction, session, startup, *, artifact_valid=True, conversation_id=None):
     state, session_state = transaction["state"], session["state"]
     startup_state = startup.get("startup_status")

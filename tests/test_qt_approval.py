@@ -50,14 +50,13 @@ class QtApprovalInteractionTests(unittest.TestCase):
         window.root.deleteLater()
         QCoreApplication.sendPostedEvents(None, QEvent.Type.DeferredDelete)
 
-    def test_rejected_approval_and_preview_never_sign_or_execute(self):
+    def test_preview_never_signs_or_executes(self):
         original = copy.deepcopy(self.artifact)
-        self.messagebox.askyesno.return_value = False
-        self.window.approve_current()
         self.window.notebook.setCurrentIndex(1)
         self.window.copy_sql()
         self.window.navigate(1)
         self.assertEqual(self.artifact, original)
+        self.messagebox.askyesno.assert_not_called()
         self.save_artifact.assert_not_called()
         self.execute_approved_transaction.assert_not_called()
 
@@ -99,9 +98,8 @@ class QtApprovalInteractionTests(unittest.TestCase):
 
     def test_small_window_keeps_action_buttons_visible_and_clickable(self):
         self.use_multiple_statements()
-        self.messagebox.askyesno.return_value = False
         self.window.header.setText("一个很长的业务动作名称" * 12)
-        for width, height in ((640, 420), (850, 620)):
+        for count, (width, height) in enumerate(((640, 420), (850, 620)), 1):
             with self.subTest(width=width, height=height):
                 self.window.root.resize(width, height)
                 self.window.root.show()
@@ -117,8 +115,9 @@ class QtApprovalInteractionTests(unittest.TestCase):
                     self.assertIs(self.window.root.childAt(center), button)
                 self.messagebox.askyesno.reset_mock()
                 QTest.mouseClick(self.window.approve_button, Qt.MouseButton.LeftButton)
-                self.messagebox.askyesno.assert_called_once()
-        self.save_artifact.assert_not_called()
+                self.messagebox.askyesno.assert_not_called()
+                self.assertEqual(len(self.artifact["approvals"]), count)
+        self.assertEqual(self.save_artifact.call_count, 2)
         self.execute_approved_transaction.assert_not_called()
 
     def test_initial_window_fits_scaled_desktop_and_taskbar_work_area(self):
@@ -134,13 +133,13 @@ class QtApprovalInteractionTests(unittest.TestCase):
             self.assertFalse(self.window.root.isMaximized())
 
     def test_human_approval_enables_execution_but_does_not_execute(self):
-        self.messagebox.askyesno.return_value = True
         self.window.approve_current()
         self.assertEqual(len(self.artifact["approvals"]), 1)
         self.save_artifact.assert_called_once()
         self.execute_approved_transaction.assert_not_called()
         self.assertTrue(self.window.execute_button.isEnabled())
         self.assertFalse(self.window.approve_button.isEnabled())
+        self.messagebox.askyesno.assert_not_called()
 
     def use_multiple_statements(self):
         self.artifact.clear()
@@ -150,7 +149,6 @@ class QtApprovalInteractionTests(unittest.TestCase):
 
     def test_each_click_approves_one_row_and_continues_in_same_window(self):
         self.use_multiple_statements()
-        self.messagebox.askyesno.return_value = True
         shell = self.window.root
         shell.show()
         self.window.qt_app.processEvents()
@@ -167,6 +165,7 @@ class QtApprovalInteractionTests(unittest.TestCase):
                 self.assertTrue(shell.isVisible())
                 self.assertEqual(self.window.statement_list.currentRow(), min(index + 1, 2))
                 self.assertEqual(self.window.execute_button.isEnabled(), index == 2)
+                self.messagebox.askyesno.assert_not_called()
                 self.execute_approved_transaction.assert_not_called()
         self.assertFalse(self.window.approve_button.isEnabled())
         self.assertIn("请确认保存草稿", self.window.progress.text())
@@ -206,14 +205,29 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.assertEqual(self.save_artifact.call_count, 2)
         self.execute_approved_transaction.assert_not_called()
 
-    def test_cancelled_approval_does_not_advance_or_sign_next_item(self):
-        self.use_multiple_statements()
-        self.messagebox.askyesno.return_value = False
+    def test_already_approved_current_item_is_not_signed_again(self):
+        self.window.approve_current()
         original = copy.deepcopy(self.artifact)
         self.window.approve_current()
         self.assertEqual(self.window.index, 0)
         self.assertEqual(self.artifact, original)
-        self.save_artifact.assert_not_called()
+        self.save_artifact.assert_called_once()
+        self.messagebox.askyesno.assert_not_called()
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_double_click_approves_only_the_displayed_statement(self):
+        self.use_multiple_statements()
+        self.window.root.show()
+        self.window.qt_app.processEvents()
+        button = self.window.approve_button
+        QTest.mousePress(button, Qt.MouseButton.LeftButton)
+        QTest.mouseRelease(button, Qt.MouseButton.LeftButton)
+        QTest.mouseDClick(button, Qt.MouseButton.LeftButton)
+        QTest.mouseRelease(button, Qt.MouseButton.LeftButton)
+        self.assertEqual(set(self.artifact["approvals"]), {self.artifact["statements"][0]["id"]})
+        self.assertEqual(self.window.index, 1)
+        self.save_artifact.assert_called_once()
+        self.messagebox.askyesno.assert_not_called()
         self.execute_approved_transaction.assert_not_called()
 
     def test_reopening_resumes_at_pending_or_expired_statement(self):
@@ -235,21 +249,56 @@ class QtApprovalInteractionTests(unittest.TestCase):
         self.save_artifact.assert_not_called()
         self.execute_approved_transaction.assert_not_called()
 
-    def test_transfer_while_confirmation_is_open_blocks_signature(self):
-        def transfer(*args, **kwargs):
-            self.session["owner_revision"] += 1
-            return True
-        self.messagebox.askyesno.side_effect = transfer
+    def test_transferred_owner_before_click_blocks_signature(self):
+        self.session["owner_revision"] += 1
         self.window.approve_current()
         self.assertFalse(self.artifact.get("approvals"))
         self.save_artifact.assert_not_called()
         self.assertFalse(self.window.execute_button.isEnabled())
         self.assertFalse(self.window.approve_button.isEnabled())
+        self.messagebox.askyesno.assert_not_called()
 
     def test_execute_requires_all_approvals_even_when_called_directly(self):
         self.window.execute()
         self.execute_approved_transaction.assert_not_called()
         self.messagebox.showerror.assert_called_once()
+
+    def use_shared_account(self):
+        self.artifact.clear()
+        self.artifact.update(transaction(database_safety={
+            "account_mode": "shared_restricted", "grants_sha256": "c" * 64,
+            "shared_account": True, "privileged_shared_override": False,
+        }))
+        self.window.render()
+        self.window.approve_current()
+        self.messagebox.askyesno.assert_not_called()
+
+    def test_shared_account_save_cancel_uses_one_prompt_and_never_executes(self):
+        self.use_shared_account()
+        original = copy.deepcopy(self.artifact)
+        self.messagebox.askyesno.return_value = False
+        self.window.execute()
+        self.messagebox.askyesno.assert_called_once()
+        title, prompt = self.messagebox.askyesno.call_args.args
+        self.assertIn("保存草稿", title)
+        self.assertIn("共享数据库账户", prompt)
+        self.assertIn("其他客户端", prompt)
+        self.assertEqual(self.artifact, original)
+        self.assertFalse(self.window._executing)
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_shared_account_save_accept_uses_one_prompt_and_one_worker(self):
+        self.use_shared_account()
+        self.messagebox.askyesno.return_value = True
+        worker = Mock()
+        with patch.object(self.app, "ExecutionThread", return_value=worker) as create_worker:
+            self.window.execute()
+            self.messagebox.askyesno.assert_called_once()
+            self.assertIn("共享数据库账户", self.messagebox.askyesno.call_args.args[1])
+            create_worker.assert_called_once_with("test", self.window.root)
+            worker.start.assert_called_once()
+            self.assertTrue(self.window._executing)
+        self.window._executing = False
 
     def test_unverified_worker_result_keeps_window_for_recovery(self):
         self.execute_approved_transaction.return_value = {

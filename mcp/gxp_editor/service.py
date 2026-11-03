@@ -24,7 +24,7 @@ from .runtime_validation import RuntimeCsharpValidator
 from .state import ACTIVE_STATES, StateError, StateStore, saved_verification, assert_session_database_scope
 from .review_response import evidence_summary, review_page, review_response
 from .post_write import look_graph_review
-from .workflow_guidance import write_status_guidance
+from .workflow_guidance import batch_prepare_guidance, write_status_guidance
 from .transaction import build_transaction_artifact, validate_transaction_artifact, principal_verification
 from .reference_repair import build_repair, inspection_projection, scan_references
 from .recovery import archive_edit_session, recover_session
@@ -1475,7 +1475,99 @@ class EditorService:
                     "message": "审批记录已创建，窗口未能启动；可调用 reopen_approval 重开或取消未执行审批。"}
 
     @component_request
-    def prepare_write(self, plan_id: str, *, response_detail: str = "full") -> dict[str, Any]:
+    def prepare_write_batch(self, queue_id: str, plan_ids: list[str], *, response_detail: str = "full") -> dict[str, Any]:
+        """Freeze each selected action before opening the queue's single review window.
+
+        Preparation is resumable, not an atomic database transaction. A failed
+        action leaves earlier pending artifacts intact and opens no window.
+        """
+        from .candidate_safety import pending_candidate
+        from .execution_lock import approval_queue_lock, execution_lock
+        from .queue_protocol import queue_snapshot
+
+        if response_detail not in {"summary", "full"}:
+            raise EditorServiceError("response_detail must be summary or full")
+        if (not isinstance(plan_ids, list) or not plan_ids
+                or any(not isinstance(value, str) or not value for value in plan_ids)
+                or len(set(plan_ids)) != len(plan_ids)):
+            raise EditorServiceError("plan_ids must contain distinct nonempty current plan IDs")
+        self.state.edit_queue(queue_id, self.conversation_id)
+        results, prepared, failure = [], [], None
+        # A live queue must never discover an unfinished preparation batch.
+        # Keep the lifetime lock until every selected artifact is frozen.
+        with approval_queue_lock(queue_id):
+            view = queue_snapshot(self.state, queue_id, self.conversation_id)
+            if view["launch_state"] in {"reserved", "active"}:
+                raise self._evidence_error("batch_queue_window_active",
+                    "Close or reconcile the existing queue approval window before preparing a batch")
+            members = {item["id"]: item for item in view["items"]}
+            selected = []
+            # Reject stale, foreign and duplicate-session inputs before creating
+            # even the first transaction. Every normal write gate still runs.
+            for plan_id in plan_ids:
+                plan = self.state.get_plan(plan_id)
+                session = self._owned_session(plan["session_id"])
+                member = members.get(session["id"])
+                if (not member or session.get("queue_id") != queue_id
+                        or member["conversation_id"] != self.conversation_id
+                        or member["queued_owner_revision"] != session.get("owner_revision", 0)
+                        or session.get("plan_id") != plan_id):
+                    raise EditorServiceError("Every batch plan must be the current owned plan in this queue")
+                if any(item[1]["id"] == session["id"] for item in selected):
+                    raise EditorServiceError("A batch can contain only one current plan per action")
+                if not ((session["state"] == "planned" and plan["status"] in {"ready", "blocked"})
+                        or (session["state"] == "awaiting_approval" and plan["status"] == "frozen")):
+                    raise EditorServiceError("Batch plans must be ready for preparation or already pending approval")
+                selected.append((plan, session))
+            for plan, session in selected:
+                plan_id = plan["id"]
+                try:
+                    if session["state"] == "awaiting_approval":
+                        transaction = self.state.get_transaction(session["transaction_id"])
+                        with execution_lock(transaction["artifact_path"]):
+                            transaction, latest, artifact = pending_candidate(self.state, transaction["id"],
+                                self.conversation_id, queue_id=queue_id,
+                                owner_revision=session.get("owner_revision", 0), artifact_path=transaction["artifact_path"])
+                            if (transaction["kind"] != "write" or transaction.get("plan_id") != plan_id
+                                    or latest.get("plan_id") != plan_id):
+                                raise EditorServiceError("Only this plan's current unexecuted approval can be reused")
+                            validate_transaction_artifact(artifact)
+                            require_write_business_review(artifact)
+                            self._approval_preflight(transaction, session, artifact)
+                        result = {"transaction_id": transaction["id"], "state": "awaiting_approval",
+                                  "statement_count": len(artifact["statements"]), "transaction_reused": True,
+                                  "approval_deferred": True, "approval_window_opened": False,
+                                  "approval_window_starting": False, "write_executed": False}
+                    else:
+                        result = self.prepare_write(plan_id, response_detail=response_detail, _defer_approval=True)
+                    result = {"plan_id": plan_id, "session_id": session["id"], **result}
+                    results.append(result)
+                    if not result.get("transaction_id"):
+                        failure = {"plan_id": plan_id, "reason_code": "batch_plan_blocked",
+                                   "message": "This plan did not pass preparation; no batch approval window was opened"}
+                        break
+                    prepared.append(result)
+                except Exception as exc:
+                    failure = {"plan_id": plan_id, "reason_code": getattr(exc, "code", "batch_preparation_failed"),
+                               "message": str(exc), "error_details": getattr(exc, "details", {})}
+                    results.append({"plan_id": plan_id, "session_id": session["id"], "blocked": True,
+                                    "write_executed": False, **failure})
+                    break
+        complete = failure is None
+        window = (self._try_launch_approval(prepared[0]["transaction_id"]) if complete else
+                  {"approval_window_opened": False, "approval_window_starting": False})
+        pending_ids = {item["plan_id"] for item in prepared}
+        return {"queue_id": queue_id, "conversation_id": self.conversation_id, "items": results,
+                "batch_prepared": complete, "blocked": not complete, "prepared_count": len(prepared),
+                "requested_count": len(plan_ids), "transaction_ids": [item["transaction_id"] for item in prepared],
+                "remaining_plan_ids": [value for value in plan_ids if value not in pending_ids],
+                "failure": failure, "approval_deferred": not complete,
+                "statement_count": sum(item["statement_count"] for item in prepared), **window,
+                "approval_granted": False, "write_executed": False, "manual_publication_required": True,
+                **batch_prepare_guidance(queue_id, self.conversation_id, complete=complete, startup=window)}
+
+    @component_request
+    def prepare_write(self, plan_id: str, *, response_detail: str = "full", _defer_approval: bool = False) -> dict[str, Any]:
         if response_detail not in {"summary", "full"}:
             raise EditorServiceError("response_detail must be summary or full")
         plan = self.state.get_plan(plan_id)
@@ -1616,7 +1708,9 @@ class EditorService:
         self.state.create_transaction(session["id"], plan_id, "write", str(tx_path), transaction_id=transaction_id,
                                       conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0),
                                       expected_review_checkpoint=checkpoint["sha256"] if checkpoint is not None else None)
-        approval_window = self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0))
+        approval_window = ({"approval_window_opened": False, "approval_window_starting": False,
+                            "approval_deferred": True} if _defer_approval else
+                           self._try_launch_approval(transaction_id, owner_revision=session.get("owner_revision", 0)))
         return {
             "transaction_id": transaction_id,
             "state": "awaiting_approval",

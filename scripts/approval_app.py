@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import ExitStack
 import json
 import sys
 import threading
@@ -18,11 +19,11 @@ report_window_heartbeat(phase="loading_artifact")
 from PySide6.QtCore import QObject, QSignalBlocker, QThread, QTimer, Qt, Signal, Slot
 from shiboken6 import isValid
 from PySide6.QtWidgets import (
-    QApplication, QCheckBox, QComboBox, QFileDialog, QFrame, QHBoxLayout, QListWidget,
+    QApplication, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFrame, QHBoxLayout, QListWidget, QListWidgetItem,
     QMainWindow, QMessageBox, QPlainTextEdit, QProgressBar, QPushButton,
     QScrollArea, QSplitter, QTabWidget, QVBoxLayout, QWidget,
 )
-from gxp_editor.approval import approval_is_current, approve_statement, load_artifact, save_artifact
+from gxp_editor.approval import approval_is_current, approve_statement, load_artifact, save_artifact, verify_approvals
 from gxp_editor.action_context import action_context, context_summary, publication_notice, publication_target, queue_publication_targets
 from gxp_editor.action_context_ui import ActionContextBanner
 from gxp_editor.approval_display import (
@@ -69,6 +70,13 @@ class MessageBoxes:
 messagebox = MessageBoxes()
 
 
+class ApprovalButton(QPushButton):
+    def mouseDoubleClickEvent(self, event):
+        # The first click already approves and advances to the next statement.
+        # Swallow the second press so that it cannot approve an unread row.
+        event.accept()
+
+
 class ExecutionThread(QThread):
     completed = Signal(object)
     failed = Signal(object)
@@ -84,6 +92,62 @@ class ExecutionThread(QThread):
             details = getattr(exc, "details", {})
             self.failed.emit({"message": str(exc), "reason_code": getattr(exc, "code", "execution_error"),
                               "error_details": details if isinstance(details, dict) else {}})
+
+
+class BatchExecutionThread(QThread):
+    completed = Signal(object)
+
+    def __init__(self, entries, validate, state, parent=None):
+        super().__init__(parent)
+        self.entries = entries
+        self.validate = validate
+        self.state = state
+
+    def run(self):
+        saved = []
+        for entry in self.entries:
+            try:
+                self.validate(entry, approved=True)
+                result = execute_approved_transaction(entry["transaction_id"])
+                if (result.get("state") != "saved" or not result.get("verified") or not result.get("session_released")
+                        or self.state.get_transaction(entry["transaction_id"])["state"] != "saved"
+                        or self.state.get_session(entry["session_id"])["state"] != "finished"):
+                    raise StateError("保存结果尚未完成核验或释放会话，请回到当前对话核对。")
+                saved.append(entry["transaction_id"])
+            except Exception as exc:
+                self.completed.emit({"saved": saved, "failed": entry["transaction_id"], "error": str(exc)})
+                return
+        self.completed.emit({"saved": saved})
+
+
+class BatchApprovalDialog(QDialog):
+    """An explicit human decision over the complete frozen SQL batch."""
+
+    def __init__(self, entries, parent=None):
+        super().__init__(parent)
+        self.setWindowTitle("批量审批：核对所选动作的全部 SQL")
+        self.resize(960, 720)
+        layout = QVBoxLayout(self)
+        count = sum(len(entry["artifact"]["statements"]) for entry in entries)
+        layout.addWidget(label(f"共 {len(entries)} 个动作、{count} 条 SQL。请核对以下全部目标、SQL 和绑定参数后批准。", wrap=True))
+        chunks = []
+        for position, entry in enumerate(entries, 1):
+            artifact = entry["artifact"]
+            chunks.append(f"=== 动作 {position}/{len(entries)}：{entry['title']} ===\n"
+                          f"审批事务：{entry['transaction_id']}\nDesign ID：{artifact['design_id']}\n"
+                          f"事务 SHA-256：{artifact['transaction_hash']}")
+            for index, statement in enumerate(artifact["statements"], 1):
+                chunks.append(f"--- SQL {index}/{len(artifact['statements'])} ---\n{statement_scope(statement)}\n\n"
+                              f"完整 SQL：\n{render_full_sql(statement)}\n\n模板、绑定参数与目标：\n{parameter_details(statement)}")
+        self.details = text_view("\n\n".join(chunks), code=True)
+        layout.addWidget(self.details, 1)
+        buttons = QDialogButtonBox(QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
+        buttons.button(QDialogButtonBox.StandardButton.Ok).setText(f"批准所选 {len(entries)} 个动作的全部 SQL")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setText("取消")
+        buttons.button(QDialogButtonBox.StandardButton.Cancel).setDefault(True)
+        buttons.accepted.connect(self.accept)
+        buttons.rejected.connect(self.reject)
+        layout.addWidget(buttons)
 
 
 class PreviewMetadataThread(QObject):
@@ -393,7 +457,7 @@ class ApprovalWindow(QObject):
         self.close_button = QPushButton("稍后处理")
         self.close_button.setToolTip("关闭窗口，保留待审批内容，不执行 SQL。")
         self.close_button.clicked.connect(self.close)
-        self.approve_button = QPushButton("批准当前语句")
+        self.approve_button = ApprovalButton("批准当前语句")
         self.approve_button.setObjectName("approve")
         self.approve_button.clicked.connect(self.approve_current)
         self.execute_button = QPushButton("执行并保存草稿")
@@ -490,9 +554,9 @@ class ApprovalWindow(QObject):
             "批准本条，继续下一条" if len(statements) - count > 1 else "批准最后一条"
         )
         self.approve_button.setToolTip(
-            "本次草稿的画布、JS 和 C# 修改合为一条 SQL，只需审批一次。批准后请确认保存。"
+            "点击即批准本次草稿更新，无需再次确认。画布、JS 和 C# 合为一条 SQL；批准后请确认保存。"
             if single_draft_update else
-            "按实际 SQL 及其参数和目标记录分别审批，自动切换到下一项；全部批准后确认保存。"
+            "点击即批准当前 SQL 及其参数和目标记录，自动切换到下一项；全部批准后确认保存。"
         )
         with QSignalBlocker(self.statement_list):
             self.statement_list.clear()
@@ -577,13 +641,6 @@ class ApprovalWindow(QObject):
             self._validate_current()
             if approval_is_current(self.artifact, self.current()):
                 return
-            if len(self.artifact["statements"]) == 1 and self.current()["kind"] == "update_design":
-                prompt = "批准本次草稿更新？\n\n本次画布、JS 和 C# 修改合并为一条 SQL，仅影响草稿主记录 1 行。\n\n批准后请确认保存。"
-            else:
-                prompt = f"批准当前第 {self.index + 1}/{len(self.artifact['statements'])} 条 SQL？\n\n{STATEMENT_LABELS.get(self.current()['kind'], self.current()['kind'])} · 仅影响 1 行\n\n批准后自动显示下一条待审批项。\n全部批准后确认保存。"
-            if not messagebox.askyesno("确认审批", prompt, parent=self.root):
-                return
-            self._validate_current()
             approve_statement(self.config, self.artifact, self.current()["id"])
             save_artifact(self.path, self.artifact)
             next_index = self._next_pending_index(self.index + 1)
@@ -601,9 +658,10 @@ class ApprovalWindow(QObject):
             self._validate_current()
             if not all(approval_is_current(self.artifact, item) for item in self.artifact["statements"]):
                 raise StateError("请先逐条批准全部 SQL，过期语句需重新批准。")
-            if self.artifact["database_safety"].get("shared_account") and not messagebox.askyesno("共享账户风险确认", "当前使用共享数据库账户。固定 SQL、设计锁和审批只能限制本插件内的操作，不能缩小该账户在其他客户端中的权限。确认继续吗？", parent=self.root):
-                return
-            if not messagebox.askyesno("执行并保存草稿", "SQL 审批已完成。现在将重新锁定并校验草稿，在同一事务中保存全部修改。\n\n保存后仍需在平台手动发布。确认执行？", parent=self.root):
+            prompt = "SQL 审批已完成。现在将重新锁定并校验草稿，在同一事务中保存全部修改。\n\n保存后仍需在平台手动发布。"
+            if self.artifact["database_safety"].get("shared_account"):
+                prompt += "\n\n当前使用共享数据库账户；本插件的限制不能缩小该账户在其他客户端中的权限。"
+            if not messagebox.askyesno("执行并保存草稿", prompt + "\n\n确认执行？", parent=self.root):
                 return
             self._validate_current()
             self._executing = True
@@ -727,6 +785,9 @@ class ApprovalQueueWindow(ApprovalWindow):
         self._active_review = False
         self._waiting_for_lock = False
         self._queue_stopped = False
+        self._batch_selected = set()
+        self._batch_expanded = False
+        self._batch_locks = None
         self._isolated_candidates = {}
         self._last_queue_result = ""
         self._selected_session_id = None
@@ -767,6 +828,10 @@ class ApprovalQueueWindow(ApprovalWindow):
 
     def _release_window_lock(self):
         ApprovalWindow._release_window_lock(self)
+        batch_locks = getattr(self, "_batch_locks", None)
+        self._batch_locks = None
+        if batch_locks is not None:
+            batch_locks.close()
         lock = self._queue_lock
         self._queue_lock = None
         if lock is not None:
@@ -810,6 +875,26 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.queue_choices.setMinimumContentsLength(20)
         self.queue_choices.setMaxVisibleItems(12)
         layout.addWidget(self.queue_choices)
+        batch_actions = QHBoxLayout()
+        self.batch_expand_button = QPushButton("选择批量动作")
+        self.batch_expand_button.setCheckable(True)
+        self.batch_expand_button.setChecked(self._batch_expanded)
+        self.batch_expand_button.toggled.connect(self._toggle_batch_choices)
+        self.batch_select_all = QCheckBox("全选待审批动作")
+        self.batch_select_all.toggled.connect(self._select_all_batch)
+        self.batch_approve_button = QPushButton("批量审批")
+        self.batch_approve_button.clicked.connect(self.approve_selected)
+        self.batch_execute_button = QPushButton("批量保存")
+        self.batch_execute_button.clicked.connect(self.execute_selected)
+        for widget in (self.batch_expand_button, self.batch_select_all, self.batch_approve_button, self.batch_execute_button):
+            batch_actions.addWidget(widget)
+        layout.addLayout(batch_actions)
+        self.batch_choices = QListWidget()
+        self.batch_choices.setMaximumHeight(88)
+        self.batch_choices.setVisible(self._batch_expanded)
+        self._batch_choices_snapshot = None
+        self.batch_choices.itemChanged.connect(self._batch_choice_changed)
+        layout.addWidget(self.batch_choices)
         self.queue_result = label(self._last_queue_result or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。", "muted", wrap=True)
         layout.addWidget(self.queue_result)
         self.queue_choices.activated.connect(self._select_queue_item)
@@ -849,11 +934,199 @@ class ApprovalQueueWindow(ApprovalWindow):
         self.queue_choices.setEnabled(not self._executing and not self._queue_stopped)
         self.retry_candidates_button.setVisible(bool(self._isolated_candidates))
         self.retry_candidates_button.setEnabled(not self._executing and not self._queue_stopped)
+        self._update_batch_choices()
         notice = publication_notice(queue_publication_targets(items, self.conversation_id))
         isolated_note = (f"已隔离 {len(self._isolated_candidates)} 个未执行候选，其余动作可继续审批。失效审批请在当前对话取消后重新规划；新审批会自动加入队列。临时读取问题可点击重试。"
                          if self._isolated_candidates else "")
         self.queue_result.setText("\n\n".join(part for part in (self._last_queue_result, isolated_note, notice) if part)
                                  or "每个动作分别审批和保存；已保存的动作不会随下一项失败回滚。")
+
+    def _toggle_batch_choices(self, expanded):
+        self._batch_expanded = expanded
+        self.batch_choices.setVisible(expanded)
+
+    def _select_all_batch(self, checked):
+        self._batch_selected = ({item["transaction_id"] for item in self._batch_candidates()} if checked else set())
+        self._update_batch_choices()
+
+    def _batch_choice_changed(self, row):
+        transaction_id = row.data(Qt.ItemDataRole.UserRole)
+        if row.checkState() == Qt.CheckState.Checked:
+            self._batch_selected.add(transaction_id)
+        else:
+            self._batch_selected.discard(transaction_id)
+        self._update_batch_choices()
+
+    def _batch_candidates(self):
+        return [item for item in self._queue_items if self._item_owned(item)
+                and item.get("transaction_state") == "awaiting_approval"
+                and item.get("transaction_id") not in self._isolated_candidates]
+
+    def _update_batch_choices(self):
+        candidates = self._batch_candidates()
+        self._batch_selected.intersection_update(item["transaction_id"] for item in candidates)
+        rows = [(item["transaction_id"], f"{context_summary(item['action_context'])}"
+                 f"（{item.get('action_code') or item['action_context'].get('action_code') or '编号待确认'}） · {item['id'][:8]}")
+                for item in candidates]
+        with QSignalBlocker(self.batch_choices):
+            if rows != self._batch_choices_snapshot:
+                self.batch_choices.clear()
+                for transaction_id, title in rows:
+                    row = QListWidgetItem(title)
+                    row.setData(Qt.ItemDataRole.UserRole, transaction_id)
+                    row.setFlags(row.flags() | Qt.ItemFlag.ItemIsUserCheckable)
+                    self.batch_choices.addItem(row)
+                self._batch_choices_snapshot = rows
+            for index in range(self.batch_choices.count()):
+                row = self.batch_choices.item(index)
+                row.setCheckState(Qt.CheckState.Checked if row.data(Qt.ItemDataRole.UserRole) in self._batch_selected
+                                  else Qt.CheckState.Unchecked)
+        with QSignalBlocker(self.batch_select_all):
+            self.batch_select_all.setChecked(bool(candidates) and len(self._batch_selected) == len(candidates))
+        ready = not self._executing and not self._queue_stopped
+        self.batch_choices.setEnabled(ready)
+        self.batch_expand_button.setEnabled(ready)
+        self.batch_select_all.setEnabled(ready and bool(candidates))
+        self.batch_expand_button.setText(f"选择批量动作（{len(self._batch_selected)}/{len(candidates)}）")
+        self.batch_approve_button.setEnabled(ready and bool(self._batch_selected))
+        approved = bool(self._batch_selected)
+        for item in candidates:
+            if item["transaction_id"] in self._batch_selected:
+                try:
+                    verify_approvals(self.config, load_artifact(item["artifact_path"]))
+                except Exception:
+                    approved = False
+                    break
+        self.batch_execute_button.setEnabled(ready and approved)
+
+    def _validate_batch_entry(self, entry, *, approved=False):
+        """Only immutable metadata/state here; also runs on the save worker."""
+        with execution_lock(entry["path"]):
+            return self._validate_batch_entry_locked(entry, approved=approved)
+
+    def _validate_batch_entry_locked(self, entry, *, approved=False):
+        from gxp_editor.queue_protocol import validate_window
+        validate_window(self.state, self.queue_id, self.conversation_id)
+        transaction, session, artifact = pending_candidate(self.state, entry["transaction_id"], self.conversation_id,
+            queue_id=self.queue_id, owner_revision=entry["owner_revision"], artifact_path=entry["path"])
+        validate_transaction_artifact(artifact)
+        require_write_business_review(artifact)
+        if (session["id"] != entry["session_id"] or artifact["transaction_hash"] != entry["artifact"]["transaction_hash"]
+                or artifact["design_id"] != entry["artifact"]["design_id"]
+                or artifact["plan_id"] != transaction["plan_id"]):
+            raise StateError("批量审批内容或归属已改变，请重新选择并核对。")
+        if approved:
+            verify_approvals(self.config, artifact)
+        return artifact
+
+    def _freeze_batch(self, locks):
+        from gxp_editor.queue_protocol import validate_window
+        validate_window(self.state, self.queue_id, self.conversation_id)
+        self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
+        selected = [item for item in self._batch_candidates() if item["transaction_id"] in self._batch_selected]
+        if not selected or {item["transaction_id"] for item in selected} != self._batch_selected:
+            raise StateError("所选动作状态已改变，请重新选择。")
+        entries = []
+        for item in selected:
+            path = Path(item["artifact_path"])
+            if self._window_lock is None or path.resolve() != self.path.resolve():
+                locks.enter_context(approval_window_lock(path))
+            entry = {"transaction_id": item["transaction_id"], "session_id": item["id"],
+                     "owner_revision": item["queued_owner_revision"], "path": path,
+                     "title": f"{context_summary(item['action_context'])}"
+                     f"（{item.get('action_code') or item['action_context'].get('action_code') or '编号待确认'}） · {item['id'][:8]}",
+                     "artifact": load_artifact(path)}
+            entry["artifact"] = self._validate_batch_entry(entry)
+            entries.append(entry)
+        return entries
+
+    def approve_selected(self):
+        if self._executing or self._queue_stopped:
+            return
+        self.timer.stop()
+        try:
+            with ExitStack() as window_locks:
+                entries = self._freeze_batch(window_locks)
+                if BatchApprovalDialog(entries, self.root).exec() != QDialog.DialogCode.Accepted:
+                    return
+                # Revalidate the entire frozen set before signing any statement.
+                with ExitStack() as execution_locks:
+                    for entry in entries:
+                        execution_locks.enter_context(execution_lock(entry["path"]))
+                    artifacts = [self._validate_batch_entry_locked(entry) for entry in entries]
+                    for entry, artifact in zip(entries, artifacts):
+                        for statement in artifact["statements"]:
+                            approve_statement(self.config, artifact, statement["id"])
+                        save_artifact(entry["path"], artifact)
+                self._last_queue_result = f"已批量批准 {len(entries)} 个动作。请另行确认批量保存草稿。"
+                if self._active_review:
+                    self.artifact = load_artifact(self.path)
+                    self.render()
+                self._update_queue_banner()
+        except Exception as exc:
+            messagebox.showerror("无法批量审批", str(exc), parent=self.root)
+        finally:
+            if not self._queue_stopped:
+                self.timer.start(1000)
+
+    def execute_selected(self):
+        if self._executing or self._queue_stopped:
+            return
+        locks = ExitStack()
+        self.timer.stop()
+        try:
+            entries = self._freeze_batch(locks)
+            for entry in entries:
+                self._validate_batch_entry(entry, approved=True)
+            names = "\n".join(f"{index}. {entry['title']}（{entry['transaction_id'][:8]}）" for index, entry in enumerate(entries, 1))
+            shared = any(entry["artifact"]["database_safety"].get("shared_account") for entry in entries)
+            risk = "\n\n其中有动作使用共享数据库账户；本插件的限制不能缩小该账户在其他客户端中的权限。" if shared else ""
+            if not messagebox.askyesno("确认批量保存草稿",
+                    f"仅保存以下 {len(entries)} 个已批准动作：\n{names}\n\n"
+                    "各动作分别提交事务；遇到失败或核验未完成即停止，之前已保存的动作保留。\n"
+                    "保存后仍需在平台手动发布。确认执行？" + risk, parent=self.root):
+                return
+            for entry in entries:
+                self._validate_batch_entry(entry, approved=True)
+            self._batch_locks = locks.pop_all()
+            self._executing = True
+            self._batch_total = len(entries)
+            self.approve_button.setEnabled(False)
+            self.execute_button.setEnabled(False)
+            self.close_button.setEnabled(False)
+            self._update_queue_banner()
+            self.progress.setText(f"正在按顺序保存所选 {len(entries)} 个动作，请等待核验结果…")
+            self.worker = BatchExecutionThread(entries, self._validate_batch_entry, self.state, self.root)
+            self.worker.completed.connect(self._batch_execution_complete)
+            self.worker.start()
+        except Exception as exc:
+            messagebox.showerror("无法批量保存", str(exc), parent=self.root)
+        finally:
+            locks.close()
+            if not self._executing and not self._queue_stopped:
+                self.timer.start(1000)
+
+    @Slot(object)
+    def _batch_execution_complete(self, result):
+        self.worker.wait()
+        self.worker.deleteLater()
+        self._executing = False
+        saved = len(result["saved"])
+        self._last_queue_result = f"本批次已核验保存 {saved}/{self._batch_total} 个动作。"
+        if result.get("failed"):
+            self._queue_stopped = True
+            self._last_queue_result += f"剩余 {self._batch_total - saved} 个动作已停止；之前保存的结果保留。"
+            self._queue_items = self.state.edit_queue(self.queue_id, self.conversation_id)
+            self._show_waiting(self._last_queue_result + "\n" + result["error"] + "\n请回到当前对话核对后重新打开队列。")
+            messagebox.showerror("批量保存已停止", self.progress.text(), parent=self.root)
+            # Retain window locks until close, including any uncertain transaction.
+            return
+        locks = self._batch_locks
+        self._batch_locks = None
+        locks.close()
+        self._advance_queue()
+        if not self._queue_stopped:
+            self.timer.start(1000)
 
     def _retry_isolated_candidates(self):
         if self._executing or self._queue_stopped:

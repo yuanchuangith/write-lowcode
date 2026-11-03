@@ -2,7 +2,7 @@
 const crypto = require('node:crypto');
 const runtimeContracts = require('./event_contracts.cjs');
 const operationContracts = require('./operation_contracts.json');
-const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'append_node', 'insert_in_block', 'bind_component_event', 'set_parameter', 'set_array_item'];
+const EXTENDED = ['create_action_group', 'set_event_callback_contract', 'rename_group_input_parameter', 'append_node', 'insert_in_block', 'bind_component_event', 'set_parameter', 'set_array_item'];
 const NATIVE = ['insert_before', 'insert_after', 'replace_params', 'replace_block', 'delete_block', 'move_block'];
 const TYPES = new Set(['string', 'number', 'double', 'boolean', 'object', 'dictionary', 'array', 'dateTime', 'any']);
 const FORBIDDEN = operationContracts.forbidden_fields;
@@ -209,7 +209,43 @@ function applyOperations(design, operations, native, api) {
         generated_nodes: [], affected_node_keys: [], before_node_count: 0, after_node_count: 0});
       continue;
     }
-    const group = api.actionByKey(design, resolve(op.action_group_key));
+    const resolvedGroupKey = resolve(op.action_group_key);
+    if (op.operation === 'rename_group_input_parameter') {
+      const matches = design.actionData.filter(item => item.key === resolvedGroupKey);
+      if (matches.length !== 1) reject(matches.length ? 'ambiguous_target' : 'target_not_found', 'Parameter rename requires one existing action group');
+    }
+    const group = api.actionByKey(design, resolvedGroupKey);
+    if (op.operation === 'rename_group_input_parameter') {
+      fields(op, ['operation', 'action_group_key', 'parameter_key', 'expected_old_name', 'new_name']);
+      text(op.parameter_key, 'parameter_key'); text(op.expected_old_name, 'expected_old_name');
+      text(op.new_name, 'new_name');
+      if (group.actionType !== 'js') reject('invalid_operation', 'Input parameter rename requires a JS group');
+      if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(op.new_name) || UNSAFE_KEYS.has(op.new_name) || operationContracts.reserved_parameter_names.includes(op.new_name)) {
+        reject('invalid_parameter_name', 'new_name must be a non-reserved native parameter identifier');
+      }
+      if (!Array.isArray(group.inputParams) || group.inputParams.some(param => !object(param))) {
+        reject('invalid_parameter_declarations', 'Group inputParams must be an existing declaration array');
+      }
+      const matches = group.inputParams.filter(param => param.key === op.parameter_key);
+      if (matches.length !== 1) reject(matches.length ? 'ambiguous_target' : 'target_not_found', 'parameter_key must select exactly one input declaration');
+      const param = matches[0];
+      if (param.title !== op.expected_old_name) reject('old_value_mismatch', 'Input parameter name changed; inspect the current declaration');
+      if (group.inputParams.some(other => other !== param && other.title === op.new_name)) {
+        reject('duplicate_parameter_name', 'Input parameter name already exists in this group');
+      }
+      const before = {input_params:cloneParameters(group.inputParams), output_params:cloneParameters(group.outputParams)};
+      const noChange = param.title === op.new_name;
+      // Do not rebuild declarations or rewrite references: preserve native keys,
+      // types, order, extension fields and every node. Native generation and
+      // lexical/signature validation still check the complete candidate.
+      param.title = op.new_name;
+      diff.push({operation_index:index, operation:op.operation, action_group_key:group.key, group_title:group.title,
+        parameter_key:op.parameter_key, expected_old_name:op.expected_old_name, new_name:op.new_name,
+        no_change:noChange,
+        before_parameters:before, input_params:cloneParameters(group.inputParams), output_params:cloneParameters(group.outputParams),
+        affected_node_keys:[], generated_nodes:[], before_node_count:group.data.length, after_node_count:group.data.length});
+      continue;
+    }
     for (const field of ['target_node_key', 'anchor_node_key']) {
       if (typeof op[field] !== 'string' || !op[field].startsWith('@')) continue;
       const reference = nodeAliases.get(op[field].slice(1));

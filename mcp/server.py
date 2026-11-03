@@ -24,7 +24,8 @@ mcp = FastMCP(
         "For business editing, create one registered conversation_id per dialogue and supply it on every call. "
         "database_settings is a separate local settings entry, available without editor activation or database configuration; never pass passwords. "
         "Different dialogues may edit different drafts concurrently. Each draft has one active flow; "
-        "use create_edit_queue and queue_id to review multiple drafts in one dialogue/window. "
+        "use create_edit_queue and queue_id to review multiple drafts in one dialogue/window; "
+        "plan all actions, then prepare_write_batch to open approval only after the whole batch is prepared. "
         "Without a queue each dialogue has one active flow. An omitted conversation_id accesses only legacy flows. "
         "A session marker may be transferred to another dialogue after its approval window "
         "closes; transfer revokes the former dialogue's access. "
@@ -245,6 +246,20 @@ def open_plan_review(plan_id: str, conversation_id: str = "", response_detail: L
 def prepare_write(plan_id: str, conversation_id: str = "", response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
     """Submit this draft's batched edits in one validated plan and one approval transaction/window. Canvas/JS/C# share one UPDATE and one approval; actual additional SQL is approved separately by bound parameters and target row."""
     return service(conversation_id).prepare_write(plan_id, response_detail=response_detail)
+
+
+@mcp.tool()
+@traced_tool
+def prepare_write_batch(queue_id: str, plan_ids: Annotated[list[str], Field(min_length=1)],
+                        conversation_id: str, response_detail: Literal["summary", "full"] = "summary") -> dict[str, Any]:
+    """Prepare all selected current plans in an explicit queue, then open one human batch approval window.
+
+    Finish generating every action before this call. No approval or database write occurs here.
+    Failures leave earlier pending transactions intact and open no window; repair the failed
+    action and retry with current plan IDs. Retrying reuses only the same unexecuted approvals.
+    Close an existing queue approval window before preparing another batch.
+    """
+    return service(conversation_id).prepare_write_batch(queue_id, plan_ids, response_detail=response_detail)
 
 
 @mcp.tool()

@@ -171,6 +171,28 @@ def _declarations(value: Any) -> None:
         seen.add(row["title"])
 
 
+def _rename_group_input(group: dict, op: dict) -> bool:
+    if group.get("actionType") != "js":
+        raise _Invalid("invalid_operation", "Input parameter rename requires a JS group")
+    name = op["new_name"]
+    if not _ALIAS_RE.fullmatch(name) or name in UNSAFE or name in CONTRACT["reserved_parameter_names"]:
+        raise _Invalid("invalid_parameter_name", "new_name must be a non-reserved native parameter identifier")
+    params = group.get("inputParams")
+    if type(params) is not list or any(type(param) is not dict for param in params):
+        raise _Invalid("invalid_parameter_declarations", "Group inputParams must be an existing declaration array")
+    matches = [param for param in params if param.get("key") == op["parameter_key"]]
+    if len(matches) != 1:
+        raise _Invalid("ambiguous_target" if matches else "target_not_found", "parameter_key must select exactly one input declaration")
+    param = matches[0]
+    if param.get("title") != op["expected_old_name"]:
+        raise _Invalid("old_value_mismatch", "Input parameter name changed; inspect the current declaration")
+    if any(other is not param and other.get("title") == name for other in params):
+        raise _Invalid("duplicate_parameter_name", "Input parameter name already exists in this group")
+    unchanged = param["title"] == name
+    param["title"] = name
+    return unchanged
+
+
 def _parameter_update(node: dict, op: dict) -> bool:
     if node.get("elementKey") != op["expected_element_key"]:
         raise _Invalid("element_type_mismatch", "Target element type changed; inspect the current node")
@@ -371,7 +393,16 @@ def preflight_batch(design: Any, operations: Any) -> dict[str, Any]:
                             nodes = [node for node in group.get("data", []) if type(node) is dict and node.get("key") == key]
                             if len(nodes) != 1:
                                 raise _Invalid("ambiguous_target" if nodes else "target_not_found", "Target/anchor must select one existing node")
-                    if name in _PARAMETER_OPS:
+                    if name == "rename_group_input_parameter":
+                        if group.get("actionType") != "js":
+                            raise _Invalid("invalid_operation", "Input parameter rename requires a JS group")
+                        if dependent:
+                            defer(index, op, "prior_native_result_required")
+                            all_no_change = False
+                        else:
+                            unchanged = _rename_group_input(group, op)
+                            all_no_change = unchanged and all_no_change
+                    elif name in _PARAMETER_OPS:
                         pointer_tokens(op["path"])
                         _safe_parameter(op["expected_old_value"])
                         _safe_parameter(op["value"])

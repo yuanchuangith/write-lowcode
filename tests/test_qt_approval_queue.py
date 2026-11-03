@@ -11,6 +11,7 @@ from unittest.mock import Mock, patch
 
 from PySide6.QtCore import QCoreApplication, QEvent, Qt
 from PySide6.QtTest import QTest
+from PySide6.QtWidgets import QDialog
 
 from tests.helpers import PLUGIN_ROOT, baseline, editor_config, transaction
 from gxp_editor.approval import load_artifact, save_artifact, transaction_binding_hash, verify_approvals
@@ -131,6 +132,169 @@ class QtApprovalQueueTests(unittest.TestCase):
         while self.window._executing and time.monotonic() < deadline:
             QTest.qWait(10)
         self.assertFalse(self.window._executing)
+
+    def approve_batch(self, *, selected=None, review=None):
+        selected = selected or {self.first, self.second}
+        self.window._batch_selected = set(selected)
+        self.window._update_batch_choices()
+        with patch.object(self.app.BatchApprovalDialog, "exec", review or (lambda dialog: QDialog.DialogCode.Accepted)):
+            self.window.approve_selected()
+
+    def wait_for_batch(self):
+        deadline = time.monotonic() + 10
+        while self.window._executing and time.monotonic() < deadline:
+            QTest.qWait(10)
+        self.assertFalse(self.window._executing)
+
+    def test_batch_review_shows_every_sql_parameter_and_target_but_cancel_signs_nothing(self):
+        texts = []
+        def reject(dialog):
+            texts.append(dialog.details.toPlainText())
+            with self.assertRaises(ApprovalWindowBusyError):
+                with approval_window_lock(self.state.get_transaction(self.second)["artifact_path"]):
+                    self.fail("Other approval window entered the reviewed batch")
+            return QDialog.DialogCode.Rejected
+        self.approve_batch(review=reject)
+        self.assertIn("Action1", self.window.batch_choices.item(0).text())
+        self.assertIn("Action2", self.window.batch_choices.item(1).text())
+        self.assertIn("Action1", texts[0])
+        self.assertIn("Action2", texts[0])
+        for tx in (self.first, self.second):
+            artifact = self.artifact(tx)
+            self.assertIn(tx, texts[0])
+            self.assertIn(artifact["design_id"], texts[0])
+            for statement in artifact["statements"]:
+                self.assertIn(self.app.render_full_sql(statement), texts[0])
+                self.assertIn(self.app.parameter_details(statement), texts[0])
+            self.assertFalse(artifact["approvals"])
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_batch_selection_signs_only_selected_actions_and_not_late_arrival(self):
+        self.window.batch_select_all.setChecked(True)
+        self.assertEqual(self.window._batch_selected, {self.first, self.second})
+        self.window.batch_choices.item(1).setCheckState(Qt.CheckState.Unchecked)
+        self.assertEqual(self.window._batch_selected, {self.first})
+        late = []
+        def accept(dialog):
+            late.append(self.add_action(3))
+            self.assertFalse(self.artifact(self.first)["approvals"])
+            return QDialog.DialogCode.Accepted
+        self.approve_batch(selected={self.first}, review=accept)
+        verify_approvals(self.config, self.artifact(self.first))
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.assertFalse(self.artifact(late[0])["approvals"])
+        self.window.refresh_approval_state()
+        self.assertEqual(self.window._batch_selected, {self.first})
+        self.assertFalse(self.window.batch_select_all.isChecked())
+        self.assertTrue(self.window.execute_button.isEnabled())
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_batch_changed_snapshot_blocks_all_signatures_after_confirmation(self):
+        def changed(dialog):
+            artifact = self.artifact(self.second)
+            artifact["created_at"] = "2000-01-01T00:00:00"
+            artifact["transaction_hash"] = transaction_binding_hash(artifact)
+            save_artifact(self.state.get_transaction(self.second)["artifact_path"], artifact)
+            return QDialog.DialogCode.Accepted
+        self.approve_batch(review=changed)
+        self.assertFalse(self.artifact(self.first)["approvals"])
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.messagebox.showerror.assert_called_once()
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_batch_transferred_action_blocks_all_signatures_after_confirmation(self):
+        def transfer(dialog):
+            other = self.state.create_conversation()["conversation_id"]
+            self.state.transfer_session(self.artifact(self.second)["session_id"], other, expected_owner=self.owner,
+                                        expected_revision=0, expected_transaction_id=self.second)
+            return QDialog.DialogCode.Accepted
+        self.approve_batch(review=transfer)
+        self.assertFalse(self.artifact(self.first)["approvals"])
+        self.assertFalse(self.artifact(self.second)["approvals"])
+        self.messagebox.showerror.assert_called_once()
+        self.execute_approved_transaction.assert_not_called()
+
+    def test_batch_save_requires_separate_confirmation_and_keeps_approval_on_cancel(self):
+        self.approve_batch()
+        for tx in (self.first, self.second):
+            verify_approvals(self.config, self.artifact(tx))
+        self.assertTrue(self.window.batch_execute_button.isEnabled())
+        self.execute_approved_transaction.assert_not_called()
+        self.messagebox.askyesno.return_value = False
+        self.window.execute_selected()
+        self.execute_approved_transaction.assert_not_called()
+        self.assertFalse(self.window._executing)
+        for tx in (self.first, self.second):
+            verify_approvals(self.config, self.artifact(tx))
+
+    def test_batch_save_executes_only_frozen_selection_in_order_and_stays_open(self):
+        self.approve_batch()
+        shell = self.window.root
+        late = []
+        def confirm(*args, **kwargs):
+            late.append(self.add_action(3))
+            return True
+        self.messagebox.askyesno.side_effect = confirm
+        self.window.execute_selected()
+        self.wait_for_batch()
+        self.assertEqual([call.args[0] for call in self.execute_approved_transaction.call_args_list], [self.first, self.second])
+        self.assertIs(self.window.root, shell)
+        self.assertTrue(shell.isVisible())
+        self.assertFalse(self.window._queue_stopped)
+        self.assertEqual(self.window.transaction_id, late[0])
+        self.assertFalse(self.artifact(late[0])["approvals"])
+        self.assertIn("2/2", self.window.queue_result.text())
+        self.assertIn("Action1", self.window.queue_result.text())
+        self.assertIn("Action2", self.window.queue_result.text())
+
+    def test_batch_save_rejects_unsigned_selection(self):
+        self.window.batch_select_all.setChecked(True)
+        self.window.execute_selected()
+        self.execute_approved_transaction.assert_not_called()
+        self.messagebox.askyesno.assert_not_called()
+        self.messagebox.showerror.assert_called_once()
+
+    def test_batch_save_stops_on_unverified_or_unreleased_first_save(self):
+        self.approve_batch()
+        for verified, released in ((False, True), (True, False)):
+            with self.subTest(verified=verified, released=released):
+                # No state mutation: each incomplete writer response must stop immediately.
+                self.execute_approved_transaction.return_value = {"state": "saved", "verified": verified, "session_released": released}
+                self.execute_approved_transaction.side_effect = None
+                self.window.execute_selected()
+                self.wait_for_batch()
+                self.assertTrue(self.window._queue_stopped)
+                self.assertEqual(self.execute_approved_transaction.call_count, 1)
+                self.assertEqual(self.execute_approved_transaction.call_args.args[0], self.first)
+                self.assertIn("0/2", self.window.queue_result.text())
+                self.assertIn("剩余 2", self.window.queue_result.text())
+                self.window.close()
+                self.window = self.open_window()
+                self.window.batch_select_all.setChecked(True)
+                self.execute_approved_transaction.reset_mock()
+
+    def test_batch_failure_stops_later_actions_and_retains_previous_saves(self):
+        third = self.add_action(3)
+        self.window.refresh_approval_state()
+        self.approve_batch(selected={self.first, self.second, third})
+        def fail_second(tx):
+            if tx == self.second:
+                raise RuntimeError("offline simulated failure")
+            return self.save_offline(tx)
+        self.execute_approved_transaction.side_effect = fail_second
+        self.window.execute_selected()
+        self.wait_for_batch()
+        self.assertEqual([call.args[0] for call in self.execute_approved_transaction.call_args_list], [self.first, self.second])
+        self.assertTrue(self.window._queue_stopped)
+        self.assertEqual(self.state.get_transaction(self.first)["state"], "saved")
+        self.assertEqual(self.state.get_transaction(third)["state"], "awaiting_approval")
+        self.assertIn("1/3", self.window.queue_result.text())
+        self.assertIn("剩余 2", self.window.queue_result.text())
+        self.assertIn("Action1", self.window.queue_result.text())
+        self.assertNotIn("Action2", self.window.queue_result.text())
+        with self.assertRaises(ApprovalWindowBusyError):
+            with approval_window_lock(self.state.get_transaction(self.second)["artifact_path"]):
+                self.fail("Stopped batch released its uncertain action window lock")
 
     def test_save_advances_to_next_form_in_same_shell_without_carrying_approval(self):
         shell = self.window.root
@@ -450,9 +614,9 @@ class QtApprovalQueueTests(unittest.TestCase):
         for button in (self.window.approve_button, self.window.execute_button, self.window.close_button):
             point = button.mapTo(self.window.root, button.rect().center())
             self.assertIs(self.window.root.childAt(point), button)
-        self.messagebox.askyesno.return_value = False
         QTest.mouseClick(self.window.approve_button, Qt.MouseButton.LeftButton)
-        self.assertFalse(self.artifact(self.first)["approvals"])
+        self.assertEqual(len(self.artifact(self.first)["approvals"]), 1)
+        self.messagebox.askyesno.assert_not_called()
         self.execute_approved_transaction.assert_not_called()
 
 

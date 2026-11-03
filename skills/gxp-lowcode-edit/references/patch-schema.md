@@ -31,6 +31,46 @@ Later operations in this batch can use @group_alias for action_group_key or targ
 
 set_event_callback_contract fields: action_group_key, component_type, event_name. Applies the complete verified event declaration to an existing JS callback. Preserves compatible positional input names and keys; otherwise introduces the audited default names. Does not rewrite expressions. Use only for an in-scope declaration repair, not to force unrelated old metadata into agreement. A preexisting mismatch with unchanged binding identity and complete declarations is reported without blocking; the user decides whether to repair it. Native regeneration and affected-binding checks must succeed.
 
+## Rename an existing child-action input parameter
+
+Use `rename_group_input_parameter` when `supported_operations` advertises it.
+This edits one existing JS group's input declaration, including names with
+accidental trailing whitespace. It is separate from node `set_parameter` and
+does not apply an entire component event contract.
+
+```json
+{
+  "operation": "rename_group_input_parameter",
+  "action_group_key": "verified-group-key",
+  "parameter_key": "verified-native-parameter-key",
+  "expected_old_name": "rowData ",
+  "new_name": "rowData"
+}
+```
+
+Locate the group through `find_edit_nodes(kind="groups")`; for a group with
+nodes, the full `inspect_edit_context(response_detail="full")`
+`visible_variables` entries with `source.kind="inputParam"` expose the exact
+`source.parameter_key` and `name`. Reuse already verified session evidence;
+never invent a parameter key. `expected_old_name` is compared exactly, including
+whitespace. The parameter key must select exactly one declaration, and the new
+name must be a valid non-reserved native identifier without an input-name
+collision. The operation changes only `title`: it preserves the parameter key,
+type (including `array`), order, description, required flag, extension fields,
+other declarations and every node.
+
+References are not rewritten automatically. An ordinary rename may need explicit
+node parameter edits in the same batch; existing syntax, signature and lexical
+checks still validate the generated candidate. Include the declaration change
+in the authorized requirements with the group's exact key and
+`field_path="inputParams"`. Do not silently trim existing declarations, weaken
+`callback_signature_mismatch`, change a parameter's type, or request a platform
+edit when this supported operation can perform the authorized repair. Continue
+through the same compilation, review and human approval workflow.
+Group declaration fields are not covered by node-only `canvas_assertions`;
+retain their unverified configuration status and inspect the before/after group
+parameters in the formal review rather than claiming automatic field validation.
+
 ## Nodes
 
 - append_node: action_group_key, element_key, input_params, output_params. Adds native generated nodes at the end of the group, including an empty group, without an anchor. Paired blocks are generated and validated by the native compiler.

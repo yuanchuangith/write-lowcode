@@ -100,6 +100,9 @@ class ToolInputTests(unittest.TestCase):
             ("read_plan_review", {"plan_id": "p", "section": "sql"}),
             ("read_plan_review", {"plan_id": "p", "max_output_bytes": 65537}),
             ("prepare_write", {"plan_id": "p", "response_detail": "all"}),
+            ("prepare_write_batch", {"queue_id": "q", "plan_ids": [], "conversation_id": "owner"}),
+            ("prepare_write_batch", {"queue_id": "q", "plan_ids": ["p"]}),
+            ("prepare_write_batch", {"queue_id": "q", "plan_ids": ["p"], "conversation_id": "owner", "response_detail": "all"}),
         ]:
             with self.subTest(name=name, arguments=arguments), patch.object(SERVER, "service") as factory:
                 with self.assertRaises(Exception):

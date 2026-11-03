@@ -409,7 +409,7 @@ class CompilerBridge:
             result["adapter_sha256"] = key[3]
             result["supported_operations"] = [
                 "insert_before", "insert_after", "replace_params", "replace_block",
-                "delete_block", "move_block", "create_action_group", "set_event_callback_contract",
+                "delete_block", "move_block", "create_action_group", "set_event_callback_contract", "rename_group_input_parameter",
                 "append_node", "insert_in_block", "bind_component_event", "set_parameter", "set_array_item",
             ]
             # A valid cache hit has done only in-memory work since key's full

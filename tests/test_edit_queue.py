@@ -7,7 +7,8 @@ from pathlib import Path
 from threading import Barrier
 from unittest.mock import patch
 
-from tests.helpers import baseline
+from tests.helpers import baseline, transaction
+from gxp_editor.approval import save_artifact, transaction_binding_hash
 from gxp_editor.execution_lock import ApprovalWindowBusyError, approval_queue_lock
 from gxp_editor.service import EditorService
 from gxp_editor.state import StateError, StateStore
@@ -78,12 +79,17 @@ class EditQueueTests(unittest.TestCase):
         session = self.add()
         plan = self.store.create_plan(session["id"], "plan.json", "old", "new", "compiler", conversation_id=self.owner)
         tx = self.store.create_transaction(session["id"], plan, "write", str(Path(self.folder.name) / "tx.json"), conversation_id=self.owner)
+        artifact = transaction()
+        artifact.update(transaction_id=tx, session_id=session["id"], plan_id=plan)
+        artifact["transaction_hash"] = transaction_binding_hash(artifact)
+        save_artifact(Path(self.folder.name) / "tx.json", artifact)
         service = object.__new__(EditorService)
         service._conversation_id = self.owner
         service.state = self.store
         with patch("gxp_editor.config.runtime_root", return_value=Path(self.folder.name)), patch("gxp_editor.ui_launch.launch_window",
                 return_value={"window_opened": True, "window_starting": False}) as launch, patch("gxp_editor.ui_launch.inspect_window_startup",
-                return_value={"window_opened": False, "window_starting": False, "startup_status": "unknown"}):
+                return_value={"window_opened": False, "window_starting": False, "startup_status": "not_started"}), \
+                patch.object(service, "_approval_preflight", return_value={}):
             with approval_queue_lock(self.queue):
                 result = service._try_launch_approval(tx)
                 self.assertTrue(result["already_open"])
