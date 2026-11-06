@@ -1,6 +1,6 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.63+codex.local-20261106-context-latency",
+  "version": "0.1.64+codex.local-20261106-plan-revisions",
   "description": "Separate guarded GXP ActionDesign and form-configuration editing services with immutable backups and local human approval; form writes require verified platform save contracts.",
   "author": {
     "name": "Local developer"

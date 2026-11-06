@@ -224,6 +224,20 @@ class NativePlanningWorkflowTests(unittest.TestCase):
             appended = flow.service.plan_canvas_patch(session["id"], [variable(101)], append_to_plan_id=first["plan_id"])
             self.assertTrue(appended["ready_for_approval"])
             self.assertEqual(appended["operation_count"], 103)
+            # Real native candidate and real scenario runner: a revision keeps
+            # all aliases/operations while avoiding another native generation.
+            old_plan = flow.service.state.get_plan(appended["plan_id"])
+            old_artifact = load_artifact(old_plan["artifact_path"])
+            with patch.object(compiler, "compile_patch", side_effect=AssertionError("Identical candidate must not regenerate")), \
+                    patch.object(compiler, "verify_compiled_result", side_effect=AssertionError("Prior verified generation must be reused")):
+                revised = flow.service.revise_canvas_plan(appended["plan_id"], response_detail="full")
+            self.assertTrue(revised["candidate_reused"])
+            self.assertTrue(revised["review_reexecuted"])
+            self.assertTrue(revised["ready_for_approval"])
+            revised_artifact = load_artifact(flow.service.state.get_plan(revised["plan_id"])["artifact_path"])
+            self.assertEqual(old_artifact["desired"], revised_artifact["desired"])
+            self.assertEqual(103, len(revised_artifact["operations"]))
+            appended = revised
             with patch.object(compiler, "verify_candidate_artifact", side_effect=AssertionError("Approval must not regenerate")), \
                     patch.object(compiler, "_git", side_effect=AssertionError("Approval must not launch Git")), \
                     patch.object(compiler, "_node_identity", side_effect=AssertionError("Approval must not launch Node")):

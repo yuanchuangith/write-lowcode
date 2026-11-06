@@ -89,6 +89,9 @@ def _failure_next_read(function, args, kwargs, result):
     transaction_id = result.get("transaction_id") or arguments.get("transaction_id")
     session_id = result.get("session_id") or result.get("active_session_id") or arguments.get("session_id")
     name = function.__name__
+    if name == "revise_canvas_plan" and arguments.get("plan_id"):
+        return {"tool": "read_plan_review", "arguments": {"plan_id": arguments["plan_id"],
+                "conversation_id": marker, "section": "operations", "detail": "summary"}}
     if transaction_id and name != "get_write_status":
         return {"tool": "get_write_status", "arguments": {"transaction_id": transaction_id, "conversation_id": marker}}
     if session_id and name != "inspect_session_cancellation":

@@ -889,9 +889,19 @@ class EditorService:
         artifact = load_artifact(plan["artifact_path"])
         self._validate_plan_review(plan, session, artifact)
         report = artifact["business_review"]
-        page = review_page(report, section, offset, limit, item_id, detail=detail, field_path=field_path,
-                           value_offset=value_offset, max_output_bytes=max_output_bytes,
-                           plan_id=plan_id, conversation_id=self.conversation_id)
+        if section == "operations":
+            from .plan_revision import operation_page
+            if artifact.get("planning_protocol") != "composable_v1":
+                raise EditorServiceError("旧计划没有完整操作记录，请用原入口重新规划。")
+            if item_id:
+                raise EditorServiceError("操作记录按 offset/index 定位，不使用 item_id。")
+            page = operation_page(artifact["operations"], plan_id, offset=offset, limit=limit, detail=detail,
+                                  field_path=field_path or None, value_offset=value_offset,
+                                  max_output_bytes=max_output_bytes, conversation_id=self.conversation_id)
+        else:
+            page = review_page(report, section, offset, limit, item_id, detail=detail, field_path=field_path,
+                               value_offset=value_offset, max_output_bytes=max_output_bytes,
+                               plan_id=plan_id, conversation_id=self.conversation_id)
         latest = self._owned_session(session["id"], include_baseline=False)
         if latest.get("owner_revision", 0) != session.get("owner_revision", 0):
             raise EditorServiceError("Session ownership changed while reading the plan report")
@@ -917,6 +927,30 @@ class EditorService:
                 "issues": report["issues"][offset:offset + limit], "offset": offset,
                 "next_offset": offset + limit if offset + limit < len(report["issues"]) else None,
                 "write_executed": False}
+
+    def revise_canvas_plan(self, plan_id: str, *, replacements=None, review_spec=None,
+                           response_detail="summary", review_spec_update=None) -> dict[str, Any]:
+        from .plan_revision import revise_operations
+        plan = self.state.get_plan(plan_id)
+        session = self._owned_session(plan["session_id"])
+        if (session.get("plan_id") != plan_id or session["state"] not in {"locked", "planned"}
+                or session.get("session_mode", "edit") != "edit" or plan.get("status") not in {"ready", "blocked"}):
+            raise EditorServiceError("只能修订当前对话中尚未审批的最新画布计划。")
+        artifact = load_artifact(plan["artifact_path"])
+        self._validate_plan_review(plan, session, artifact)
+        if artifact.get("planning_protocol") != "composable_v1":
+            raise EditorServiceError("旧计划没有完整操作记录，请用原入口重新规划。")
+        if review_spec_update is not None:
+            if review_spec is not None:
+                raise EditorServiceError("review_spec 与 review_spec_update 只能提供一个。")
+            from .plan_revision import revise_review_spec
+            checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
+                                                           owner_revision=session.get("owner_revision", 0))
+            base_spec = checkpoint["spec"] if checkpoint else requirements_spec(artifact["business_review"])
+            review_spec = revise_review_spec(base_spec, review_spec_update)
+        operations = revise_operations(artifact["operations"], replacements)
+        return self._plan_patch(session["id"], operations, review_spec=review_spec, response_detail=response_detail,
+                                generation_mode=artifact.get("generation_mode", "full"), revised_from_plan_id=plan_id)
 
     def _reference_report(self, session_id: str):
         session = self._owned_session(session_id)
@@ -1009,6 +1043,10 @@ class EditorService:
             raise EditorServiceError("此计划缺少业务验收证据，请重新生成计划。")
         if plan.get("new_hash") != plan_binding_hash(artifact):
             raise EditorServiceError("计划或业务验收报告已变化，请重新生成计划。")
+        if "candidate_evidence_hash" in artifact:
+            from .planning_reuse import candidate_evidence_hash
+            if artifact["candidate_evidence_hash"] != candidate_evidence_hash(artifact):
+                raise EditorServiceError("候选生成或编译证据已变化，请重新生成计划。")
         if artifact.get("base_content_hash") != session["baseline"]["content_hash"] or plan.get("base_hash") != artifact.get("base_content_hash"):
             raise EditorServiceError("业务验收的修改前版本与会话备份不一致。")
         if "action_context" in artifact and artifact["action_context"] != action_context(session["baseline"]):
@@ -1028,7 +1066,7 @@ class EditorService:
     def _plan_patch(
         self, session_id: str, operations: list[dict[str, Any]], *, repaired=None,
         review_spec: dict[str, Any] | None = None, response_detail: str = "full", generation_mode: str = "full",
-        append_to_plan_id: str = "",
+        append_to_plan_id: str = "", revised_from_plan_id: str = "",
     ) -> dict[str, Any]:
         if response_detail not in {"summary", "full"}:
             raise EditorServiceError("response_detail must be summary or full")
@@ -1040,6 +1078,8 @@ class EditorService:
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned"}:
             raise StateError(f"Session state {session['state']!r} cannot be planned")
+        if revised_from_plan_id and session.get("plan_id") != revised_from_plan_id:
+            raise EditorServiceError("原计划已被替换，请读取当前 plan_id 后再修订。")
         current, current_relations, comparison = self._baseline_snapshot(session, repository)
         added_operation_count = len(operations) if type(operations) is list else 0
         if append_to_plan_id:
@@ -1073,13 +1113,18 @@ class EditorService:
             "baseline_design": self._compiler_design(session["baseline"]),
             "baseline_artifacts": self._baseline_codegen_artifacts(session["baseline"]),
         }
-        result = (compiler.compile_reference_repair(repaired, **generation_baseline) if repaired is not None else
-                  compiler.compile_patch(generation_baseline["baseline_design"], operations,
-                                         baseline_artifacts=generation_baseline["baseline_artifacts"],
-                                         generation_mode=generation_mode))
+        from .planning_reuse import candidate_evidence_hash, reuse_planned_candidate
+        with stage("planning.reuse_candidate"):
+            reused_candidate = reuse_planned_candidate(self, session, current, compiler, runtime_validator,
+                operations, generation_mode, repaired, actual_binding=binding)
+        result = reused_candidate["result"] if reused_candidate else (
+            compiler.compile_reference_repair(repaired, **generation_baseline) if repaired is not None else
+            compiler.compile_patch(generation_baseline["baseline_design"], operations,
+                                   baseline_artifacts=generation_baseline["baseline_artifacts"], generation_mode=generation_mode))
         if result.get("no_change") is True:
             return self._no_changes_response(session)
-        compiler_evidence = compiler.verify_compiled_result(result, **generation_baseline, generation_mode=generation_mode)
+        compiler_evidence = reused_candidate["compiler_evidence"] if reused_candidate else compiler.verify_compiled_result(
+            result, **generation_baseline, generation_mode=generation_mode)
         if not self._compiler_binding_matches(binding, compiler_evidence["compiler_binding"]):
             raise EditorServiceError("Compiler binding changed while the canvas patch was being generated")
         design = result["design"]
@@ -1097,11 +1142,8 @@ class EditorService:
             "csharp_code": result["csharp_code"],
             "relation_data": result["relation_data"],
         }
-        runtime_validation = self._runtime_validation_evidence(
-            runtime_validator,
-            str(current.get("code") or ""),
-            desired["csharp_code"],
-        )
+        runtime_validation = reused_candidate["runtime_validation"] if reused_candidate else self._runtime_validation_evidence(
+            runtime_validator, str(current.get("code") or ""), desired["csharp_code"])
         self._require_candidate_csharp_validation(desired["csharp_code"], runtime_validation)
         target_bindings = native_alias_bindings(result.get("diff") or [])
         resolved_spec = normalize_review_spec(resolve_review_targets(spec, target_bindings, design))
@@ -1144,6 +1186,7 @@ class EditorService:
             "reference_repairs": result.get("reference_repairs") or [],
             "business_review": business_review,
         }
+        plan_artifact["candidate_evidence_hash"] = candidate_evidence_hash(plan_artifact)
         new_hash = plan_binding_hash(plan_artifact)
         plan_dir = runtime_root() / "plans"
         plan_dir.mkdir(parents=True, exist_ok=True)
@@ -1167,6 +1210,12 @@ class EditorService:
             "operation_count": len(operations),
             "added_operation_count": added_operation_count,
             "appended_to_plan_id": append_to_plan_id or None,
+            "revised_from_plan_id": revised_from_plan_id or None,
+            "candidate_reused": reused_candidate is not None,
+            "candidate_reused_from_plan_id": reused_candidate["reused_from_plan_id"] if reused_candidate else None,
+            "review_reexecuted": True,
+            "review_spec_revision": spec.get("revision"),
+            "review_spec_sha256": checkpoint_sha,
             "planning_limits": planning_limits(),
             "action_context": plan_artifact["action_context"],
             **({"diff": plan_artifact["diff"]} if response_detail == "full" else {"diff_count": len(plan_artifact["diff"])}),
@@ -1316,6 +1365,7 @@ class EditorService:
                 **({"approval_window_error": result["window_error"]} if result.get("window_error") else {}),
                 **({"already_open": True} if result.get("already_open") else {})}
 
+    @timed("approval.preflight")
     def _approval_preflight(self, transaction, session, artifact):
         """Read-only applicability check; the writer still repeats every final gate."""
         config, _, repository, compiler, _ = self._components()
@@ -1350,6 +1400,7 @@ class EditorService:
             raise self._evidence_error("approval_pointer_changed", "Current plan changed during approval")
         return {"baseline_comparison": comparison, "principal_verification": principal, "read_only": True}
 
+    @timed("approval.launch")
     def _launch_approval(self, transaction_id: str, *, owner_revision: int | None = None,
                          approval_fingerprint: str | None = None) -> dict[str, Any]:
         from contextlib import ExitStack

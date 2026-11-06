@@ -649,6 +649,8 @@ def plan_binding_hash(artifact: dict[str, Any]) -> str:
                         "business_review": artifact.get("business_review")}
     if "action_context" in artifact:
         binding["action_context"] = artifact["action_context"]
+    if "candidate_evidence_hash" in artifact:
+        binding["candidate_evidence_hash"] = artifact["candidate_evidence_hash"]
     if "generation" in artifact:
         binding["generation"] = artifact["generation"]
     for field in ("generation_mode", "generation_selection"):

@@ -160,6 +160,11 @@ def _operations():
 
 
 CanvasOperation = _operations()
+OperationRevision = _shape("OperationRevision", {
+    "index": Required[Offset],
+    "expected_operation_sha256": Required[Nonblank],
+    "operation": Required[CanvasOperation],
+})
 Requirement = _shape("Requirement", {
     "id": Required[Nonblank], "text": Required[Nonblank], "source_text": Required[Nonblank],
     "targets": NotRequired[list[RuleTarget]],
@@ -214,10 +219,18 @@ ValueAssertion = _shape("ValueAssertion", {
 UnchangedAssertion = _shape("UnchangedAssertion", {
     **_assertion_fields, "operator": Required[Literal["unchanged"]],
 })
+CanvasAssertion = Union[ValueAssertion, UnchangedAssertion]
 ReviewSpec = _shape("ReviewSpec", {
     "schema_version": Required[SchemaVersion], "revision": Required[Nonblank],
     "requirements": Required[list[Requirement]],
     "scenarios": NotRequired[Scenarios], "scope_policy": NotRequired[Literal["strict", "manual_review"]],
     "change_source_text": NotRequired[Nonblank],
-    "canvas_assertions": NotRequired[list[Union[ValueAssertion, UnchangedAssertion]]],
+    "canvas_assertions": NotRequired[list[CanvasAssertion]],
+})
+ReviewSpecUpdate = _shape("ReviewSpecUpdate", {
+    "schema_version": NotRequired[SchemaVersion],
+    "revision": Required[Nonblank],
+    "requirements": NotRequired[list[Requirement]],
+    "canvas_assertions": NotRequired[list[CanvasAssertion]],
+    "change_source_text": NotRequired[Nonblank],
 })

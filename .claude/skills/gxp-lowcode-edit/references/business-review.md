@@ -101,6 +101,15 @@ The server still reads the saved checkpoint, verifies revision and scope, and
 checks the full candidate. Combine already-confirmed edits in one planning
 request; appending is for a genuine later addition, not one tool round per node.
 
+When a latest plan already exists, prefer `revise_canvas_plan` over copying its
+operations again. `review_spec_update={revision, requirements?, canvas_assertions?,
+change_source_text?}` upserts complete records by ID; omitted expectations,
+scenarios and policy stay fixed. It cannot delete rows or change scenarios;
+those changes use a complete new `review_spec`. All existing user-evidence and
+revision gates still apply. The response reports `candidate_reused` and
+`review_reexecuted` separately: generation reuse never reuses business verdicts
+or approval signatures. Failed review must be repaired before approval.
+
 ## Check canvas configuration directly
 
 Use optional `canvas_assertions` for fixed, data-only checks of the actual native

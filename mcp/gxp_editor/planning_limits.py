@@ -9,4 +9,5 @@ def planning_limits():
     return {"max_operation_bytes": MAX_OPERATION_BYTES, "max_review_bytes": MAX_REVIEW_BYTES,
             "max_scenario_bytes": MAX_SCENARIO_BYTES, "operation_count_limit": None,
             "scenario_count_limit": None, "scenario_step_count_limit": None,
-            "append_parameter": "append_to_plan_id", "review_aliases_supported": True}
+            "append_parameter": "append_to_plan_id", "review_aliases_supported": True,
+            "revision_tool": "revise_canvas_plan", "review_upsert_parameter": "review_spec_update"}

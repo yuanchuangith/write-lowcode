@@ -14,7 +14,7 @@ sys.path.insert(0, str(PLUGIN_ROOT / "mcp"))
 from gxp_editor.service import EditorService
 from gxp_editor.compiler import CompilerError
 from gxp_editor.telemetry import traced_tool
-from gxp_editor.tool_inputs import CanvasOperation, Offset, ReviewSpec, Target, ValueBudget
+from gxp_editor.tool_inputs import CanvasOperation, Offset, OperationRevision, ReviewSpec, ReviewSpecUpdate, Target, ValueBudget
 
 
 mcp = FastMCP(
@@ -217,6 +217,32 @@ def plan_canvas_patch(
         return _compiler_failure(exc)
 
 
+@mcp.tool()
+@traced_tool
+def revise_canvas_plan(
+    plan_id: str, conversation_id: str = "", replacements: list[OperationRevision] | None = None,
+    review_spec: ReviewSpec | None = None, response_detail: Literal["summary", "full"] = "summary",
+    review_spec_update: ReviewSpecUpdate | None = None,
+) -> dict[str, Any]:
+    """Revise the latest owned plan without resending unchanged operations.
+
+    Omit replacements for business-review-only changes; each replacement supplies
+    index, expected_operation_sha256 and one complete native operation. Obtain
+    indexes/hashes from read_plan_review(section=operations). Unchanged expectations
+    may be omitted. review_spec_update upserts complete requirements/assertions by
+    ID under a new revision while preserving scenarios; full review_spec handles
+    scenario edits and removals. Supply only one review form. Native evidence is reused only when every bound
+    input/source/reference byte is unchanged; current expectations and scenarios
+    are always checked again. No approval or business save occurs.
+    """
+    try:
+        return service(conversation_id).revise_canvas_plan(
+            plan_id, replacements=replacements, review_spec=review_spec, response_detail=response_detail,
+            **({"review_spec_update": review_spec_update} if review_spec_update is not None else {}))
+    except CompilerError as exc:
+        return _compiler_failure(exc)
+
+
 def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
     return {"blocked": True, "plan_created": False, "write_executed": False,
             "error": str(exc)[:1000], "error_details": exc.details}
@@ -225,13 +251,13 @@ def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
 @mcp.tool()
 @traced_tool
 def read_plan_review(
-    plan_id: str, section: Literal["summary", "requirements", "changes", "scenarios", "canvas_checks", "spec"] = "summary",
+    plan_id: str, section: Literal["summary", "requirements", "changes", "scenarios", "canvas_checks", "spec", "operations"] = "summary",
     offset: Offset = 0, limit: Annotated[int, Field(ge=1, le=20, strict=True)] = 10,
     item_id: str = "", conversation_id: str = "",
     detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: Offset = 0,
     max_output_bytes: ValueBudget = 16384,
 ) -> dict[str, Any]:
-    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec. item_id selects exact rows; field_path/value_offset reads exact JSON text with character offsets under a byte budget. evidence_gaps/fallback guide bounded continuation without changing review status or signed evidence. detail=full returns exact rows within max_output_bytes; oversized rows provide a summary read descriptor, then use field_path for exact values."""
+    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec, operations. Operations expose indexes/hashes for revise_canvas_plan. item_id selects exact report rows; field_path/value_offset reads bounded exact JSON. detail=full preserves exact rows or offers continuation for oversized values. No approval or writes."""
     return service(conversation_id).read_plan_review(
         plan_id, section=section, offset=offset, limit=limit, item_id=item_id, detail=detail,
         field_path=field_path, value_offset=value_offset, max_output_bytes=max_output_bytes)

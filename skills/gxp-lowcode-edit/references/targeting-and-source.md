@@ -37,7 +37,7 @@ MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要
 - 仅需选择器变量范围时，摘要加 `include_visible_variables=true`，无需取整份节点、父节点和契约。`visible_variables_page` 按完整原生引用分页，使用同一目标及绑定继续 `variable_offset=next_offset`；超大条目不会伪装成完整变量。只在确实需要父参数、全部输入输出声明或尚未提供的原生契约时，才对精确单个目标使用 `full`。
 - 用 `functions.exec` 输出 MCP 结果时只保留一个完整表示。工具同时提供 `content` 与 `structuredContent` 时，优先输出结构化结果，并保留外层错误标记；不要把两个相同结果同时加入上下文。例如：`text(r.structuredContent !== undefined ? {isError: !!r.isError, result: r.structuredContent} : r)`。这只减少重复展示，不裁剪证据或审批材料。
 - 同一草稿已确认且相互依赖的操作用原生别名组织为一个批次。不要为获取新节点 Key 而先保存占位节点，也不要把 `append_to_plan_id` 当作每个子动作之后的固定步骤；每次规划都会重新检查完整候选。
-- 需求、场景与断言未变时省略 `review_spec` 复用当前会话记录；不得为了省略输入而清空期望或丢掉失败案例。只读取当前决定需要的报告行和字段；结果无新变化时不重复相同取证。
+- 当前最新计划已存在时，用 `revise_canvas_plan(plan_id)` 沿用完整操作；未变的验收要求不重传。只改少量需求/断言时使用带新 revision 的 `review_spec_update` 按 ID 更新完整记录；只改操作时从 `read_plan_review(section="operations")` 取得 index/hash，再传整条替换。不得为省输入清空期望、移除失败案例或绕过新用户依据。只读当前决定需要的证据，无新变化不重复取证。
 - 被运行器截断的完整响应不是完整证据。改用小目标、参数路径和分页读取缺失项，不要反复请求同一份全量结果。
 
 计划报告的默认摘要、单字段续读和完整模式统一见 [业务报告读取](business-review.md#read-results-and-route-the-next-step)。参数与报告字段均按需读取，不自动遍历全部分页。
