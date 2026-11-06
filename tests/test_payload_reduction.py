@@ -100,7 +100,11 @@ class PayloadReductionTests(unittest.TestCase):
         with self.assertRaises(EditGuardError):
             expand_guard_operations(session, self.h.owner, self.h.canvas, [operation], "rotated")
         # A correctly re-encoded but edited payload still needs the HMAC.
-        encoded, signature = operation["guard_ref"].split(".")
+        # Explicit v1 fixture: compact v2 references deliberately contain no
+        # base64 payload, but legacy references must retain their verification.
+        from tests.test_compact_edit_guards import legacy_guard_ref
+        legacy = legacy_guard_ref(session, self.h.owner, operation, False, "synthetic-guard-secret")
+        encoded, signature = legacy.split(".")
         raw = json.loads(base64.urlsafe_b64decode(encoded + "=" * (-len(encoded) % 4)))
         raw["purpose"] = "approval"
         forged = base64.urlsafe_b64encode(canonical_json(raw).encode()).decode().rstrip("=") + "." + signature

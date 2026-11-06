@@ -95,6 +95,12 @@ covers the quoted request. Add the relevant creation/empty/boundary cases.
   adding whitespace does not count. Never remove a failing scenario simply to
   obtain approval.
 
+When repairing operations under unchanged requirements, omit `review_spec`
+instead of copying all existing requirements, scenarios and assertions again.
+The server still reads the saved checkpoint, verifies revision and scope, and
+checks the full candidate. Combine already-confirmed edits in one planning
+request; appending is for a genuine later addition, not one tool round per node.
+
 ## Check canvas configuration directly
 
 Use optional `canvas_assertions` for fixed, data-only checks of the actual native

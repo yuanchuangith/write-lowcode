@@ -31,6 +31,15 @@ MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要
 
 `guard_ref` 只引用不可变基线。批内前一个操作修改同一路径后，下一操作必须使用前一个结果作为完整 `expected_old_value`；重复使用基线引用仍会被严格预检拒绝。数组行、原生 ParamInput 完整记录和全量替换约束见 [patch-schema.md](patch-schema.md#guarded-parameter-updates)。
 
+## 减少上下文与重复调用
+
+- 已知目标参数时，在同一次 `inspect_edit_context` 中传 `parameter_paths` 并保留摘要模式。小型字符串、对象及数组可返回完整 `value` 和 `value_complete=true`；每值最多 1 KiB、整次内联最多 4 KiB。只有明确完整的值才能用于业务判断或完整旧值，超限值通过 `read_edit_value` 精读，不能把 preview 当成完整值。
+- 仅需选择器变量范围时，摘要加 `include_visible_variables=true`，无需取整份节点、父节点和契约。`visible_variables_page` 按完整原生引用分页，使用同一目标及绑定继续 `variable_offset=next_offset`；超大条目不会伪装成完整变量。只在确实需要父参数、全部输入输出声明或尚未提供的原生契约时，才对精确单个目标使用 `full`。
+- 用 `functions.exec` 输出 MCP 结果时只保留一个完整表示。工具同时提供 `content` 与 `structuredContent` 时，优先输出结构化结果，并保留外层错误标记；不要把两个相同结果同时加入上下文。例如：`text(r.structuredContent !== undefined ? {isError: !!r.isError, result: r.structuredContent} : r)`。这只减少重复展示，不裁剪证据或审批材料。
+- 同一草稿已确认且相互依赖的操作用原生别名组织为一个批次。不要为获取新节点 Key 而先保存占位节点，也不要把 `append_to_plan_id` 当作每个子动作之后的固定步骤；每次规划都会重新检查完整候选。
+- 需求、场景与断言未变时省略 `review_spec` 复用当前会话记录；不得为了省略输入而清空期望或丢掉失败案例。只读取当前决定需要的报告行和字段；结果无新变化时不重复相同取证。
+- 被运行器截断的完整响应不是完整证据。改用小目标、参数路径和分页读取缺失项，不要反复请求同一份全量结果。
+
 计划报告的默认摘要、单字段续读和完整模式统一见 [业务报告读取](business-review.md#read-results-and-route-the-next-step)。参数与报告字段均按需读取，不自动遍历全部分页。
 
 ## 与只读技能一致的仓库

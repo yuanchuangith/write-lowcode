@@ -9,7 +9,7 @@ import json
 from pathlib import Path
 from typing import Annotated, Any, Literal, Union
 
-from pydantic import BeforeValidator, ConfigDict, Field
+from pydantic import BeforeValidator, ConfigDict, Discriminator, Field, Tag
 from typing_extensions import NotRequired, Required, TypedDict
 
 
@@ -97,10 +97,31 @@ Declaration = _shape("Declaration", {
 })
 
 
+def _operation_tag(value):
+    """Validate only the selected operation/guard branch; never try 16 schemas."""
+    if type(value) is not dict:
+        return None
+    operation = value.get("operation")
+    if type(operation) is not str or operation not in _OPERATION_NAMES:
+        return "unknown"
+    return operation + (":guarded" if operation in {"set_parameter", "set_array_item"} and "guard_ref" in value else "")
+
+
+_OPERATION_NAMES: set[str] = set()
+
+
+def _operation_schema(schema):
+    # Keep the published anyOf wire shape for existing MCP consumers while
+    # runtime validation selects exactly one tagged branch.
+    if "oneOf" in schema:
+        schema["anyOf"] = schema.pop("oneOf")
+
+
 def _operations():
     contract = json.loads(Path(__file__).with_name("operation_contracts.json").read_text(encoding="utf-8"))
     variants = []
     for name, spec in contract["operations"].items():
+        _OPERATION_NAMES.add(name)
         fields = {}
         for key in [*spec["required"], *spec["optional"]]:
             kind = Nonblank
@@ -129,13 +150,13 @@ def _operations():
             fields[key] = Required[kind] if key in spec["required"] else NotRequired[kind]
         label = "".join(word.title() for word in name.split("_"))
         extra = "forbid" if spec["strict_fields"] else "allow"
-        variants.append(_shape(label, fields, extra=extra))
+        variants.append(Annotated[_shape(label, fields, extra=extra), Tag(name)])
         if name in {"set_parameter", "set_array_item"}:
             # Exactly one old-value mode, including explicit expected null.
             guarded = {key: value for key, value in fields.items() if key != "expected_old_value"}
             guarded["guard_ref"] = Required[Nonblank]
-            variants.append(_shape(label + "Guarded", guarded))
-    return Union[tuple(variants)]
+            variants.append(Annotated[_shape(label + "Guarded", guarded), Tag(name + ":guarded")])
+    return Annotated[Union[tuple(variants)], Discriminator(_operation_tag), Field(json_schema_extra=_operation_schema)]
 
 
 CanvasOperation = _operations()

@@ -48,8 +48,8 @@ def parameter_value(design: dict[str, Any], group_key: str, node_key: str, path:
         raise EditGuardError(str(exc)) from exc
 
 
-def _binding(session: dict[str, Any], conversation_id: str) -> dict[str, Any]:
-    return {"purpose": "edit_guard_v1", "conversation_id": conversation_id, "session_id": session["id"],
+def _binding(session: dict[str, Any], conversation_id: str, *, purpose: str = "edit_guard_v1") -> dict[str, Any]:
+    return {"purpose": purpose, "conversation_id": conversation_id, "session_id": session["id"],
             "owner_revision": session.get("owner_revision", 0), "backup_id": session["backup_id"],
             "design_id": session["design_id"], "baseline_content_hash": session["baseline"]["content_hash"],
             "relation_sha256": relation_snapshot_hash(session["baseline"].get("relations") or []),
@@ -64,10 +64,14 @@ def _identity(operation: dict[str, Any]) -> dict[str, Any]:
 
 def create_guard_ref(session: dict[str, Any], conversation_id: str, operation: dict[str, Any],
                      value: Any, secret: str) -> str:
-    payload = {**_binding(session, conversation_id), **_identity(operation), "value_sha256": sha256_json(value)}
+    # Every bound field is already available when the service expands the
+    # operation. Send only a purpose-separated MAC; never repeat the baseline,
+    # compiler and target metadata inside each template's token.
+    payload = {**_binding(session, conversation_id, purpose="edit_guard_v2"),
+               **_identity(operation), "value_sha256": sha256_json(value)}
     raw = canonical_json(payload).encode("utf-8")
     signature = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-    return base64.urlsafe_b64encode(raw).decode("ascii").rstrip("=") + "." + signature
+    return "g2." + signature
 
 
 def expand_guard_operations(session: dict[str, Any], conversation_id: str, design: dict[str, Any],
@@ -86,19 +90,28 @@ def expand_guard_operations(session: dict[str, Any], conversation_id: str, desig
         encoded, signature = token.split(".")
         if len(signature) != 64 or any(c not in "0123456789abcdef" for c in signature):
             raise EditGuardError("guard_ref signature is malformed")
-        try:
-            raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
-            payload = json.loads(raw)
-        except (ValueError, UnicodeError) as exc:
-            raise EditGuardError("guard_ref is malformed") from exc
-        expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
-        if not hmac.compare_digest(expected, signature):
-            raise EditGuardError("guard_ref signature is invalid")
+        compact = encoded == "g2"
+        if not compact:
+            # Existing v1 references remain valid for their exact original
+            # session/target/value. They carry no approval or execution consent.
+            try:
+                raw = base64.b64decode(encoded + "=" * (-len(encoded) % 4), altchars=b"-_", validate=True)
+                payload = json.loads(raw)
+            except (ValueError, UnicodeError) as exc:
+                raise EditGuardError("guard_ref is malformed") from exc
+            expected = hmac.new(secret.encode("utf-8"), raw, hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, signature):
+                raise EditGuardError("guard_ref signature is invalid")
         value = parameter_value(design, operation.get("action_group_key"), operation.get("target_node_key"),
                                 operation.get("path"), operation.get("item_key"),
                                 element_key=operation.get("expected_element_key"))
-        bound = {**_binding(session, conversation_id), **_identity(operation), "value_sha256": sha256_json(value)}
-        if payload != bound:
+        bound = {**_binding(session, conversation_id, purpose="edit_guard_v2" if compact else "edit_guard_v1"),
+                 **_identity(operation), "value_sha256": sha256_json(value)}
+        if compact:
+            expected = hmac.new(secret.encode("utf-8"), canonical_json(bound).encode("utf-8"), hashlib.sha256).hexdigest()
+            if not hmac.compare_digest(expected, signature):
+                raise EditGuardError("guard_ref belongs to a different session revision, target, path, selector, baseline or signing key")
+        elif payload != bound:
             raise EditGuardError("guard_ref belongs to a different session revision, target, path, selector or baseline")
         operation["expected_old_value"] = deepcopy(value)
     return result

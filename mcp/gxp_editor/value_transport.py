@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import hashlib
 import json
+from copy import deepcopy
 from typing import Any
 
 from .hashing import canonical_json
 
 
-def value_summary(value: Any, *, preview_chars: int = 120) -> dict[str, Any]:
+def value_summary(value: Any, *, preview_chars: int = 120, max_inline_bytes: int | None = None) -> dict[str, Any]:
     raw = canonical_json(value).encode("utf-8")
     kind = ("null" if value is None else "boolean" if type(value) is bool else
             "object" if type(value) is dict else "array" if type(value) is list else
@@ -20,6 +21,16 @@ def value_summary(value: Any, *, preview_chars: int = 120) -> dict[str, Any]:
         result.update(preview=value[:preview_chars], preview_complete=len(value) <= preview_chars)
     elif type(value) not in (dict, list):
         result["value"] = value
+    if max_inline_bytes is not None:
+        if type(max_inline_bytes) is not int or max_inline_bytes < 0:
+            raise ValueError("max_inline_bytes must be a nonnegative byte budget")
+        # Legacy summary consumers retain their existing projection. Opt-in
+        # exact values are separate from previews: even a complete string
+        # preview must never be mistaken for a complete native parameter record.
+        complete = type(value) not in (str, dict, list) or len(raw) <= max_inline_bytes
+        result["value_complete"] = complete
+        if complete:
+            result["value"] = deepcopy(value)
     return result
 
 

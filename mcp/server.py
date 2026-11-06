@@ -157,11 +157,14 @@ def inspect_edit_context(
     conversation_id: str = "", operation_cursor: Offset = 0,
     include_context: bool | None = None,
     response_detail: Literal["summary", "full"] = "summary", parameter_paths: list[str] | None = None,
+    include_visible_variables: bool = False, variable_offset: Offset = 0,
 ) -> dict[str, Any]:
-    """Read backup-bound target summaries and signed old-value guards by default. Use parameter_paths to focus fields, read_edit_value for exact values, or response_detail=full for complete params/parents/native contracts. Explicit include_context preserves legacy full/compact semantics. No writes."""
+    """Read target summaries, bounded exact parameter values and signed old-value guards. Focus known fields with parameter_paths. Request include_visible_variables only for picker scope; variable_offset pages complete entries. Use read_edit_value for large values; full adds complete params/parents/contracts. Explicit include_context retains legacy semantics. No writes."""
     return service(conversation_id).inspect_edit_context(session_id, targets, operation_cursor=operation_cursor,
                                                           include_context=include_context, response_detail=response_detail,
-                                                          parameter_paths=parameter_paths)
+                                                          parameter_paths=parameter_paths,
+                                                          **({"include_visible_variables": include_visible_variables, "variable_offset": variable_offset}
+                                                             if include_visible_variables or variable_offset else {}))
 
 
 @mcp.tool()

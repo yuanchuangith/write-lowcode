@@ -50,3 +50,5 @@ MCP 默认返回摘要；**全量生成是生成模式，摘要是响应格式**
 编排 MCP 保留 30 个工具，独立表单 MCP 提供 15 个工具。`prepare_write_batch` 将同一队列的多个编排计划准备完成后统一打开审批。`find_edit_nodes` 从编排会话备份中分页查找分组和节点，`inspect_edit_context` 默认返回参数摘要及绑定原值的 `guard_ref`，`read_edit_value` 按需分页读取精确值。`read_plan_review` 默认返回证据摘要，可继续读取指定字段；完整证据仍保留在计划和审批工件。`record_graph_review` 记录已核对、拒绝、待发布等复核进度，均不写业务数据。`database_settings` 只处理用户明确要求的本机设置，不授予业务编辑或审批权限。表单使用独立的 `form_connection_settings` 和平台接口审批；安装和普通排查不会自动保存业务配置，模型不接收密码或连接串。
 
 源码维护不会自动安装或更新已运行插件、重启 Codex、保存或发布业务草稿。
+
+指定对话的慢点与本轮体量优化见[性能复核](docs/thread-performance-2026-11-06.md)。可用 `python scripts/profile_codex_thread.py <明确指定的JSONL> --output output/thread-profile.json` 生成不含正文的统计；计时不能把模型、网络和人工等待混算为编辑器耗时。

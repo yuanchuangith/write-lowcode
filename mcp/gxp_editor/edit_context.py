@@ -10,6 +10,7 @@ from .native_catalog import NativeCatalogError, validated_catalog
 from .reference_repair import _catalog
 from .operation_preflight import SCHEMA_VERSION, UNSAFE, atomic_parameters, operation_shape, same_json
 from .value_transport import value_summary
+from .hashing import canonical_json
 
 
 class EditContextError(ValueError):
@@ -24,6 +25,10 @@ class EditContextError(ValueError):
 MAX_CONTEXT_BYTES = 1024 * 1024
 OPERATION_PAGE_SIZE = 64
 SUMMARY_OPERATION_PAGE_SIZE = 8
+SUMMARY_INLINE_VALUE_BYTES = 1024
+SUMMARY_INLINE_TOTAL_BYTES = 4096
+SUMMARY_VARIABLE_TOTAL_BYTES = 2048
+SUMMARY_VARIABLE_PAGE_SIZE = 10
 
 
 def _text(value, name):
@@ -137,7 +142,8 @@ def _compact_guard_values(node, templates):
 
 def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets: list[dict[str, str]], *,
                        operation_cursor: int = 0, include_context: bool | None = None,
-                       response_detail: str = "full", parameter_paths: list[str] | None = None) -> dict[str, Any]:
+                       response_detail: str = "full", parameter_paths: list[str] | None = None,
+                       include_visible_variables: bool = False, variable_offset: int = 0) -> dict[str, Any]:
     """No IO, generation or inference: expose exact parameters and picker scope.
 
     Caller owns session authorization, baseline/compiler binding and freshness.
@@ -147,6 +153,10 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
         raise EditContextError("operation_cursor must be a nonnegative integer from the preceding context page")
     if include_context is not None and type(include_context) is not bool:
         raise EditContextError("include_context must be a boolean when provided")
+    if type(include_visible_variables) is not bool:
+        raise EditContextError("include_visible_variables must be a boolean")
+    if type(variable_offset) is not int or variable_offset < 0:
+        raise EditContextError("variable_offset must be a nonnegative integer")
     if response_detail not in {"summary", "full"}:
         raise EditContextError("response_detail must be summary or full")
     if parameter_paths is not None and (type(parameter_paths) is not list or not 1 <= len(parameter_paths) <= 32
@@ -183,6 +193,7 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
     compact = not include_context if include_context is not None else operation_cursor > 0
     page_size = SUMMARY_OPERATION_PAGE_SIZE if summary else OPERATION_PAGE_SIZE
     template_index, displayed_templates = 0, 0
+    inline_budget, variable_budget = SUMMARY_INLINE_TOTAL_BYTES, SUMMARY_VARIABLE_TOTAL_BYTES
     for pair in selected:
         if pair not in locations:
             raise EditContextError("Target group/node does not exist: " + "/".join(pair),
@@ -221,9 +232,12 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
             for template in templates:
                 operation = template["template"]
                 value = parameter_value(design, group["key"], node["key"], operation["path"], operation.get("item_key"))
+                parameter_summary = value_summary(value, max_inline_bytes=min(SUMMARY_INLINE_VALUE_BYTES, inline_budget))
+                if type(value) in (str, dict, list) and parameter_summary["value_complete"]:
+                    inline_budget -= parameter_summary["utf8_bytes"]
                 parameters.append({"path": operation["path"],
                     **({"item_key": deepcopy(operation["item_key"])} if "item_key" in operation else {}),
-                    **value_summary(value), "read_value": {"tool": "read_edit_value", "arguments": {
+                    **parameter_summary, "read_value": {"tool": "read_edit_value", "arguments": {
                         "group_key": group["key"], "node_key": node["key"], "path": operation["path"],
                         **({"item_key": deepcopy(operation["item_key"])} if "item_key" in operation else {})}}})
             evidence = {"parameters": parameters, "params_value_present": "paramsValue" in node,
@@ -235,6 +249,34 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
                 "evidence_omitted": ["params_value", "parent_parameters", "visible_variables", "native_contract"],
                 "full_context": {"tool": "inspect_edit_context", "arguments": {
                     "targets": [{"group_key": group["key"], "node_key": node["key"]}], "response_detail": "full"}}}
+            if include_visible_variables:
+                variables = _catalog(design, group, index, elements)
+                if variable_offset > len(variables):
+                    raise EditContextError("variable_offset is outside this node's visible variable catalog",
+                                           group_key=group["key"], node_key=node["key"])
+                variable_page = []
+                oversized = None
+                for variable_index, variable in enumerate(variables[variable_offset:variable_offset + SUMMARY_VARIABLE_PAGE_SIZE], variable_offset):
+                    size = len(canonical_json(variable).encode("utf-8"))
+                    if size > variable_budget:
+                        if size > SUMMARY_VARIABLE_TOTAL_BYTES:
+                            oversized = {"index": variable_index, "candidate_id": variable["candidate_id"], "utf8_bytes": size}
+                        break
+                    variable_page.append(deepcopy(variable))
+                    variable_budget -= size
+                next_offset = variable_offset + len(variable_page)
+                complete = next_offset >= len(variables)
+                evidence["visible_variables"] = variable_page
+                evidence["visible_variables_page"] = {"offset": variable_offset,
+                    "next_offset": None if complete else next_offset, "total": len(variables),
+                    "returned": len(variable_page), "complete": complete, "truncated": not complete,
+                    "entries_complete": True, "page_size": SUMMARY_VARIABLE_PAGE_SIZE,
+                    "request_budget_bytes": SUMMARY_VARIABLE_TOTAL_BYTES,
+                    **({"oversized_entry": oversized, "fallback": "Read this node's full_context only if this exact variable is needed; no partial variable reference was returned."}
+                       if oversized is not None else {}),
+                    **({"continuation": "Keep the same context_binding. Read this node alone with include_visible_variables=true and variable_offset=next_offset; all returned variable references are exact."}
+                       if not complete and oversized is None else {})}
+                evidence["evidence_omitted"].remove("visible_variables")
         else:
             evidence = ({"parameter_guards": _compact_guard_values(node, templates),
                      "evidence_omitted": ["params_value", "parents", "visible_variables", "native_contract"],
@@ -253,7 +295,8 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
     next_cursor = operation_cursor + displayed_templates if operation_cursor + displayed_templates < template_index else None
     result = {"nodes": nodes, "read_only": True, "source_evidence_required": True,
               "context_detail": "summary" if summary else "compact_guards" if compact else "full_context",
-              "omitted_fields": ["params_value", "parents", "visible_variables", "native_contract", "operation_contracts"] if compact or summary else [],
+              "omitted_fields": ["params_value", "parents", *([] if summary and include_visible_variables else ["visible_variables"]),
+                                 "native_contract", "operation_contracts"] if compact or summary else [],
               **({} if compact or summary else {"operation_contracts": {name: operation_shape(name) for name in ("set_parameter", "set_array_item", "insert_in_block")}}),
               "operation_page": {"cursor": operation_cursor, "page_size": page_size,
                                   "evidence_mode": "summary" if summary else "compact_guards" if compact else "full_context",

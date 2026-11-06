@@ -803,7 +803,8 @@ class EditorService:
     @component_request
     def inspect_edit_context(self, session_id: str, targets: list[dict[str, str]], *, operation_cursor: int = 0,
                              include_context: bool | None = None, response_detail: str = "full",
-                             parameter_paths: list[str] | None = None) -> dict[str, Any]:
+                             parameter_paths: list[str] | None = None, include_visible_variables: bool = False,
+                             variable_offset: int = 0) -> dict[str, Any]:
         from .edit_context import build_edit_context
         session = self._owned_session(session_id)
         if session["state"] not in {"locked", "planned", "awaiting_approval"}:
@@ -814,7 +815,8 @@ class EditorService:
         self._require_compiler_binding(session, binding, "Frontend compiler binding changed; target contracts are stale")
         result = build_edit_context(self._compiler_design(session["baseline"]), registry, targets,
                                     operation_cursor=operation_cursor, include_context=include_context,
-                                    response_detail=response_detail, parameter_paths=parameter_paths)
+                                    response_detail=response_detail, parameter_paths=parameter_paths,
+                                    include_visible_variables=include_visible_variables, variable_offset=variable_offset)
         if result["context_detail"] == "summary":
             result = self._sign_context_guards(result, session, config)
         # Ownership may change while native source checks are running.
