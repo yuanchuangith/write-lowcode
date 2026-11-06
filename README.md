@@ -6,12 +6,15 @@
 
 逐条审批点击“批准”即完成审批，自动显示下一条，无重复确认弹窗。保存只确认一次，共享账户提示合并在同一窗口；双击批准不会误批下一条。
 
+同一安装包另提供独立的[表单配置技能](skills/gxp-form-config-edit/SKILL.md)和 `gxp-form-config-editor` MCP，覆盖已有组件的属性、必填只读、默认值、布局参数、数据源与组件过滤开关。它可根据自然语言请求启用，与编排编辑的会话和审批分开；两者共享安装包运行环境。平台草稿、并发与关联保存协议未验证时返回 `write_ready=false`，补证后才可经本地人工审批保存；首版不增删、复制或移动组件，不修改共享数据集条件或编排生成的过滤逻辑。
+
 ## 文档入口
 
 | 要做什么 | 阅读位置 |
 | --- | --- |
 | 开发、调试、验证和交付 | [主要开发文档](DEVELOPMENT.md)，开发流程统一在此维护 |
 | 启用编辑、定位草稿、规划和审批 | [编辑技能](skills/gxp-lowcode-edit/SKILL.md) |
+| 编辑已有表单组件配置 | [表单配置技能](skills/gxp-form-config-edit/SKILL.md) |
 | 查某类操作、原值守卫或参数路径 | [操作契约](skills/gxp-lowcode-edit/references/patch-schema.md)和[目标定位](skills/gxp-lowcode-edit/references/targeting-and-source.md) |
 | 固定需求、场景和业务验收 | [业务复核](skills/gxp-lowcode-edit/references/business-review.md) |
 | 生成便于排查和维护的编排 | [真实变量、条件变量和子动作](skills/gxp-lowcode-edit/references/readability.md) |
@@ -44,6 +47,6 @@ MCP 默认返回摘要；**全量生成是生成模式，摘要是响应格式**
 
 在任一插件目录运行 `python scripts/database_settings.py`（macOS/Linux 可用 `python3`）打开 Look/Write 共用窗口。地址、端口、库名统一管理，各自账户和编译器等专属设置保留；密码隐藏输入到操作系统凭据库。用户也可明确指定非敏感字段，由 `database_settings` 测试后保存；这个本机入口无需启用编辑技能或创建会话。旧编辑流程未结束时阻止切换，测试失败保留原配置。
 
-本地 MCP 共 30 个工具；`prepare_write_batch` 将同一队列的多个计划准备完成后统一打开审批。`find_edit_nodes` 从会话备份中分页查找分组和节点，`inspect_edit_context` 默认返回参数摘要及绑定原值的 `guard_ref`，`read_edit_value` 按需分页读取精确值。`read_plan_review` 默认返回证据摘要，可继续读取指定字段；完整证据仍保留在计划和审批工件。`record_graph_review` 记录已核对、拒绝、待发布等复核进度，均不写业务数据。`database_settings` 只处理用户明确要求的本机设置，不授予业务编辑或审批权限。安装和普通排查不会自动改库，模型不接收密码或连接串。
+编排 MCP 保留 30 个工具，独立表单 MCP 提供 15 个工具。`prepare_write_batch` 将同一队列的多个编排计划准备完成后统一打开审批。`find_edit_nodes` 从编排会话备份中分页查找分组和节点，`inspect_edit_context` 默认返回参数摘要及绑定原值的 `guard_ref`，`read_edit_value` 按需分页读取精确值。`read_plan_review` 默认返回证据摘要，可继续读取指定字段；完整证据仍保留在计划和审批工件。`record_graph_review` 记录已核对、拒绝、待发布等复核进度，均不写业务数据。`database_settings` 只处理用户明确要求的本机设置，不授予业务编辑或审批权限。表单使用独立的 `form_connection_settings` 和平台接口审批；安装和普通排查不会自动保存业务配置，模型不接收密码或连接串。
 
 源码维护不会自动安装或更新已运行插件、重启 Codex、保存或发布业务草稿。

@@ -1,0 +1,27 @@
+{
+  "evidence_type": "designer_network_observation",
+  "schema_version": 1,
+  "read": {
+    "method": "GET",
+    "path": "/inbiz/api/services/engines/v3/page/loadDetail",
+    "query_fields": ["siteOutId", "dataVersionId", "kindCode", "outId", "timestamp"],
+    "response_fields": ["OnLoadBefore", "OnLoaded", "CssContent", "Component", "Route", "Name", "IsSkipPerm"],
+    "component_is_json_string": true,
+    "revision_in_body": false
+  },
+  "save": {
+    "method": "PUT",
+    "path": "/inbiz/api/services/engines/v3/page",
+    "body_fields": ["appId", "siteOutId", "dataVersionId", "outId", "pageGroupOutId", "name", "sort", "onLoadBefore", "onLoaded", "cssContent", "componentBiz", "component", "layoutInfo", "extendType", "wfKey"],
+    "success_status": 204,
+    "revision_in_body": false
+  },
+  "associated_requests": [
+    {"method": "POST", "path": "/api/functions/batch"},
+    {"method": "DELETE", "path": "/api/pagemodels"},
+    {"method": "PUT", "path": "/api/inbizdatas/page/lastmodifytime"},
+    {"method": "PUT", "path": "/inbiz/api/services/engines/v3/appSite/extends", "allowed": false}
+  ],
+  "unconfirmed": ["request_headers", "server_enforced_concurrency", "published_draft_isolation", "complete_associated_readback", "site_extends_scope"],
+  "write_ready": false
+}

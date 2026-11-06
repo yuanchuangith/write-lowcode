@@ -10,6 +10,17 @@
         "./scripts/start_mcp.ps1"
       ],
       "cwd": "."
+    },
+    "gxp-form-config-editor": {
+      "command": "powershell",
+      "args": [
+        "-NoProfile",
+        "-ExecutionPolicy",
+        "Bypass",
+        "-File",
+        "./scripts/start_form_mcp.ps1"
+      ],
+      "cwd": "."
     }
   }
 }

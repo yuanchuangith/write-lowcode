@@ -1,0 +1,6 @@
+interface:
+  display_name: "GXP 表单配置编辑"
+  short_description: "独立修改已有表单组件的属性、布局与数据源，核对差异后经本地人工审批保存草稿。"
+  default_prompt: "使用 $gxp-form-config-edit 修改指定表单已有组件的配置，核对原值及保存请求，在平台协议就绪后打开本地审批窗口。"
+policy:
+  allow_implicit_invocation: true

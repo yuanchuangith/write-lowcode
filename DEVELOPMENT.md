@@ -6,9 +6,12 @@
 
 服务处理已有未发布 ActionDesign 草稿：注册对话 → 建立独占会话及不可变备份 → 定位与读取 → 固定需求并规划 → 原生生成及结果绑定 → 业务复核 → 人工 SQL 审批 → 保存核对及释放。Look 是可选的只读证据来源；不需要先完成诊断或导出交接包。
 
+`0.1.62` 同包新增独立表单配置服务：15 个工具、独立状态及签名、本机平台登录、原生属性目录转换、组件修改与逆向备份恢复、实际 HTTP 人工审批和保存回读。启动器共享固定包及解释器租约，默认编排入口保留。表单适配器不访问业务数据库。开发设计器观察证据仅确认部分读写协议，服务端并发与完整关联回读未核实时保持禁写；协议字段和当前限制见[原生协议依据](skills/gxp-form-config-edit/references/native-protocol.md)。
+
 | 改动内容 | 主要入口 |
 | --- | --- |
 | MCP 工具、参数及默认值 | [mcp/server.py](mcp/server.py) |
+| 独立表单配置服务及技能 | [mcp/form_server.py](mcp/form_server.py)、`mcp/gxp_form_editor/`、[表单技能](skills/gxp-form-config-edit/SKILL.md) |
 | 工作流与编排 | [service.py](mcp/gxp_editor/service.py)、[workflow_guidance.py](mcp/gxp_editor/workflow_guidance.py) |
 | 会话、基线及并发 | [state.py](mcp/gxp_editor/state.py)、[backup.py](mcp/gxp_editor/backup.py)、[repository.py](mcp/gxp_editor/repository.py) |
 | 诊断比较、恢复归因和队列交接 | [baseline_comparison.py](mcp/gxp_editor/baseline_comparison.py)、[execution_evidence.py](mcp/gxp_editor/execution_evidence.py)、[queue_protocol.py](mcp/gxp_editor/queue_protocol.py) |
@@ -62,6 +65,8 @@
 `setup.ps1` 在 `%LOCALAPPDATA%/GxpLowcodeEditor/.venv` 创建环境并安装 [requirements.txt](requirements.txt)；启动器用该环境运行 stdio 服务。后面的 Python 命令应使用已具备依赖的环境。编译相关开发还需要 Node、真实前端 compiler bridge，以及用于非空 C# 候选的 .NET SDK 和只读引用；就绪约束以编译器契约为准，不猜测或修改外部仓库。
 
 [.mcp.json](.mcp.json) 声明本地启动器，[.codex-plugin/plugin.json](.codex-plugin/plugin.json) 声明 Codex 插件。仓库没有一键 Codex / Claude 安装器；准备运行环境、同步技能与更新客户端安装是三个不同步骤。源码改动不会自动更新 Codex 缓存或重启客户端。
+
+表单配置服务通过 `scripts/start_form_mcp.ps1` 启动，使用同一 venv 和经过完整 manifest 验证的包快照。`runtime_package.py start --server form` 只允许固定表单入口；未指定 `--server` 仍启动原编排服务，`--server action` 与原默认行为一致。两者各持 MCP 进程租约，业务会话、配置、审批 domain 和恢复工件独立，不能继承授权。表单首版限定已有组件属性、必填只读、默认值、布局、数据源及过滤配置；原生草稿、并发和关联保存协议未验证时 `write_ready=false`，不能通过修改 readiness 配置绕过。表单运行包定向回归为 `tests.test_form_runtime`。
 
 数据库设置仅按用户明确要求通过 [database_settings.py](scripts/database_settings.py) 或本机工具处理；具体见[统一设置](skills/gxp-lowcode-edit/references/database-settings.md)。普通开发和离线验证不读取凭据、不访问业务库、不保存或发布草稿。
 

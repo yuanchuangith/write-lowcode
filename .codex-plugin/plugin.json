@@ -1,15 +1,15 @@
 {
   "name": "gxp-lowcode-editor",
-  "version": "0.1.61+codex.local-20261103-approval-click",
-  "description": "Guarded GXP ActionDesign draft editing with business expectation review, before/after generated-JS scenarios, bound compiler evidence, immutable backups, human approval and restore support.",
+  "version": "0.1.62+codex.local-20261106-form-config",
+  "description": "Separate guarded GXP ActionDesign and form-configuration editing services with immutable backups and local human approval; form writes require verified platform save contracts.",
   "author": {
     "name": "Local developer"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "GXP 低代码受控编辑",
-    "shortDescription": "图形对比数据流与字段状态，明确失败阻止审批，经人工确认保存草稿。",
-    "longDescription": "为已有未发布 GXP 编排建立独占编辑会话，支持多动作批量生成、勾选后人工批量审批与保存。使用前端 ActionDesign 真实规则生成画布、JS、C# 与关联数据，并用只读本地引用（开发构建或部署程序集快照）校验 C#；开发引用通过仅证明本地兼容性。写入前完成本地备份、索引与权限检查、人工 SQL 审批和乐观锁验证，并支持审批式恢复。不修改后端、Redis、DLL/PDB，不会创建或发布编排。",
+    "shortDescription": "独立编辑编排与表单配置，对比变化并经本地人工审批保存草稿。",
+    "longDescription": "同一安装包提供独立的编排编辑与表单配置技能、MCP 服务和业务状态。编排继续使用 ActionDesign 原生生成、完整候选 C# 校验和人工 SQL 审批；表单配置覆盖已有组件属性、必填只读、默认值、布局与数据源，保存须先验证平台草稿、并发与关联记录协议，并通过本地人工审批。两种编辑不继承彼此授权，不自动创建或发布设计。",
     "developerName": "Local developer",
     "category": "Developer Tools",
     "capabilities": [
@@ -18,7 +18,7 @@
       "Interactive",
       "Write"
     ],
-    "defaultPrompt": "使用 $gxp-lowcode-edit 为已有未发布编排生成受控画布修改计划；多个动作先批量生成再统一人工审批，没有人工 SQL 审批和执行确认时不要执行任何数据库写入。"
+    "defaultPrompt": "表单设计配置使用独立的 $gxp-form-config-edit；动作编排使用 $gxp-lowcode-edit。按请求选择对应技能，分别核对目标和差异，再经本地人工审批保存草稿。"
   },
   "mcpServers": "./.mcp.json"
 }

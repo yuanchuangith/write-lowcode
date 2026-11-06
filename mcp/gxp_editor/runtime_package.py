@@ -26,6 +26,12 @@ RUNTIME_SCRIPT_NAMES = {
     "approval_app.py", "abort_session_app.py", "configure_connection.py",
     "database_settings.py", "preview_component_canvas.py", "preview_saved_approval.py",
     "start_mcp.ps1", "start_mcp.cmd",
+    "start_form_mcp.ps1", "start_form_mcp.cmd", "form_approval_app.py", "form_connection_app.py",
+}
+SERVER_ENTRYPOINTS = {"action": "mcp/server.py", "form": "mcp/form_server.py"}
+FORM_RUNTIME_FILES = {
+    "mcp/form_server.py", "scripts/form_approval_app.py", "scripts/form_connection_app.py",
+    "scripts/start_form_mcp.ps1", "scripts/start_form_mcp.cmd",
 }
 _REQUIRED = {"mcp/server.py", "mcp/gxp_editor/runtime_package.py",
              "scripts/approval_app.py", "scripts/abort_session_app.py",
@@ -489,6 +495,7 @@ def _main(argv=None):
     parser.add_argument("command", choices=("start", "setup", "build"))
     parser.add_argument("--source", type=Path, required=True)
     parser.add_argument("--interpreter", type=Path)
+    parser.add_argument("--server", choices=tuple(SERVER_ENTRYPOINTS), default="action")
     args = parser.parse_args(argv)
     if args.command == "build":
         print(write_manifest(args.source))
@@ -504,6 +511,8 @@ def _main(argv=None):
             subprocess.run([str(args.interpreter), "-m", "pip", "install", "--disable-pip-version-check", "-r", str(args.source / "requirements.txt")], check=True)
         return
     package = prepare_runtime(args.source)
+    if args.server == "form":
+        assert_runtime_resources(package, FORM_RUNTIME_FILES)
     os.environ["GXP_EDITOR_RUNTIME_ROOT"] = str(package)
     os.environ["GXP_EDITOR_RUNTIME_INSTANCE_ID"] = uuid.uuid4().hex
     os.environ["GXP_EDITOR_RUNTIME_MANIFEST_SHA256"] = _read_manifest(package)[1]
@@ -512,10 +521,10 @@ def _main(argv=None):
     # Do not let a package imported for bootstrapping keep deferred imports tied
     # to the host-managed source directory after it disappears.
     for name in list(sys.modules):
-        if name == "gxp_editor" or name.startswith("gxp_editor."):
+        if name == "gxp_editor" or name.startswith("gxp_editor.") or name == "gxp_form_editor" or name.startswith("gxp_form_editor."):
             del sys.modules[name]
     with RuntimeLease(package, role="mcp"):
-        runpy.run_path(str(package / "mcp/server.py"), run_name="__main__")
+        runpy.run_path(str(package / SERVER_ENTRYPOINTS[args.server]), run_name="__main__")
 
 
 if __name__ == "__main__":
