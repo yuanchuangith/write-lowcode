@@ -14,7 +14,20 @@ from .common import DOMAIN, FormError, atomic_json, canonical, digest, runtime_r
 
 class Store:
     def __init__(self, root: Path | None = None):
-        self.root = Path(root) if root else runtime_root()
+        self.root = Path(root) if root is not None else runtime_root()
+        if root is None:
+            try:
+                from gxp_project_context import current_database_scope
+            except ModuleNotFoundError as error:
+                if error.name != "gxp_project_context":
+                    raise
+                scope = None
+            else:
+                scope = current_database_scope(role="write")
+            if scope is not None:
+                if not isinstance(scope, str) or len(scope) != 64 or any(ch not in "0123456789abcdef" for ch in scope):
+                    raise FormError("form_database_scope_invalid", "当前数据库的本地存储标识无效。")
+                self.root = self.root / "databases" / scope
         self.root.mkdir(parents=True, exist_ok=True)
         self.path = self.root / "state.sqlite3"
         with self.transaction() as connection:

@@ -25,6 +25,7 @@ MANIFEST_SCHEMA = 1
 RUNTIME_SCRIPT_NAMES = {
     "approval_app.py", "abort_session_app.py", "configure_connection.py",
     "database_settings.py", "preview_component_canvas.py", "preview_saved_approval.py",
+    "database_settings.cmd", "database_settings.ps1", "manage_project_sessions.py", "manage_project_sessions.ps1",
     "start_mcp.ps1", "start_mcp.cmd",
     "start_form_mcp.ps1", "start_form_mcp.cmd", "form_approval_app.py", "form_connection_app.py",
 }
@@ -114,6 +115,7 @@ def runtime_files(root: Path) -> list[str]:
     paths.extend(path for path in (root / "assets").rglob("*") if path.is_file())
     paths.extend(root / "scripts" / name for name in RUNTIME_SCRIPT_NAMES
                  if (root / "scripts" / name).is_file())
+    paths.extend(root / name for name in ("切换数据库.cmd", "处理未结束流程.cmd") if (root / name).is_file())
     return sorted({path.relative_to(root).as_posix() for path in paths})
 
 

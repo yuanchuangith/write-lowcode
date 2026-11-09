@@ -80,6 +80,15 @@ def active_settings() -> dict | None:
     result = _read_json(settings_path())
     if result is None:
         return None
+    if result.get("schema_version") == 2:
+        from gxp_project_context import resolve_active
+        try:
+            resolved = resolve_active(result, settings_path())
+            _validate_fields({**resolved, **{role + "_user": account["user"]
+                                            for role, account in resolved["accounts"].items()}})
+            return resolved
+        except ValueError as exc:
+            raise SettingsError("SETTINGS_INVALID", str(exc)) from exc
     expected = {"schema_version", "revision", "host", "port", "database", "accounts"}
     if set(result) != expected or result.get("schema_version") != 1 or not re.fullmatch(r"[0-9a-f]{32}", str(result.get("revision", ""))):
         raise SettingsError("SETTINGS_INVALID", "统一连接配置格式无效；已停止使用该配置。")
@@ -129,15 +138,10 @@ def _editor_state_path() -> Path:
 
 
 def _active_sessions() -> list[dict]:
-    path = _editor_state_path()
-    if not path.exists():
-        return []
+    from gxp_project_context.local_sessions import LocalSessionError, active_sessions
     try:
-        with closing(sqlite3.connect(path.resolve().as_uri() + "?mode=ro", uri=True, timeout=2)) as db:
-            db.row_factory = sqlite3.Row
-            rows = db.execute("SELECT id,state FROM sessions WHERE state IN ('locked','planned','awaiting_approval','saved','saved_state_pending','verified','restore_pending') LIMIT 101").fetchall()
-            return [dict(row) for row in rows]
-    except sqlite3.Error as exc:
+        return active_sessions()
+    except LocalSessionError as exc:
         raise SettingsError("SETTINGS_SESSION_CHECK", "无法核对编辑会话状态，暂不允许切换连接。") from exc
 
 
@@ -151,6 +155,106 @@ def settings_status() -> dict:
             "settings": settings, "config_path": str(settings_path()), "active_edit_sessions": _active_sessions(),
             "legacy_connections": {role: {key: base.get(key) for key in ("host", "port", "database", "user")} for role, base in bases.items()},
             "next_step": "统一设置同时应用于 Look 和 Write；密码只在本地窗口输入。已有编辑流程须先正常结束，不能自动取消。"}
+
+
+def list_projects() -> dict:
+    from gxp_project_context import list_profiles
+    try:
+        return {"ok": True, "projects": list_profiles(settings_path())}
+    except ValueError as exc:
+        return {"ok": False, "error_code": "SETTINGS_INVALID", "error": str(exc)}
+
+
+def open_sessions() -> dict:
+    from gxp_project_context.session_launcher import open_session_manager
+    try:
+        return open_session_manager()
+    except (ValueError, OSError) as exc:
+        return {"ok": False, "opened": False, "error_code": "SETTINGS_SESSION_WINDOW", "error": str(exc)}
+
+
+def save_project(name: str, expected_revision: str, changes: dict | None = None) -> dict:
+    """Save an endpoint with the existing accounts and OS credential references."""
+    from gxp_project_context import save_profile
+    try:
+        with _settings_lock():
+            before = settings_status()
+            if expected_revision != before["revision"]:
+                raise SettingsError("SETTINGS_CONFLICT", "设置已变化，请重新加载后保存。")
+            if not isinstance(changes, (dict, type(None))) or set(changes or {}) - {"host", "port", "database"}:
+                raise SettingsError("SETTINGS_FIELDS", "另存配置只接受地址、端口和数据库名。")
+            values = _validate_fields({**before["settings"], **(changes or {})})
+            active, bases = active_settings(), _base_configs()
+            accounts = {}
+            for role in ("look", "write"):
+                account = {**bases[role], **(active["accounts"][role] if active else {})}
+                target = account.get("credential_target") or ("Codex.GxpLowcodeReadonly" if role == "look" else "Codex.GxpLowcodeEditor.Database")
+                accounts[role] = {"user": account.get("user", ""), "credential_target": target}
+                if role == "write":
+                    accounts[role].update({key: account[key] for key in ("account_mode", "expected_grants_sha256") if key in account})
+            profile = save_profile(settings_path(), name, values, accounts)
+            return {"ok": True, "changed": False, "project": profile,
+                    "message": "数据库配置已另存；当前连接未切换，账户及密码引用保持原样。"}
+    except (SettingsError, ValueError) as exc:
+        return {"ok": False, "changed": False, "error_code": getattr(exc, "code", "SETTINGS_INVALID"), "error": str(exc)}
+    except Exception:
+        return {"ok": False, "changed": False, "error_code": "SETTINGS_FAILED", "error": "配置未保存，请检查本地文件权限。"}
+
+
+def switch_project(project_id: str, expected_revision: str) -> dict:
+    """Activate a saved connection after the existing read-only connection checks."""
+    from gxp_project_context import load_profile
+    staged = []
+    try:
+        with _settings_lock():
+            before = settings_status()
+            if expected_revision != before["revision"]:
+                raise SettingsError("SETTINGS_CONFLICT", "设置已变化，请重新加载后切换。")
+            if before["active_edit_sessions"]:
+                raise SettingsError("SETTINGS_ACTIVE_SESSIONS", "仍有编辑流程，请先正常结束再切换连接。")
+            profile = load_profile(settings_path(), project_id)
+            base_write = _base_configs()["write"]
+            saved_write = profile["accounts"]["write"]
+            if any(saved_write.get(key, base_write.get(key, default)) != base_write.get(key, default)
+                   for key, default in (("account_mode", "dedicated"), ("expected_grants_sha256", ""))):
+                raise SettingsError("SETTINGS_ACCOUNT_POLICY", "该配置的 Write 账户权限模式与当前运行环境不同，请先核对原 Write 账户设置。")
+            values = _validate_fields({**profile["database"], **{role + "_user": account["user"] for role, account in profile["accounts"].items()}})
+            _secure_keyring()
+            passwords = {}
+            for role, account in profile["accounts"].items():
+                passwords[role] = keyring.get_password(account["credential_target"], account["user"])
+                if not passwords[role]:
+                    raise SettingsError("SETTINGS_CREDENTIALS", "缺少已保存的系统凭据，请在本地窗口设置密码。")
+            _probe(values, passwords)
+            if _active_sessions():
+                raise SettingsError("SETTINGS_ACTIVE_SESSIONS", "测试期间出现新的编辑流程，连接未切换。")
+            # Keep the active file readable by already-running v1 MCP processes.
+            # Password values stay in OS keyring; old references are retained.
+            revision = secrets.token_hex(16)
+            connection = {"schema_version": 1, "revision": revision,
+                          **{key: values[key] for key in ("host", "port", "database")}, "accounts": {}}
+            for role in ("look", "write"):
+                account = {"user": values[role + "_user"], "credential_target": f"GxpLowcode.Connection.{revision}.{role}"}
+                keyring.set_password(account["credential_target"], account["user"], passwords[role])
+                staged.append(account)
+                connection["accounts"][role] = account
+            if _active_sessions():
+                raise SettingsError("SETTINGS_ACTIVE_SESSIONS", "保存期间出现新的编辑流程，连接未切换。")
+            _atomic_save(connection)
+            staged.clear()
+            return {"ok": True, "changed": True, "tested": True, "project": {
+                key: profile[key] for key in ("project_id", "revision", "name", "database")},
+                "message": "连接已切换，后续调用使用该数据库的独立缓存。"}
+    except (SettingsError, ValueError) as exc:
+        return {"ok": False, "changed": False, "error_code": getattr(exc, "code", "SETTINGS_INVALID"), "error": str(exc)}
+    except Exception:
+        return {"ok": False, "changed": False, "error_code": "SETTINGS_FAILED", "error": "连接未切换，原配置保留。"}
+    finally:
+        for account in staged:
+            try:
+                keyring.delete_password(account["credential_target"], account["user"])
+            except Exception:
+                pass
 
 
 @contextmanager

@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "source_package": "gxp_core",
+  "files": [
+    {
+      "path": "config.py",
+      "sha256": "f82676b4c55b68e7449c7cfd412d5c1a55140a49c616664e047a222f1146356e"
+    },
+    {
+      "path": "db.py",
+      "sha256": "65c8c2334806cb68103a4bbe9adf2efc681dd834ae6204e499f36c6041f2e251"
+    },
+    {
+      "path": "sql_guard.py",
+      "sha256": "f6b9a087205a3250da3c281fb29c3bfca2184df02d7219e58f4a1ad92e2c6d7e"
+    },
+    {
+      "path": "repository.py",
+      "sha256": "1f2becaea1276f7d7273b834efdc2f35a8f55c455ac58865d54c223db8b2dc06"
+    },
+    {
+      "path": "schema_repository.py",
+      "sha256": "ec54f0d5b71cec6f3e2f32565a199fc78ad5cabc9b2dcdd59704b30ed7b667d5"
+    },
+    {
+      "path": "cpm_config.py",
+      "sha256": "0dacfc13fbfd6b48877a97978502abcc38a06c83dc0767da0c4eb29c33e0bc76"
+    },
+    {
+      "path": "cpm_runner.py",
+      "sha256": "60866c9cbf145a2239af0490c281c134d821caf8dfa995ea145c7f9d3b911f7c"
+    },
+    {
+      "path": "project_refresh.py",
+      "sha256": "18623a898b2f9de4bc5ff63e59e1b01dbd8390f2d3c5e5378eb1e2e39ddf085e"
+    }
+  ]
+}
