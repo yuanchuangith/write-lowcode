@@ -304,7 +304,7 @@ def _normalize(value: dict) -> dict:
                 raise ProjectError("PROJECT_FIELDS_INVALID", "Write 权限指纹无效。")
             cleaned[role].update(account_mode=mode, expected_grants_sha256=grants)
     platform = value.get("platform_binding") or {}
-    if not isinstance(platform, dict) or set(platform) - {"platform_url", "base_url", "app_id", "site_out_id", "account", "credential_target", "form_config", "api_prefix"}:
+    if not isinstance(platform, dict) or set(platform) - {"platform_url", "base_url", "login_url", "app_id", "site_out_id", "account", "credential_target", "form_config", "api_prefix"}:
         raise ProjectError("PROJECT_FIELDS_INVALID", "平台配置字段无效。")
     url = _text(platform.get("platform_url") or platform.get("base_url"), "平台地址", optional=True).rstrip("/")
     parsed = urlsplit(url)
@@ -320,6 +320,14 @@ def _normalize(value: dict) -> dict:
     form = copy.deepcopy(binding.get("form_config") or {})
     if not isinstance(form, dict):
         raise ProjectError("PROJECT_FIELDS_INVALID", "表单平台配置无效。")
+    explicit_login = platform.get("login_url", form.get("login_url", ""))
+    if explicit_login:
+        from .platform_auth import validate_login_url
+        explicit_login = validate_login_url(explicit_login.strip() if isinstance(explicit_login, str) else explicit_login)
+    elif explicit_login not in ("", None):
+        raise ProjectError("PROJECT_PLATFORM_LOGIN_URL_INVALID", "登录链接必须为文本。")
+    binding["login_url"] = explicit_login or ""
+    form["login_url"] = explicit_login or ""
     form.update(base_url=url, environment=env)
     form.update(platform_account=binding["account"], app_id=binding["app_id"], site_out_id=binding["site_out_id"])
     form.setdefault("platform", "web")
@@ -400,6 +408,17 @@ def save_current_project(expected_revision: str, name: str = "") -> dict:
                    "environment": context.environment, "database": database, "accounts": accounts,
                    "platform_binding": defaults["platform_binding"], "platform_version": defaults["platform_version"],
                    "reuse_credentials_from": context.project_id}
+    missing_roles = [role for role in ("look", "write")
+                     if not isinstance(profile["accounts"][role].get("user"), str)
+                     or not profile["accounts"][role]["user"].strip()]
+    if missing_roles:
+        labels = "、".join("Look" if role == "look" else "Write" for role in missing_roles)
+        raise ProjectError(
+            "PROJECT_CURRENT_ACCOUNTS_MISSING",
+            "正在使用的原连接缺少 " + labels + " 账号，无法加入项目列表。"
+            "此操作读取原配置；请点击“保存项目”保存当前填写的账号和项目。",
+            {"missing_roles": missing_roles},
+        )
     result = save_project(profile, expected_revision)
     return {**result, "saved_current_connection": True,
             "message": "当前连接已保存到项目列表，原配置、账号密码及当前数据库连接均保留。"}
@@ -522,20 +541,42 @@ def probe_platform(profile: dict) -> dict:
     if not all(binding.get(key) for key in ("platform_url", "app_id", "site_out_id")):
         return {"status": "unavailable", "reason": "platform_settings_missing"}
     try:
+        from urllib.error import HTTPError, URLError
         from urllib.request import Request, build_opener
         from .platform_auth import NoRedirect, credential as get_credential, login_platform, prefix
         auth_header = form.get("auth_header") or "Cookie"
         credential = get_credential(profile)
-        if not credential:
+        login_attempted = False
+        def renew():
             password = keyring.get_password(binding["credential_target"], binding.get("account", ""))
             if password:
                 login_platform(profile, password)
-                credential = get_credential(profile)
+                return get_credential(profile)
+            return ""
+        if not credential:
+            login_attempted = True
+            credential = renew()
         if not credential:
             return {"status": "unavailable", "reason": "platform_login_required"}
-        request = Request(binding["platform_url"] + prefix(profile) + "/api/app_info", headers={auth_header: credential})
-        with build_opener(NoRedirect).open(request, timeout=5) as response:
-            info = json.loads(response.read(1024 * 1024)).get("data") or {}
+        opener = build_opener(NoRedirect)
+        for attempt in range(2):
+            request = Request(binding["platform_url"] + prefix(profile) + "/api/app_info", headers={auth_header: credential})
+            try:
+                with opener.open(request, timeout=5) as response:
+                    info = json.loads(response.read(1024 * 1024)).get("data") or {}
+                break
+            except HTTPError as error:
+                if error.code == 401 and not login_attempted:
+                    login_attempted = True
+                    credential = renew()
+                    if credential:
+                        continue
+                    return {"status": "unavailable", "reason": "platform_login_required", "http_status": 401}
+                return {"status": "unavailable",
+                        "reason": "platform_session_expired" if error.code == 401 else "platform_http_error",
+                        "http_status": error.code}
+            except (URLError, TimeoutError, OSError):
+                return {"status": "unavailable", "reason": "platform_network_error"}
         actual_app, actual_site = info.get("appId", info.get("AppId")), info.get("siteOutId", info.get("SiteOutId"))
         if actual_app is None or actual_site is None:
             return {"status": "unavailable", "reason": "platform_identity_unavailable"}

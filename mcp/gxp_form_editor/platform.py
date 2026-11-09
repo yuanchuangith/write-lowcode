@@ -107,7 +107,10 @@ def _credential(config: dict[str, Any]) -> str:
 
 def _credential_key(config: dict[str, Any]) -> str:
     reference = str(config.get("credential_target") or "Codex.GxpFormEditor.Platform")
-    return reference + ":" + digest({"environment": config.get("environment"), "base_url": config.get("base_url"), "auth_header": config.get("auth_header") or "Cookie"})
+    identity = {"environment": config.get("environment"), "base_url": config.get("base_url"), "auth_header": config.get("auth_header") or "Cookie"}
+    if config.get("login_url"):
+        identity["login_url"] = config["login_url"]
+    return reference + ":" + digest(identity)
 
 
 def _api_prefix(config: dict[str, Any]) -> str:
@@ -133,6 +136,13 @@ def login(config: dict[str, Any], account: str, password: str, company_id: str =
     """Local Qt-only login. Plain credentials never enter settings or MCP."""
     origin = _origin(str(config.get("base_url") or ""))
     prefix = _api_prefix(config)
+    endpoint = str(config.get("login_url") or origin + prefix + "/api/auth/login")
+    if config.get("login_url"):
+        from gxp_project_context.platform_auth import validate_login_url
+        try:
+            validate_login_url(endpoint)
+        except Exception as exc:
+            raise FormError("form_login_url_invalid", "登录链接必须是完整的 HTTP(S) 接口地址，且不能包含凭据或查询参数。") from exc
     if not account or not password:
         raise FormError("form_login_fields_required", "请在本机登录窗口填写账号和密码。")
     for context in (company_id, org_identity_id):
@@ -140,7 +150,7 @@ def login(config: dict[str, Any], account: str, password: str, company_id: str =
             raise FormError("form_login_context_invalid", "租户上下文格式不合法。")
     data = urlencode({"account": "o" + base64.b64encode(account.encode("utf-8")).decode("ascii"), "password": "b" + base64.b64encode(password.encode("utf-8")).decode("ascii")}).encode("ascii")
     try:
-        result = (transport or _login_transport)(origin + prefix + "/api/auth/login", {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest"}, data, 15)
+        result = (transport or _login_transport)(endpoint, {"Content-Type": "application/x-www-form-urlencoded; charset=UTF-8", "X-Requested-With": "XMLHttpRequest"}, data, 15)
     except FormError:
         raise
     except Exception as exc:

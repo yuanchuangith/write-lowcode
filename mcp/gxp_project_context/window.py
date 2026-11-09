@@ -5,6 +5,7 @@ import json
 import queue
 import threading
 import tkinter as tk
+from datetime import datetime, timezone
 from tkinter import filedialog, ttk
 
 from . import ProjectError
@@ -16,6 +17,7 @@ class ProjectSettingsWindow:
     def __init__(self, root):
         self.root, self.busy, self.closed = root, False, False
         self.background_busy = False
+        self._idle_progress_ticks = 0
         self._view_epoch = 0
         self._status_snapshot = None
         self._progress_text = None
@@ -31,7 +33,7 @@ class ProjectSettingsWindow:
         self.fields = {name: tk.StringVar(root) for name in (
             "name", "environment", "host", "port", "database", "look_user", "look_password", "write_user", "write_password",
             "account_mode", "expected_grants_sha256", "platform_url", "app_id", "site_out_id", "account", "platform_password",
-            "contract_path", "api_prefix")}
+            "contract_path", "api_prefix", "login_url")}
         self.form_template, self.platform_version, self.refresh_config = {}, {}, {}
         self._build()
         self.run("load", settings.settings_status)
@@ -46,7 +48,10 @@ class ProjectSettingsWindow:
         frame = ttk.Frame(self.root, padding=18)
         frame.pack(fill="both", expand=True)
         ttk.Label(frame, text="项目配置与一键切换", font=("Microsoft YaHei UI", 16, "bold")).pack(anchor="w")
-        ttk.Label(frame, textvariable=self.current, wraplength=850).pack(anchor="w", pady=(6, 10))
+        current_row = ttk.Frame(frame)
+        current_row.pack(fill="x", pady=(6, 10))
+        ttk.Label(current_row, textvariable=self.current, wraplength=650).pack(side="left", fill="x", expand=True)
+        ttk.Button(current_row, text="将原连接加入列表", command=self.save_current).pack(side="right", padx=(10, 0))
         row = ttk.Frame(frame)
         row.pack(fill="x")
         self.selector = ttk.Combobox(row, state="readonly")
@@ -82,8 +87,10 @@ class ProjectSettingsWindow:
             self.field(advanced, row, key, label)
         ttk.Label(advanced, text="已自动沿用原配置，无需修改本页。密码框用于主动更换密码；保持空白会继续使用原密码，不会清空原密码。", wraplength=760).grid(row=7, column=0, columnspan=2, sticky="w", pady=14)
         self.field(platform, 0, "platform_url", "项目网页地址")
-        ttk.Label(platform, textvariable=self.platform_summary, wraplength=760).grid(row=1, column=0, columnspan=2, sticky="w", pady=14)
-        ttk.Label(platform, text="已有的平台账号、密码、应用编号和连接参数自动沿用。仅当项目网页地址变化时修改上方地址。没有配置平台也可先切数据库，相关网页资料会显示缺项。", wraplength=760).grid(row=2, column=0, columnspan=2, sticky="w", pady=12)
+        self.field(platform, 1, "login_url", "登录链接")
+        ttk.Label(platform, text="填写登录接口的完整链接；留空时使用项目网页地址和 API 前缀生成。", wraplength=760).grid(row=2, column=0, columnspan=2, sticky="w", pady=6)
+        ttk.Label(platform, textvariable=self.platform_summary, wraplength=760).grid(row=3, column=0, columnspan=2, sticky="w", pady=14)
+        ttk.Label(platform, text="已有的平台账号、密码、应用编号和连接参数自动沿用。切换网站时请核对网页地址与登录链接。没有配置平台也可先切数据库，相关网页资料会显示缺项。", wraplength=760).grid(row=4, column=0, columnspan=2, sticky="w", pady=12)
         for row, (key, label) in enumerate((("account", "平台账号"), ("platform_password", "更换平台密码"),
             ("app_id", "AppId"), ("site_out_id", "SiteOutId"), ("api_prefix", "API 前缀"),
             ("contract_path", "已核验表单协议"))):
@@ -94,10 +101,10 @@ class ProjectSettingsWindow:
         self.progress.pack(fill="both", expand=True)
         ttk.Button(progress, text="重新全量刷新", command=self.refresh_all).pack(side="left", pady=8)
         ttk.Button(progress, text="重试未完成资料", command=lambda: self.refresh_all(retry=True)).pack(side="left", padx=8, pady=8)
+        ttk.Label(frame, text="新增或修改项目：先保存项目，再切换。选择已保存项目可直接切换。", wraplength=850).pack(anchor="w", pady=(0, 6))
         ttk.Label(frame, textvariable=self.message, wraplength=850).pack(anchor="w", pady=(0, 8))
         toolbar = ttk.Frame(frame)
         toolbar.pack(fill="x")
-        ttk.Button(toolbar, text="保存当前连接", command=self.save_current).pack(side="left", padx=(0, 10))
         ttk.Button(toolbar, text="保存项目", command=self.save).pack(side="left")
         ttk.Button(toolbar, text="切换并全量刷新", command=self.switch).pack(side="left", padx=10)
         ttk.Button(toolbar, text="关闭", command=self.close).pack(side="right")
@@ -121,7 +128,7 @@ class ProjectSettingsWindow:
             return
         self._view_epoch += 1
         previous_source = self.project_id or self.credential_source_id or self.legacy_source_id
-        retained = {key: self.fields[key].get() for key in ("look_user", "write_user", "account_mode", "environment", "platform_url", "app_id", "site_out_id", "account", "api_prefix", "contract_path")}
+        retained = {key: self.fields[key].get() for key in ("look_user", "write_user", "account_mode", "environment", "platform_url", "login_url", "app_id", "site_out_id", "account", "api_prefix", "contract_path")}
         self.project_id = ""
         if not previous_source:
             self.form_template, self.platform_version, self.refresh_config = {}, {}, {}
@@ -155,8 +162,8 @@ class ProjectSettingsWindow:
         self.platform_version = dict(defaults.get("platform_version") or {})
         self.platform_credential_target = str(binding.get("credential_target") or "")
         self.platform_credential_user = str(binding.get("account") or "")
-        for name in ("platform_url", "app_id", "site_out_id", "account"):
-            self.fields[name].set(str(binding.get(name) or ""))
+        for name in ("platform_url", "login_url", "app_id", "site_out_id", "account"):
+            self.fields[name].set(str(binding.get(name, self.form_template.get(name, "") if name == "login_url" else "") or ""))
         for name in ("api_prefix", "contract_path"):
             self.fields[name].set(str(self.form_template.get(name) or ""))
         self.update_platform_summary()
@@ -195,6 +202,7 @@ class ProjectSettingsWindow:
                       "account_mode": profile["accounts"]["write"]["account_mode"],
                       "expected_grants_sha256": profile["accounts"]["write"].get("expected_grants_sha256", "")}
             self.form_template = dict(profile["platform_binding"].get("form_config") or {})
+            values.setdefault("login_url", self.form_template.get("login_url", ""))
             self.platform_credential_target = str(profile["platform_binding"].get("credential_target") or "")
             self.platform_credential_user = str(profile["platform_binding"].get("account") or "")
             self.platform_version = dict(profile.get("platform_version") or {})
@@ -221,7 +229,7 @@ class ProjectSettingsWindow:
                 "database": {"host": value["host"], "port": port, "database": value["database"]},
                 "accounts": {"look": {"user": value["look_user"]}, "write": {"user": value["write_user"],
                     "account_mode": value["account_mode"], "expected_grants_sha256": value["expected_grants_sha256"]}},
-                "platform_binding": {"platform_url": value["platform_url"], "app_id": value["app_id"],
+                "platform_binding": {"platform_url": value["platform_url"], "login_url": value["login_url"], "app_id": value["app_id"],
                     "site_out_id": value["site_out_id"], "account": value["account"], "form_config": form},
                 "platform_version": self.platform_version, "refresh": self.refresh_config}
         source = self.credential_source_id or self.legacy_source_id
@@ -272,7 +280,7 @@ class ProjectSettingsWindow:
             self._view_epoch += 1
             self.busy = True
             self.selector.configure(state="disabled")
-            self.message.set({"load": "正在读取配置…", "save": "正在保存项目配置…", "save_current": "正在保留原配置并加入项目列表…", "switch": "正在测试连接并切换项目…", "refresh": "正在启动刷新…", "sessions": "正在打开未结束流程…"}.get(action, "正在处理…"))
+            self.message.set({"load": "正在读取配置…", "save": "正在保存项目配置…", "save_current": "正在保留原配置并加入项目列表…", "reload_projects": "正在更新项目列表…", "switch": "正在测试连接并切换项目…", "refresh": "正在启动刷新…", "sessions": "正在打开未结束流程…"}.get(action, "正在处理…"))
         epoch = self._view_epoch
         def worker():
             try:
@@ -285,13 +293,39 @@ class ProjectSettingsWindow:
         threading.Thread(target=worker, daemon=True, name="gxp-project-settings").start()
 
     def render_progress(self, status):
-        labels = {"pending": "等待刷新", "fetching": "正在刷新", "ready": "完整可用", "partial": "部分可用", "unavailable": "资料不可用"}
+        labels = {"pending": "等待开始", "fetching": "正在获取", "ready": "完整可用", "partial": "部分可用", "unavailable": "资料不可用", "failed": "失败"}
         refresh = status.get("refresh") or {}
         lines = ["当前项目：" + status.get("active_project_name", "未选择"), "刷新状态：" + labels.get(refresh.get("status"), refresh.get("status", "尚未刷新"))]
+        if refresh.get("started_at"):
+            try:
+                start = datetime.fromisoformat(refresh["started_at"].replace("Z", "+00:00"))
+                end = datetime.fromisoformat(refresh["completed_at"].replace("Z", "+00:00")) if refresh.get("completed_at") else datetime.now(timezone.utc)
+                seconds = max(0, int((end - start).total_seconds()))
+                lines.append(("本次耗时：" if refresh.get("completed_at") else "已运行：") + f"{seconds // 60}分{seconds % 60}秒")
+            except (ValueError, TypeError):
+                pass
+        if refresh.get("completed_at"):
+            lines.append("本次刷新已结束。" + ("以下缺项需要处理，可重试未完成资料。" if refresh.get("status") != "ready" else ""))
+        if refresh.get("error_code"):
+            lines.append("任务错误：" + str(refresh["error_code"]))
         for name, item in refresh.get("resources", {}).items():
             lines.append("\n" + name + "：" + labels.get(item.get("status"), item.get("status", "未知")))
             if item.get("error_code"):
                 lines.append("  " + str(item["error_code"]))
+            if item.get("reason"):
+                lines.append("  " + str(item["reason"]))
+            stages = {"design_metadata": "读取设计目录", "current_design_fingerprint": "核对当前设计指纹"}
+            if item.get("stage") in stages:
+                lines.append(("  当前阶段：" if item.get("status") == "fetching" else "  失败阶段：") + stages[item["stage"]])
+            counts = item.get("counts") or {}
+            summary = [label + " " + str(counts[key]) for key, label in
+                       (("tables", "表"), ("actions", "动作"), ("designs", "当前设计")) if key in counts]
+            if summary:
+                lines.append("  " + "，".join(summary))
+            if "designs_read" in counts:
+                lines.append(f"  设计目录：{counts['designs_read']} / {counts.get('designs_total', '未知')}")
+            if "fingerprints_checked" in counts:
+                lines.append(f"  当前设计核对：{counts['fingerprints_checked']} / {counts.get('current_designs', '未知')}")
             failures = item.get("failures") or []
             lines.extend("  " + json.dumps(failure, ensure_ascii=False)[:300] for failure in failures[:30])
             for category, detail in (item.get("resources") or {}).items():
@@ -340,6 +374,23 @@ class ProjectSettingsWindow:
         self.selector.configure(state="readonly")
         if not result.get("ok", True):
             self.message.set(str(result.get("error") or "操作未完成。")[:700])
+        elif action == "save_current":
+            # Registering the original connection must not discard the target
+            # form, its selected project or passwords the user has just typed.
+            self.run("reload_projects", settings.settings_status)
+        elif action == "reload_projects":
+            self._status_snapshot = result
+            self.revision = result["revision"]
+            self.render_progress(result)
+            selection = self.selector.get()
+            self.projects = result.get("projects", [])
+            self.selector.configure(values=[p["name"] + " · " + p["database"]["host"] + ":" + str(p["database"]["port"]) + "/" + p["database"]["database"] for p in self.projects])
+            selected = next((i for i, p in enumerate(self.projects) if p["project_id"] == self.project_id), -1)
+            if selected >= 0:
+                self.selector.current(selected)
+            else:
+                self.selector.set(selection)
+            self.message.set("原连接已加入项目列表。当前填写的内容已保留，请点击“保存项目”保存。")
         elif action in {"load", "progress"}:
             self._status_snapshot = result
             self.revision = result["revision"]
@@ -363,7 +414,7 @@ class ProjectSettingsWindow:
                     self.apply_platform_defaults(result.get("platform_defaults") or {})
             self.message.set("项目资料按数据库隔离。选择已保存项目可一键切换。")
         else:
-            if action in {"save", "save_current"}:
+            if action == "save":
                 self.project_id = result["project_id"]
                 for key in ("look_password", "write_password", "platform_password"):
                     self.fields[key].set("")
@@ -377,7 +428,15 @@ class ProjectSettingsWindow:
         status = self._status_snapshot or {}
         running = (status.get("refresh") or {}).get("status") in {"pending", "fetching"}
         has_flows = bool(status.get("active_edit_sessions"))
-        if not self.busy and not self.background_busy and (running or has_flows):
+        if running or has_flows:
+            self._idle_progress_ticks = 0
+        else:
+            self._idle_progress_ticks += 1
+        # A retry can start from another settings window or local configuration
+        # entry. Keep a slower local status watch after the previous job ends.
+        due = running or has_flows or self._idle_progress_ticks >= 5
+        if not self.busy and not self.background_busy and due:
+            self._idle_progress_ticks = 0
             self.run("progress", settings.settings_status)
         self.root.after(2000, self.refresh_progress)
 

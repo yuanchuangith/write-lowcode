@@ -278,6 +278,18 @@ class CpmRefreshManager:
         )
 
     def _login(self, work_dir: Path, env: dict[str, str], timeout: float, password: str) -> None:
+        if self.config.login_url:
+            from gxp_project_context.platform_auth import request_login
+            token = request_login(self.config.login_url, self.config.account, password, timeout=max(0.1, timeout))
+            native = work_dir / ".cpm" / "config.json"
+            binding = json.loads(native.read_text(encoding="utf-8")) if native.is_file() else {}
+            binding.update(url=self.config.platform_url, apiPrefix=self.config.api_prefix, loginUrl=self.config.login_url)
+            for key, value in (("appId", self.config.app_id), ("siteOutId", self.config.site_out_id)):
+                if value:
+                    binding[key] = value
+            _atomic_json(native, binding)
+            _atomic_json(work_dir / ".cpm" / "token.json", {"token": token, "obtainedAt": _now()})
+            return
         result = self._run(
             [self.config.node_path, self.config.cli_path, "login", "--url", self.config.platform_url, "--out", str(work_dir)],
             env,
@@ -338,11 +350,14 @@ class CpmRefreshManager:
 
             native = work_dir / ".cpm" / "config.json"
             login_required = not native.is_file()
-            if self.config.app_id and self.config.site_out_id:
-                expected = {"url": self.config.platform_url, "apiPrefix": self.config.api_prefix,
-                            "appId": self.config.app_id, "siteOutId": self.config.site_out_id}
-                previous = json.loads(native.read_text(encoding="utf-8")) if native.is_file() else {}
-                if any(previous.get(key) != value for key, value in expected.items()):
+            previous = json.loads(native.read_text(encoding="utf-8")) if native.is_file() else {}
+            if (self.config.app_id and self.config.site_out_id) or self.config.login_url or previous.get("loginUrl"):
+                expected = {"url": self.config.platform_url, "apiPrefix": self.config.api_prefix}
+                if self.config.app_id and self.config.site_out_id:
+                    expected.update(appId=self.config.app_id, siteOutId=self.config.site_out_id)
+                expected["loginUrl"] = self.config.login_url
+                if any((previous.get(key) or "" if key == "loginUrl" else previous.get(key)) != value
+                       for key, value in expected.items()):
                     (work_dir / ".cpm" / "token.json").unlink(missing_ok=True)
                     _atomic_json(native, expected)
                     login_required = True

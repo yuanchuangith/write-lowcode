@@ -5,7 +5,7 @@ import time
 from collections import defaultdict
 from typing import Any, Iterable
 
-from .db import ReadOnlyDatabase
+from .db import DatabaseExecutionError, ReadOnlyDatabase
 from .sql_guard import validate_identifier
 
 
@@ -145,6 +145,7 @@ SELECT TABLE_NAME, TABLE_TYPE, ENGINE, TABLE_COLLATION, TABLE_COMMENT
 FROM information_schema.TABLES
 WHERE TABLE_SCHEMA=%(schema)s AND TABLE_NAME > %(after)s
 ORDER BY TABLE_NAME
+LIMIT 501
 """,
                     {"schema": database_name, "after": after},
                     max_rows=500,
@@ -156,7 +157,17 @@ ORDER BY TABLE_NAME
                 after = str(normalized[-1]["table_name"])
 
         columns = self._bulk_columns(deadline=deadline)
-        indexes = self._bulk_indexes(deadline=deadline)
+        try:
+            indexes = self._bulk_indexes(deadline=deadline)
+        except DatabaseExecutionError as error:
+            cause = error.__cause__
+            code = cause.args[0] if cause is not None and cause.args else None
+            if code not in {2013, 3024}:
+                raise
+            # Some servers spend longer than the bounded query budget opening
+            # the whole STATISTICS view. Exact table predicates avoid that scan.
+            indexes = {str(table["table_name"]): self._indexes(str(table["table_name"]), deadline=deadline)
+                       for table in tables}
         constraints = self._bulk_constraints(deadline=deadline)
         foreign_keys = self._bulk_foreign_keys(deadline=deadline)
         checks = self._bulk_checks(deadline=deadline)
@@ -187,6 +198,7 @@ WHERE TABLE_SCHEMA=%(schema)s
   AND (TABLE_NAME > %(after_table)s OR
        (TABLE_NAME=%(after_table)s AND ORDINAL_POSITION > %(after_position)s))
 ORDER BY TABLE_NAME, ORDINAL_POSITION
+LIMIT 501
 """,
                     {
                         "schema": self.database.config.database,
@@ -223,6 +235,7 @@ WHERE TABLE_SCHEMA=%(schema)s
         (INDEX_NAME > %(after_name)s OR
          (INDEX_NAME=%(after_name)s AND SEQ_IN_INDEX > %(after_seq)s))))
 ORDER BY TABLE_NAME, INDEX_NAME, SEQ_IN_INDEX
+LIMIT 501
 """,
                     {
                         "schema": self.database.config.database,
@@ -257,6 +270,7 @@ WHERE TABLE_SCHEMA=%(schema)s
   AND (TABLE_NAME > %(after_table)s OR
        (TABLE_NAME=%(after_table)s AND CONSTRAINT_NAME > %(after_name)s))
 ORDER BY TABLE_NAME, CONSTRAINT_NAME
+LIMIT 501
 """,
                     {
                         "schema": self.database.config.database,
@@ -296,6 +310,7 @@ WHERE k.TABLE_SCHEMA=%(schema)s AND k.REFERENCED_TABLE_NAME IS NOT NULL
         (k.CONSTRAINT_NAME > %(after_name)s OR
          (k.CONSTRAINT_NAME=%(after_name)s AND k.ORDINAL_POSITION > %(after_position)s))))
 ORDER BY k.TABLE_NAME, k.CONSTRAINT_NAME, k.ORDINAL_POSITION
+LIMIT 501
 """,
                     {
                         "schema": self.database.config.database,
@@ -349,6 +364,7 @@ WHERE tc.TABLE_SCHEMA=%(schema)s AND tc.CONSTRAINT_TYPE='CHECK'
   AND (tc.TABLE_NAME > %(after_table)s OR
        (tc.TABLE_NAME=%(after_table)s AND tc.CONSTRAINT_NAME > %(after_name)s))
 ORDER BY tc.TABLE_NAME, tc.CONSTRAINT_NAME
+LIMIT 501
 """,
                         {
                             "schema": self.database.config.database,

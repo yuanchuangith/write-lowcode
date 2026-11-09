@@ -30,7 +30,8 @@ def _database(ctx):
     from .config import DatabaseConfig
     from .db import ReadOnlyDatabase
     concurrency = max(1, int(ctx.platform_version.get("refresh", {}).get("database_concurrency", 2)))
-    return ReadOnlyDatabase(DatabaseConfig.from_dict({**ctx.database_configs["look"], "pool_size": concurrency}))
+    return ReadOnlyDatabase(DatabaseConfig.from_dict({**ctx.database_configs["look"], "pool_size": concurrency,
+        "read_timeout_seconds": max(30, int(ctx.database_configs["look"].get("read_timeout_seconds", 10)))}))
 
 
 def collect_schema(ctx, deadline):
@@ -88,7 +89,7 @@ def _json_value(path, value):
     path.write_text(json.dumps(value, ensure_ascii=False, default=str), encoding="utf-8")
 
 
-def collect_actions(ctx, deadline):
+def collect_actions(ctx, deadline, progress=None):
     from .repository import GxpRepository
     db = _database(ctx)
     repo = GxpRepository(db)
@@ -99,7 +100,7 @@ def collect_actions(ctx, deadline):
         while True:
             _remaining(deadline)
             page = ", page_id" if kind == "form" else ", NULL AS page_id"
-            sql = f"SELECT id AS ref_id, code AS action_code, `{name}` AS action_name{page} FROM `{table}` WHERE isDeleted=0 AND id>%(after)s ORDER BY id"
+            sql = f"SELECT id AS ref_id, code AS action_code, `{name}` AS action_name{page} FROM `{table}` WHERE isDeleted=0 AND id>%(after)s ORDER BY id LIMIT 501"
             with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
                 rows, truncated = session.query(sql, {"after": after}, max_rows=500)
             actions.extend({**row, "action_type": kind} for row in rows)
@@ -109,23 +110,49 @@ def collect_actions(ctx, deadline):
             if next_id <= after:
                 raise ValueError("ACTION_CATALOG_PAGINATION_INVALID")
             after = next_id
-    selected, aliases = repo._design_select(include_content=False, include_hashes=True)
+    selected, aliases = repo._design_select(include_content=False, include_hashes=False)
+    metadata_fields = ("design_id", "ref_id", "is_publish", "is_deleted", "modified_time", "created_time")
+    selected = ", ".join(f"`{aliases[key]}` AS `{key}`" for key in metadata_fields if aliases.get(key))
     id_column, deleted_column = aliases.get("design_id"), aliases["is_deleted"]
     if not id_column:
         raise ValueError("ACTION_DESIGN_KEY_REQUIRED")
     after = ""
+    design_ids = []
     while True:
         _remaining(deadline)
-        sql = f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 AND `{id_column}`>%(after)s ORDER BY `{id_column}`"
+        sql = (f"SELECT `{id_column}` AS design_id FROM cpm_bizflows_design "
+               f"WHERE `{deleted_column}`=0 AND `{id_column}`>%(after)s ORDER BY `{id_column}` LIMIT 501")
         with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-            rows, truncated = session.query(sql, {"after": after}, max_rows=200)
-        designs.extend(repo._design_row(row, include_content=False) for row in rows)
+            rows, truncated = session.query(sql, {"after": after}, max_rows=500)
+        design_ids.extend(str(row["design_id"]) for row in rows)
         if not rows or not truncated:
             break
         next_id = str(rows[-1]["design_id"])
         if next_id <= after:
             raise ValueError("ACTION_DESIGN_PAGINATION_INVALID")
         after = next_id
+    def metadata_batch(ids):
+        with pin_context(ctx):
+            params = {"id" + str(index): value for index, value in enumerate(ids)}
+            placeholders = ",".join("%(" + name + ")s" for name in params)
+            sql = f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 AND `{id_column}` IN ({placeholders}) LIMIT 17"
+            try:
+                with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
+                    rows, truncated = session.query(sql, params, max_rows=16)
+            except Exception as error:
+                error.collector_phase = "design_metadata"
+                raise
+            if truncated or {str(row["design_id"]) for row in rows} != set(ids):
+                raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+            return [repo._design_row(row, include_content=False) for row in rows]
+    batches = [design_ids[offset:offset + 16] for offset in range(0, len(design_ids), 16)]
+    workers = max(1, min(2, int(ctx.platform_version.get("refresh", {}).get("database_concurrency", 2))))
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        for rows in executor.map(metadata_batch, batches):
+            designs.extend(rows)
+            if progress:
+                progress({"status": "fetching", "stage": "design_metadata",
+                          "counts": {"designs_read": len(designs), "designs_total": len(design_ids)}})
     current = {}
     for row in designs:
         key = str(row["ref_id"]) + ":" + row["version"]
@@ -133,6 +160,34 @@ def collect_actions(ctx, deadline):
         order = lambda value: (str(value.get("modified_time") or value.get("created_time") or ""), str(value.get("design_id") or ""))
         if previous is None or order(row) > order(previous):
             current[key] = row
+    # Select current metadata before hashing. Historical large designs do not
+    # need to be read and hashed again merely to discover the current version.
+    selected, _ = repo._design_select(include_content=False, include_hashes=True)
+    targets = list(current.items())
+    for offset in range(0, len(targets), 4):
+        _remaining(deadline)
+        batch = targets[offset:offset + 4]
+        params = {"id" + str(index): row["design_id"] for index, (_, row) in enumerate(batch)}
+        placeholders = ",".join("%(" + name + ")s" for name in params)
+        sql = f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 AND `{id_column}` IN ({placeholders}) LIMIT 5"
+        try:
+            with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
+                rows, truncated = session.query(sql, params, max_rows=4)
+        except Exception as error:
+            error.collector_phase = "current_design_fingerprint"
+            raise
+        actual = {str(row["design_id"]): repo._design_row(row, include_content=False) for row in rows}
+        if truncated or len(rows) != len(batch):
+            raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+        for key, baseline in batch:
+            row = actual.get(str(baseline["design_id"]))
+            if row is None or any(row.get(field) != baseline.get(field) for field in
+                                  ("ref_id", "version", "modified_time", "created_time")):
+                raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+            current[key] = row
+        if progress:
+            progress({"status": "fetching", "stage": "current_design_fingerprint",
+                      "counts": {"fingerprints_checked": min(offset + 4, len(targets)), "current_designs": len(targets)}})
     # Normalize datetime/decimal metadata without retaining raw design/source text.
     payload = json.loads(json.dumps({"project_binding": ctx.binding(), "refresh_generation": ctx.refresh_generation,
         "database_scope": ctx.database_scope, "actions": actions, "designs": list(current.values()), "completed_at": _now()}, default=str))
@@ -156,6 +211,7 @@ def collect_cpm(ctx, deadline):
         credential_target=binding.get("credential_target") or base.credential_target,
         app_id=binding["app_id"], site_out_id=binding["site_out_id"],
         api_prefix=binding.get("form_config", {}).get("api_prefix") or "/gxp2",
+        login_url=binding.get("login_url") or "",
         snapshot_dir=str(ctx.snapshot_root("cpm")), cache_scope=ctx.database_scope, fresh_pull=True,
         timeout_seconds=max(1, int(_remaining(deadline))),
         concurrency=max(1, int(ctx.platform_version.get("refresh", {}).get("http_concurrency", 4))))
@@ -196,11 +252,26 @@ def run_collectors(ctx, report_callback=None, resource_names=None):
 
     def run(name, fn):
         with pin_context(ctx):
+            if report_callback:
+                report_callback(name, {"status": "fetching", "started_at": _now()})
             try:
-                value = fn(ctx, deadline)
+                if name == "actions":
+                    value = fn(ctx, deadline, progress=(lambda result: report_callback(name, result)) if report_callback else None)
+                else:
+                    value = fn(ctx, deadline)
             except Exception as exc:
                 # Configuration endpoints and host details never enter job errors.
                 value = {"status": "unavailable", "complete": False, "error_code": type(exc).__name__}
+                if getattr(exc, "collector_phase", None) in {"design_metadata", "current_design_fingerprint"}:
+                    value["stage"] = exc.collector_phase
+                cause = exc
+                while cause is not None:
+                    if cause.args and type(cause.args[0]) is int:
+                        value["database_error_code"] = cause.args[0]
+                        if cause.args[0] in {2013, 3024}:
+                            value["reason"] = "数据库读取超时，请检查目标库响应速度。"
+                        break
+                    cause = cause.__cause__
             resources[name] = value
             if report_callback:
                 report_callback(name, value)

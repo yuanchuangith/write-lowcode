@@ -166,9 +166,13 @@ def refresh_status(job_id: str = ""):
     return manifest
 
 
-def refresh_project(expected_revision: str, *, retry_failed=False):
+def refresh_project(expected_revision: str, *, retry_failed=False, resource_names=None):
     from .settings import _check_revision, active_sessions, revision, publish_metadata
     from .context import project_active_settings
+    if resource_names is not None:
+        if (not retry_failed or not isinstance(resource_names, (list, tuple))
+                or not resource_names or any(name not in {"schema", "actions", "cpm"} for name in resource_names)):
+            raise ProjectError("PROJECT_RESOURCE_INVALID", "定向重试只允许选择未完成的 Schema、动作目录或 CPM 资料。")
     with operation_gate():
         _check_revision(expected_revision)
         ctx = get_context(required=True)
@@ -180,6 +184,8 @@ def refresh_project(expected_revision: str, *, retry_failed=False):
         assert_active(ctx)
         # Refresh preserves activation and immutable editor baselines.
         failed = [name for name, item in old_status.get("resources", {}).items() if item.get("status") != "ready"] if retry_failed else []
+        if resource_names is not None:
+            failed = [name for name in failed if name in resource_names]
         if retry_failed and not failed:
             return {"ok": True, "changed": False, "revision": revision(), "job_id": ctx.refresh_generation, "refresh": old_status}
         if retry_failed:

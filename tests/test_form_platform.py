@@ -184,6 +184,22 @@ class PlatformContractTests(unittest.TestCase):
                 login(self.config, "account", "password", "tenant; token=injected", transport=lambda *args: {})
             credential.assert_not_called()
 
+    def test_local_login_uses_explicit_login_link(self):
+        self.config["login_url"] = "http://localhost:61234/custom/auth"
+        calls = []
+        def transport(url, headers, body, timeout):
+            calls.append(url)
+            return {"status": 200, "set_cookie": ["token=offline-test-token; HttpOnly"]}
+        with patch("gxp_form_editor.platform.set_credential"):
+            login(self.config, "synthetic-user", "synthetic-password", transport=transport)
+        self.assertEqual([self.config["login_url"]], calls)
+
+    def test_invalid_login_link_never_sends_credentials(self):
+        self.config["login_url"] = "http://user:password@localhost:61234/auth"
+        with patch("gxp_form_editor.platform._login_transport") as transport:
+            self.assert_code("form_login_url_invalid", lambda: login(self.config, "synthetic-user", "synthetic-password"))
+        transport.assert_not_called()
+
     def enable_resource_protocols(self):
         for kind in ("dataset_read", "dictionary_read"):
             self.contract["evidence"].append({"kind": kind, "path": "evidence.txt", "sha256": hashlib.sha256((self.root / "evidence.txt").read_bytes()).hexdigest(), "description": "Synthetic metadata resolver fixture"})

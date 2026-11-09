@@ -87,6 +87,7 @@ class CpmConfig:
     site_out_id: str = ""
     api_prefix: str = "/gxp2"
     fresh_pull: bool = False
+    login_url: str = ""
 
     @classmethod
     def from_dict(cls, raw: dict[str, Any]) -> "CpmConfig":
@@ -105,6 +106,7 @@ class CpmConfig:
             credential_target=str(raw.get("credential_target") or CPM_CREDENTIAL_TARGET),
             app_id=str(raw.get("app_id") or ""), site_out_id=str(raw.get("site_out_id") or ""),
             api_prefix=str(raw.get("api_prefix") or "/gxp2"),
+            login_url=str(raw.get("login_url") or ""),
         )
         config.validate()
         return config
@@ -116,6 +118,9 @@ class CpmConfig:
             raise ValueError("platform_url 必须是 HTTP(S) 地址")
         if not self.account:
             raise ValueError("account 不能为空")
+        if self.login_url:
+            from gxp_project_context.platform_auth import validate_login_url
+            validate_login_url(self.login_url)
         for name, value in (
             ("node_path", self.node_path),
             ("cli_path", self.cli_path),
@@ -143,7 +148,8 @@ def bind_cpm_cache(config: CpmConfig, database_config=None) -> CpmConfig:
                        account=str(binding.get("account") or config.account),
                        credential_target=str(binding.get("credential_target") or config.credential_target),
                        app_id=str(binding.get("app_id") or ""), site_out_id=str(binding.get("site_out_id") or ""),
-                       api_prefix=str(binding.get("form_config", {}).get("api_prefix") or config.api_prefix))
+                       api_prefix=str(binding.get("form_config", {}).get("api_prefix") or config.api_prefix),
+                       login_url=str(binding.get("login_url") or ""))
     return replace(config, snapshot_dir=str(Path(config.snapshot_dir) / "environments" / scope), cache_scope=scope)
 
 
@@ -190,7 +196,7 @@ def save_cpm_config(config: CpmConfig) -> None:
         if context is not None and context.managed and directory == context.snapshot_root("cpm"):
             original = json.loads(cpm_config_path().read_text(encoding="utf-8"))
             value["snapshot_dir"] = original["snapshot_dir"]
-            for key in ("platform_url", "account", "credential_target", "app_id", "site_out_id", "api_prefix"):
+            for key in ("platform_url", "account", "credential_target", "app_id", "site_out_id", "api_prefix", "login_url"):
                 if key in original:
                     value[key] = original[key]
                 else:
