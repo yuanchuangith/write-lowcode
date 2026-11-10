@@ -131,21 +131,25 @@ def collect_actions(ctx, deadline, progress=None):
         if next_id <= after:
             raise ValueError("ACTION_DESIGN_PAGINATION_INVALID")
         after = next_id
+    metadata_batch_size = 4
+
     def metadata_batch(ids):
         with pin_context(ctx):
             params = {"id" + str(index): value for index, value in enumerate(ids)}
             placeholders = ",".join("%(" + name + ")s" for name in params)
-            sql = f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 AND `{id_column}` IN ({placeholders}) LIMIT 17"
+            sql = (f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 "
+                   f"AND `{id_column}` IN ({placeholders}) LIMIT {len(ids) + 1}")
             try:
                 with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-                    rows, truncated = session.query(sql, params, max_rows=16)
+                    rows, truncated = session.query(sql, params, max_rows=len(ids))
             except Exception as error:
                 error.collector_phase = "design_metadata"
                 raise
             if truncated or {str(row["design_id"]) for row in rows} != set(ids):
                 raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
             return [repo._design_row(row, include_content=False) for row in rows]
-    batches = [design_ids[offset:offset + 16] for offset in range(0, len(design_ids), 16)]
+    batches = [design_ids[offset:offset + metadata_batch_size]
+               for offset in range(0, len(design_ids), metadata_batch_size)]
     workers = max(1, min(2, int(ctx.platform_version.get("refresh", {}).get("database_concurrency", 2))))
     with ThreadPoolExecutor(max_workers=workers) as executor:
         for rows in executor.map(metadata_batch, batches):
@@ -200,6 +204,29 @@ def collect_actions(ctx, deadline, progress=None):
             "completed_at": payload["completed_at"]}
 
 
+def _reusable_committed_cpm(ctx, config, manager, manifest):
+    if (not isinstance(manifest, dict)
+            or manifest.get("project_binding") != ctx.binding()
+            or manifest.get("refresh_generation") != ctx.refresh_generation
+            or manifest.get("database_scope") != ctx.database_scope
+            or (manifest.get("platform") or {}).get("url") != config.platform_url
+            or (manifest.get("platform") or {}).get("appId") != config.app_id):
+        return None
+    status = manager.snapshot_status().get("refresh_status") or {}
+    full = status.get("full") or {}
+    report = full.get("report") or {}
+    failures = report.get("failures") or []
+    if (full.get("error") is not None or report.get("ok") is not True
+            or not full.get("last_completed_at")
+            or Path(report.get("outDir", "")).resolve() != Path(config.snapshot_dir).resolve()
+            or report.get("counts") != manifest.get("counts")
+            or report.get("health") != manifest.get("health")
+            or failures != manifest.get("failures")
+            or any(not isinstance(item, dict) or item.get("type") != "pages-deleted" for item in failures)):
+        return None
+    return {**report, "refreshed_at": full["last_completed_at"], "cli_version": status.get("cli_version")}
+
+
 def collect_cpm(ctx, deadline):
     from .cpm_config import load_cpm_config
     from .cpm_runner import CpmRefreshManager
@@ -215,14 +242,34 @@ def collect_cpm(ctx, deadline):
         snapshot_dir=str(ctx.snapshot_root("cpm")), cache_scope=ctx.database_scope, fresh_pull=True,
         timeout_seconds=max(1, int(_remaining(deadline))),
         concurrency=max(1, int(ctx.platform_version.get("refresh", {}).get("http_concurrency", 4))))
-    result = CpmRefreshManager(config).refresh(force=True)
-    if not result.get("ok"):
-        return {"status": "unavailable", "complete": False, "error_code": (result.get("error") or {}).get("code", "CPM_REFRESH_FAILED"), "objects": {}, "resources": {}}
+    manager = CpmRefreshManager(config)
     root = Path(config.snapshot_dir)
     manifest_path = root / "manifest.json"
     manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
-    complete = result.get("complete") is True or manifest.get("complete") is True
+    result = _reusable_committed_cpm(ctx, config, manager, manifest)
+    if result is None:
+        result = manager.refresh(force=True)
+    if not result.get("ok"):
+        error = result.get("error") or {}
+        return {"status": "unavailable", "complete": False,
+                "error_code": error.get("code", "CPM_REFRESH_FAILED"),
+                "reason": str(error.get("message") or "")[:1000],
+                "failures": result.get("failures") or [], "objects": {}, "resources": {}}
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8")) if manifest_path.is_file() else {}
     failures = result.get("failures") or []
+    health = result.get("health") or manifest.get("health") or {}
+    page_health = health.get("pages") if isinstance(health, dict) else None
+    page_counts = tuple(page_health.get(key) for key in ("total", "ok", "degraded", "deleted")) if isinstance(page_health, dict) else ()
+    health_accounts_for_pages = (
+        len(page_counts) == 4
+        and all(type(value) is int and value >= 0 for value in page_counts)
+        and page_counts[1] + page_counts[2] + page_counts[3] == page_counts[0]
+        and page_counts[2] == 0
+    )
+    blocking_failures = [failure for failure in failures
+                         if not isinstance(failure, dict) or failure.get("type") != "pages-deleted"]
+    complete = (result.get("complete") is True or manifest.get("complete") is True or health_accounts_for_pages) \
+        and not blocking_failures
     objects = result.get("objects") or manifest.get("objects") or {}
     if not objects:
         for path in sorted((root / "pages").glob("*/page-meta.json")):
@@ -232,11 +279,11 @@ def collect_cpm(ctx, deadline):
             objects["page:" + str(meta.get("route"))] = {"kind": "page", "id": meta.get("route"),
                 "page_id": meta.get("outId") or meta.get("id"), "status": "ready" if ready else "unavailable",
                 "logic_complete": ready and not failures}
-    state = "ready" if complete and not failures else "partial" if objects else "incomplete"
+    state = "ready" if complete else "partial" if objects else "incomplete"
     manifest.update(project_binding=ctx.binding(), database_scope=ctx.database_scope, refresh_generation=ctx.refresh_generation,
-                    complete=complete and not failures, status=state, objects=objects)
+                    complete=complete, status=state, objects=objects)
     atomic_json(manifest_path, manifest)
-    return {"status": state, "complete": complete and not failures, "objects": objects,
+    return {"status": state, "complete": complete, "objects": objects,
             "resources": result.get("resources") or manifest.get("resources") or {}, "failures": failures,
             "refreshed_at": result.get("refreshed_at"), "error_code": None if complete else "CPM_COMPLETENESS_UNVERIFIED"}
 

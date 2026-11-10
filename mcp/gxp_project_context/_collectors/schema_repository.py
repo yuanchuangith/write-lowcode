@@ -156,7 +156,17 @@ LIMIT 501
                     break
                 after = str(normalized[-1]["table_name"])
 
-        columns = self._bulk_columns(deadline=deadline)
+        try:
+            columns = self._bulk_columns(deadline=deadline)
+        except DatabaseExecutionError as error:
+            cause = error.__cause__
+            code = cause.args[0] if cause is not None and cause.args else None
+            if code not in {2013, 3024}:
+                raise
+            # The server may time out when paging COLUMNS for the whole schema.
+            # Exact table predicates use the metadata index and keep the scan bounded.
+            columns = {str(table["table_name"]): self._columns(str(table["table_name"]), deadline=deadline)
+                       for table in tables}
         try:
             indexes = self._bulk_indexes(deadline=deadline)
         except DatabaseExecutionError as error:

@@ -155,6 +155,19 @@ def _safe_message(value: Any, password: str) -> str:
     return text[:2000]
 
 
+def _filesystem_path(path: Path) -> str:
+    value = os.path.abspath(os.fspath(path))
+    if os.name != "nt" or value.startswith("\\\\?\\"):
+        return value
+    if value.startswith("\\\\"):
+        return "\\\\?\\UNC\\" + value[2:]
+    return "\\\\?\\" + value
+
+
+def _remove_tree(path: Path) -> None:
+    shutil.rmtree(_filesystem_path(path))
+
+
 class CpmRefreshManager:
     def __init__(self, config: CpmConfig | None = None) -> None:
         self.config = bind_cpm_cache(config) if config is not None else load_cpm_config()
@@ -395,10 +408,11 @@ class CpmRefreshManager:
             if work_dir.exists():
                 shutil.rmtree(work_dir, ignore_errors=True)
 
-    def _commit_snapshot(self, snapshot: Path, work_dir: Path) -> None:
+    @staticmethod
+    def _commit_snapshot(snapshot: Path, work_dir: Path) -> None:
         backup = snapshot.parent / f".{snapshot.name}.previous"
         if backup.exists():
-            shutil.rmtree(backup)
+            _remove_tree(backup)
         if snapshot.exists():
             os.replace(snapshot, backup)
         try:
@@ -408,7 +422,12 @@ class CpmRefreshManager:
                 os.replace(backup, snapshot)
             raise
         if backup.exists():
-            shutil.rmtree(backup)
+            try:
+                _remove_tree(backup)
+            except OSError:
+                # The new snapshot is committed; stale-backup cleanup must not
+                # turn a successful pull into a failed refresh.
+                pass
 
     def _state_slot(self, status: dict[str, Any], mode: str, page_identifier: str | None) -> dict[str, Any]:
         if mode == "page" and page_identifier:
