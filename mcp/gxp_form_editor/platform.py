@@ -23,7 +23,7 @@ from .common import FormError, canonical, digest
 
 SAVE_PATH = "/inbiz/api/services/engines/v3/page"
 DETAIL_PATH = SAVE_PATH + "/loadDetail"
-ALLOWED_READ_PATHS = {SAVE_PATH, DETAIL_PATH, SAVE_PATH + "/loadTreeList", "/api/users/current", "/api/users/getcurrentuserinfo", "/api/dictionary"}
+ALLOWED_READ_PATHS = {SAVE_PATH, DETAIL_PATH, SAVE_PATH + "/loadTreeList", "/api/app_info", "/api/users/current", "/api/users/getcurrentuserinfo", "/api/dictionary"}
 ALLOWED_WRITES = {
     ("PUT", SAVE_PATH),
     ("POST", "/api/functions/batch"),
@@ -57,6 +57,26 @@ def settings_path() -> Path:
 
 
 def load_settings(path: str | Path | None = None) -> dict[str, Any]:
+    if path is None:
+        from gxp_project_context.context import get_context
+        context = get_context(role="write")
+        if context is not None and context.managed:
+            binding = context.platform_binding
+            value = copy.deepcopy(dict(binding.get("form_config") or {}))
+            # A managed project is authoritative. Never merge an old profile's
+            # Origin, contract or credential reference into the active project.
+            value.update(environment=context.environment,
+                         base_url=binding.get("platform_url") or binding.get("base_url") or "",
+                         platform_account=binding.get("account", ""),
+                         app_id=binding.get("app_id", ""), site_out_id=binding.get("site_out_id", ""),
+                         project_id=context.project_id, database_scope=context.database_scope,
+                         project_binding=context.binding())
+            value.setdefault("platform", "web")
+            value.setdefault("auth_header", "Cookie")
+            value.setdefault("credential_target", "GxpLowcode.Project.Form." + context.project_id)
+            value["login_url"] = binding.get("login_url") or value.get("login_url") or ""
+            _reject_secrets(value)
+            return value
     location = Path(path) if path else settings_path()
     if not location.exists():
         return {}
@@ -72,6 +92,8 @@ def load_settings(path: str | Path | None = None) -> dict[str, Any]:
 
 def save_settings(value: dict[str, Any], path: str | Path | None = None) -> Path:
     _reject_secrets(value)
+    if path is None and load_settings().get("project_binding"):
+        raise FormError("form_project_settings_managed", "表单连接由当前项目管理，请在统一项目设置中修改；未写入旧的独立配置。")
     if value.get("base_url"):
         _origin(str(value["base_url"]))
     location = Path(path) if path else settings_path()
@@ -108,6 +130,9 @@ def _credential(config: dict[str, Any]) -> str:
 def _credential_key(config: dict[str, Any]) -> str:
     reference = str(config.get("credential_target") or "Codex.GxpFormEditor.Platform")
     identity = {"environment": config.get("environment"), "base_url": config.get("base_url"), "auth_header": config.get("auth_header") or "Cookie"}
+    if config.get("project_id"):
+        identity.update({key: config.get(key, "") for key in
+                         ("project_id", "database_scope", "platform_account", "app_id", "site_out_id", "company_id", "org_identity_id")})
     if config.get("login_url"):
         identity["login_url"] = config["login_url"]
     return reference + ":" + digest(identity)
@@ -387,9 +412,16 @@ class PlatformClient:
                 errors.append("conditional_page_save_must_be_first")
             if association.get("mode") == "explicit_requests" and len(requests) < 2:
                 errors.append("association_requests_required")
-        return {"available": not read_errors, "write_ready": not errors, "read_ready": not read_errors, "reasons": sorted(set(errors)), "read_reasons": sorted(set(read_errors)), "adapter_hash": self.contract_hash, "protocol_source": "local_evidence_bound_contract", "verified_by_plugin": False}
+        return {"available": not read_errors, "write_ready": not errors, "read_ready": not read_errors,
+                "connection_configured": "connection_not_configured" not in read_errors,
+                "connection_source": "active_project" if self.config.get("project_binding") else "independent",
+                "reasons": sorted(set(errors)), "read_reasons": sorted(set(read_errors)), "adapter_hash": self.contract_hash,
+                "protocol_source": "local_evidence_bound_contract", "verified_by_plugin": False}
 
     def _require_ready(self, *, write: bool = True) -> None:
+        if self.config.get("project_binding"):
+            from gxp_project_context.context import assert_binding
+            assert_binding(self.config["project_binding"])
         readiness = self.readiness()
         if not readiness["write_ready" if write else "read_ready"]:
             raise FormError("form_adapter_not_ready", "原生草稿、并发或关联保存协议尚未完整核实，写入保持关闭。", readiness)
@@ -401,6 +433,9 @@ class PlatformClient:
         for key in ("environment", "base_url", "platform"):
             if target[key] != self.config.get(key):
                 raise FormError("form_target_mismatch", "页面目标与本机已登记连接不一致。", {"field": key})
+        for key in ("app_id", "site_out_id"):
+            if self.config.get(key) and target[key] != self.config[key]:
+                raise FormError("form_target_mismatch", "页面目标与当前项目的应用或站点不一致。", {"field": key})
         _origin(target["base_url"])
         return copy.deepcopy(target)
 
@@ -434,15 +469,21 @@ class PlatformClient:
         return {"id": str(request.get("id") or "request"), "method": method, "path": path, "query": copy.deepcopy(request.get("query") or {}), "headers": headers, "body": copy.deepcopy(request.get("body")), "expected_statuses": statuses, "success": copy.deepcopy(request.get("success")), "native_protocol": request.get("native_protocol"), "scope": copy.deepcopy(request.get("scope")), "target_scope": copy.deepcopy(request.get("target_scope")), "expected_revision": copy.deepcopy(request.get("expected_revision"))}
 
     def _perform(self, request: dict[str, Any], *, write: bool) -> dict[str, Any]:
+        if self.config.get("project_binding"):
+            from gxp_project_context.context import assert_binding
+            assert_binding(self.config["project_binding"])
         validated = self._request(request, write=write)
         origin = _origin(str(self.config.get("base_url") or ""))
         url = origin + validated["path"]
         if validated["query"]:
             url += "?" + urlencode(validated["query"], doseq=True)
         headers = {"Accept": "application/json", "Content-Type": "application/json", **validated["headers"]}
+        for field, header in (("app_id", "appid"), ("site_out_id", "siteoutid")):
+            if self.config.get(field):
+                headers[header] = self.config[field]
         credential = self.credentials()
         if not credential:
-            raise FormError("form_credential_missing", "请在独立连接窗口填写平台登录凭据。")
+            raise FormError("form_credential_missing", "当前平台登录凭据不可用，请通过连接设置入口登录当前项目。")
         auth_header = str(self.config.get("auth_header") or "Cookie")
         if auth_header not in {"Cookie", "Authorization"} or "\n" in credential or "\r" in credential:
             raise FormError("form_credential_invalid", "本机登录凭据格式不合法。")

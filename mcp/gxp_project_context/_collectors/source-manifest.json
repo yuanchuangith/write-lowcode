@@ -28,7 +28,7 @@
     },
     {
       "path": "cpm_runner.py",
-      "sha256": "4f8b4a5dbd86a82c20d5d0b25e1286fd4f3ab6f230ffeea403752b92f00b9416"
+      "sha256": "71b572ae0687fb0117ef9f6fb99f7abaaef6c911504844e34659daa84db746d4"
     },
     {
       "path": "project_refresh.py",

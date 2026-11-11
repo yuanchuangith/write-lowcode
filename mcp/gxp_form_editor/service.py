@@ -44,11 +44,14 @@ class FormService:
 
     def form_connection_settings(self, operation="status") -> dict:
         from .platform import load_settings
+        config = load_settings()
         if operation == "open":
+            if config.get("project_binding"):
+                from gxp_editor.connection_settings import manage_settings
+                return manage_settings("open")
             return self.launcher("connection", "")
         if operation != "status":
             raise FormError("invalid_operation", "设置入口仅支持 status/open；密码只在本机窗口输入。")
-        config = load_settings()
         return {"configured": bool(config), "base_url": config.get("base_url", ""),
                 "environment": config.get("environment", ""), **self.client.readiness()}
 

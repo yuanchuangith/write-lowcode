@@ -347,7 +347,10 @@ class CpmRefreshManager:
         started = time.monotonic()
         try:
             if snapshot.is_dir() and not self.config.fresh_pull:
-                shutil.copytree(snapshot, work_dir, dirs_exist_ok=True)
+                # The staging copy traverses every resource, even for a single
+                # page. Both ends need extended paths on Windows, just like
+                # backup cleanup, or an unrelated long filename blocks refresh.
+                shutil.copytree(_filesystem_path(snapshot), _filesystem_path(work_dir), dirs_exist_ok=True)
             legacy_credentials = work_dir / ".cpm" / "credentials.json"
             legacy_credentials.unlink(missing_ok=True)
             env = os.environ.copy()
@@ -406,7 +409,10 @@ class CpmRefreshManager:
             return self._failure("REFRESH_FAILED", _safe_message(exc, password), page_identifier, password, mode)
         finally:
             if work_dir.exists():
-                shutil.rmtree(work_dir, ignore_errors=True)
+                try:
+                    _remove_tree(work_dir)
+                except OSError:
+                    pass
 
     @staticmethod
     def _commit_snapshot(snapshot: Path, work_dir: Path) -> None:

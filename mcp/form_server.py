@@ -12,6 +12,7 @@ from pydantic import BaseModel, ConfigDict, Field
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from gxp_form_editor.common import DOMAIN, FormError
 from gxp_form_editor.service import FormService
+from gxp_project_context.context import ProjectError, request_context
 
 mcp = FastMCP("gxp-form-config-editor", instructions=(
     "Independent editing of existing unpublished form components. Never use ActionDesign sessions or approvals. "
@@ -52,8 +53,11 @@ def exposed(function):
     def call(*args, **kwargs):
         started = time.monotonic()
         try:
-            result = function(*args, **kwargs)
+            with request_context(role="write"):
+                result = function(*args, **kwargs)
         except FormError as error:
+            result = {"domain": DOMAIN, "error_code": error.code, "message": str(error), "details": error.details}
+        except ProjectError as error:
             result = {"domain": DOMAIN, "error_code": error.code, "message": str(error), "details": error.details}
         except Exception:
             result = {"domain": DOMAIN, "error_code": "form_internal_error", "message": "表单编辑请求失败；未自动重试保存。请核对本机设置或恢复状态。"}
