@@ -15,6 +15,53 @@ from pathlib import Path
 from gxp_project_context import atomic_json, pin_context, project_operation
 
 
+class ActionRefreshError(ValueError):
+    """A bounded, user-safe action catalog refresh failure."""
+
+    def __init__(self, code: str, phase: str, reason: str):
+        self.code = code
+        self.phase = phase
+        self.reason = reason
+        super().__init__(code)
+
+
+_ACTION_ERROR_REASONS = {
+    "ACTION_CATALOG_PAGINATION_INVALID": "动作目录分页游标无效，请重试刷新。",
+    "ACTION_DESIGN_KEY_REQUIRED": "动作设计表缺少 id 字段，请检查当前项目数据库结构。",
+    "ACTION_DESIGN_PAGINATION_INVALID": "动作设计分页游标无效，请重试刷新。",
+    "ACTION_DESIGN_CHANGED_DURING_REFRESH": "刷新期间动作设计元数据发生变化，请重试刷新。",
+}
+
+
+def _action_error(code: str, phase: str) -> ActionRefreshError:
+    return ActionRefreshError(code, phase, _ACTION_ERROR_REASONS[code])
+
+
+def _action_page_ids(rows, field, seen, code, phase):
+    # SQL orders and filters IDs using the column's collation. Comparing two
+    # returned IDs with Python <= can reject forward movement on MySQL when
+    # their case differs. Retain proof of progress by rejecting blank or
+    # repeated keys, without adding a sort expression that disables the index.
+    ids = []
+    for row in rows:
+        raw = row.get(field)
+        key = str(raw) if type(raw) in {str, int} else ""
+        if not key.strip() or key in seen:
+            raise _action_error(code, phase)
+        seen.add(key)
+        ids.append(key)
+    return ids
+
+
+def _action_query(db, deadline, phase, sql, params, max_rows):
+    try:
+        with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
+            return session.query(sql, params, max_rows=max_rows)
+    except Exception as exc:
+        exc.collector_phase = phase
+        raise
+
+
 def _now():
     return datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
 
@@ -101,40 +148,33 @@ def collect_actions(ctx, deadline, progress=None):
     # Both catalogs are platform configuration metadata, not application rows.
     for table, kind, name in (("cpm_public_flows", "public", "name"), ("cpm_bizflows", "form", "describe")):
         after = ""
+        seen = set()
         while True:
-            _remaining(deadline)
             page = ", page_id" if kind == "form" else ", NULL AS page_id"
             sql = f"SELECT id AS ref_id, code AS action_code, `{name}` AS action_name{page} FROM `{table}` WHERE isDeleted=0 AND id>%(after)s ORDER BY id LIMIT 501"
-            with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-                rows, truncated = session.query(sql, {"after": after}, max_rows=500)
+            rows, truncated = _action_query(db, deadline, "action_catalog", sql, {"after": after}, 500)
+            ids = _action_page_ids(rows, "ref_id", seen, "ACTION_CATALOG_PAGINATION_INVALID", "action_catalog")
             actions.extend({**row, "action_type": kind} for row in rows)
-            if not rows or not truncated:
+            if not ids or not truncated:
                 break
-            next_id = str(rows[-1]["ref_id"])
-            if next_id <= after:
-                raise ValueError("ACTION_CATALOG_PAGINATION_INVALID")
-            after = next_id
+            after = ids[-1]
     selected, aliases = repo._design_select(include_content=False, include_hashes=False)
     metadata_fields = ("design_id", "ref_id", "is_publish", "is_deleted", "modified_time", "created_time")
     selected = ", ".join(f"`{aliases[key]}` AS `{key}`" for key in metadata_fields if aliases.get(key))
     id_column, deleted_column = aliases.get("design_id"), aliases["is_deleted"]
     if not id_column:
-        raise ValueError("ACTION_DESIGN_KEY_REQUIRED")
+        raise _action_error("ACTION_DESIGN_KEY_REQUIRED", "design_metadata")
     after = ""
-    design_ids = []
+    design_ids, seen = [], set()
     while True:
-        _remaining(deadline)
         sql = (f"SELECT `{id_column}` AS design_id FROM cpm_bizflows_design "
                f"WHERE `{deleted_column}`=0 AND `{id_column}`>%(after)s ORDER BY `{id_column}` LIMIT 501")
-        with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-            rows, truncated = session.query(sql, {"after": after}, max_rows=500)
-        design_ids.extend(str(row["design_id"]) for row in rows)
-        if not rows or not truncated:
+        rows, truncated = _action_query(db, deadline, "design_ids", sql, {"after": after}, 500)
+        ids = _action_page_ids(rows, "design_id", seen, "ACTION_DESIGN_PAGINATION_INVALID", "design_ids")
+        design_ids.extend(ids)
+        if not ids or not truncated:
             break
-        next_id = str(rows[-1]["design_id"])
-        if next_id <= after:
-            raise ValueError("ACTION_DESIGN_PAGINATION_INVALID")
-        after = next_id
+        after = ids[-1]
     metadata_batch_size = 4
 
     def metadata_batch(ids):
@@ -143,14 +183,9 @@ def collect_actions(ctx, deadline, progress=None):
             placeholders = ",".join("%(" + name + ")s" for name in params)
             sql = (f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 "
                    f"AND `{id_column}` IN ({placeholders}) LIMIT {len(ids) + 1}")
-            try:
-                with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-                    rows, truncated = session.query(sql, params, max_rows=len(ids))
-            except Exception as error:
-                error.collector_phase = "design_metadata"
-                raise
-            if truncated or {str(row["design_id"]) for row in rows} != set(ids):
-                raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+            rows, truncated = _action_query(db, deadline, "design_metadata", sql, params, len(ids))
+            if truncated or len(rows) != len(ids) or {str(row["design_id"]) for row in rows} != set(ids):
+                raise _action_error("ACTION_DESIGN_CHANGED_DURING_REFRESH", "design_metadata")
             return [repo._design_row(row, include_content=False) for row in rows]
     batches = [design_ids[offset:offset + metadata_batch_size]
                for offset in range(0, len(design_ids), metadata_batch_size)]
@@ -178,20 +213,15 @@ def collect_actions(ctx, deadline, progress=None):
         params = {"id" + str(index): row["design_id"] for index, (_, row) in enumerate(batch)}
         placeholders = ",".join("%(" + name + ")s" for name in params)
         sql = f"SELECT {selected} FROM cpm_bizflows_design WHERE `{deleted_column}`=0 AND `{id_column}` IN ({placeholders}) LIMIT 5"
-        try:
-            with db.session(timeout_ms=min(10000, int(_remaining(deadline) * 1000))) as session:
-                rows, truncated = session.query(sql, params, max_rows=4)
-        except Exception as error:
-            error.collector_phase = "current_design_fingerprint"
-            raise
+        rows, truncated = _action_query(db, deadline, "current_design_fingerprint", sql, params, 4)
         actual = {str(row["design_id"]): repo._design_row(row, include_content=False) for row in rows}
         if truncated or len(rows) != len(batch):
-            raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+            raise _action_error("ACTION_DESIGN_CHANGED_DURING_REFRESH", "current_design_fingerprint")
         for key, baseline in batch:
             row = actual.get(str(baseline["design_id"]))
             if row is None or any(row.get(field) != baseline.get(field) for field in
                                   ("ref_id", "version", "modified_time", "created_time")):
-                raise ValueError("ACTION_DESIGN_CHANGED_DURING_REFRESH")
+                raise _action_error("ACTION_DESIGN_CHANGED_DURING_REFRESH", "current_design_fingerprint")
             current[key] = row
         if progress:
             progress({"status": "fetching", "stage": "current_design_fingerprint",
@@ -307,13 +337,35 @@ def run_collectors(ctx, report_callback=None, resource_names=None):
                 report_callback(name, {"status": "fetching", "started_at": _now()})
             try:
                 if name == "actions":
-                    value = fn(ctx, deadline, progress=(lambda result: report_callback(name, result)) if report_callback else None)
+                    progress = (lambda result: report_callback(name, result)) if report_callback else None
+                    try:
+                        value = fn(ctx, deadline, progress=progress)
+                    except ActionRefreshError as exc:
+                        # Actions may be saved/published while selecting current rows.
+                        # Retry from the start once, without extending the job deadline.
+                        if exc.code != "ACTION_DESIGN_CHANGED_DURING_REFRESH" or time.monotonic() >= deadline:
+                            raise
+                        if progress:
+                            progress({"status": "fetching", "stage": exc.phase,
+                                      "reason": "动作设计在刷新期间发生变化，正在重新读取。"})
+                        value = fn(ctx, deadline, progress=progress)
                 else:
                     value = fn(ctx, deadline)
             except Exception as exc:
                 # Configuration endpoints and host details never enter job errors.
-                value = {"status": "unavailable", "complete": False, "error_code": type(exc).__name__}
-                if getattr(exc, "collector_phase", None) in {"design_metadata", "current_design_fingerprint"}:
+                if name != "actions":
+                    value = {"status": "unavailable", "complete": False, "error_code": type(exc).__name__}
+                elif isinstance(exc, ActionRefreshError):
+                    value = {"status": "unavailable", "complete": False,
+                             "error_code": exc.code, "stage": exc.phase, "reason": exc.reason}
+                elif isinstance(exc, TimeoutError):
+                    value = {"status": "unavailable", "complete": False,
+                             "error_code": "PROJECT_REFRESH_TIMEOUT", "reason": "动作资料刷新超时，请重试。"}
+                else:
+                    value = {"status": "unavailable", "complete": False,
+                             "error_code": "ACTION_REFRESH_FAILED",
+                             "reason": "动作资料刷新失败，请重试；若持续失败请检查当前项目数据库结构。"}
+                if getattr(exc, "collector_phase", None) in {"action_catalog", "design_ids", "design_metadata", "current_design_fingerprint"}:
                     value["stage"] = exc.collector_phase
                 cause = exc
                 while cause is not None:

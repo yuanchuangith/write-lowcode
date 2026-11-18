@@ -500,6 +500,44 @@ def save_project(value: dict, expected_revision: str, *, passwords: dict | None 
                 pass
 
 
+def remove_project(project_id: str, expected_revision: str) -> dict:
+    """Remove the listing while retaining immutable profiles and local artifacts."""
+    from .local_sessions import LocalSessionError
+
+    if not isinstance(project_id, str) or not re.fullmatch(r"[a-f0-9]{64}", project_id):
+        raise ProjectError("PROJECT_CONFIG_INVALID", "项目配置标识无效。")
+    with operation_gate(), _legacy_connection_lock():
+        _check_revision(expected_revision)
+        index = registry()
+        entry = index["projects"].get(project_id)
+        if entry is None:
+            raise ProjectError("PROJECT_NOT_FOUND", "未找到已保存的项目。")
+        active = project_active_settings() or {}
+        if active.get("schema_version") == CONTRACT_VERSION:
+            active_ids = {active.get("project_id")}
+        elif active.get("schema_version") == 1:
+            active_ids = {database_scope(active)}
+        else:
+            # Before migration, Look and Write might use separate databases.
+            active_ids = set()
+            for role in ("look", "write"):
+                config = _base_config(role)
+                if all(config.get(key) not in (None, "") for key in ("host", "port", "database")):
+                    active_ids.add(database_scope(config))
+        if project_id in active_ids:
+            raise ProjectError("PROJECT_ACTIVE", "当前生效项目不能删除，请先切换到其他项目。")
+        try:
+            sessions = active_sessions()
+        except LocalSessionError as exc:
+            raise ProjectError("PROJECT_SESSION_CHECK_FAILED", "无法核对未结束流程，未删除项目。") from exc
+        if any(row.get("database_scope") == project_id for row in sessions):
+            raise ProjectError("PROJECT_ACTIVE_SESSIONS", "该项目仍有未结束流程，请先处理后再删除。")
+        del index["projects"][project_id]
+        atomic_json(config_root() / "projects.json", index)
+        return {"ok": True, "removed": True, "project_id": project_id, "profile_revision": entry["revision"],
+                "revision": revision()}
+
+
 def _state_paths():
     base = Path(os.environ.get("LOCALAPPDATA") or Path.home() / ".local/share")
     action = Path(os.environ["GXP_LOWCODE_EDITOR_STATE"]) if os.environ.get("GXP_LOWCODE_EDITOR_STATE") else base / "GxpLowcodeEditor/state/editor.sqlite3"

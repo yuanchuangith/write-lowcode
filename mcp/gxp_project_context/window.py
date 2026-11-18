@@ -6,7 +6,7 @@ import queue
 import threading
 import tkinter as tk
 from datetime import datetime, timezone
-from tkinter import filedialog, ttk
+from tkinter import filedialog, messagebox, ttk
 
 from . import ProjectError
 from . import settings
@@ -21,6 +21,7 @@ class ProjectSettingsWindow:
         self._view_epoch = 0
         self._status_snapshot = None
         self._progress_text = None
+        self._remove_dialog = None
         self.results = queue.Queue()
         self.revision, self.project_id = "", ""
         self.credential_source_id, self.legacy_source_id = "", ""
@@ -107,6 +108,7 @@ class ProjectSettingsWindow:
         toolbar.pack(fill="x")
         ttk.Button(toolbar, text="保存项目", command=self.save).pack(side="left")
         ttk.Button(toolbar, text="切换并全量刷新", command=self.switch).pack(side="left", padx=10)
+        ttk.Button(toolbar, text="移除所选配置", command=self.remove_selected_project).pack(side="left")
         ttk.Button(toolbar, text="关闭", command=self.close).pack(side="right")
 
     def field(self, parent, row, key, label):
@@ -187,34 +189,71 @@ class ProjectSettingsWindow:
         self.update_platform_summary()
         self.message.set("已保留账号和已保存的密码引用。修改地址、库名后保存；平台网址不同也需在“平台与表单”页修改。")
 
+    def _project_index(self, project_id):
+        return next((index for index, project in enumerate(self.projects)
+                     if project["project_id"] == project_id), -1) if project_id else -1
+
+    @staticmethod
+    def _active_project_id(status):
+        return (status["active_project_id"] if "active_project_id" in status else
+                next((project["project_id"] for project in status.get("projects", []) if project.get("active")), None))
+
+    def _update_project_options(self, status, *, reload=False):
+        if reload:
+            self.projects = status.get("projects", [])
+        active_id = self._active_project_id(status)
+        labels = tuple(
+            ("【当前生效】" if project["project_id"] == active_id else "") + project["name"] + " · "
+            + project["database"]["host"] + ":" + str(project["database"]["port"]) + "/" + project["database"]["database"]
+            for project in self.projects
+        )
+        if labels != tuple(self.selector.cget("values")):
+            previous = self.selector.get()
+            self.selector.configure(values=labels)
+            selected = self._project_index(self.project_id)
+            if selected >= 0:
+                self.selector.current(selected)
+            else:
+                self.selector.set(previous)
+        return active_id
+
     def selected(self, event=None):
         index = self.selector.current()
         if self.busy or not 0 <= index < len(self.projects):
-            return
+            return False
         self._view_epoch += 1
         try:
             entry = self.projects[index]
             profile = load_profile(entry["project_id"], entry["revision"])
-            self.project_id = profile["project_id"]
-            self.credential_source_id = self.project_id
             values = {"name": profile["name"], "environment": profile["environment"], **profile["database"], **profile["platform_binding"],
                       "look_user": profile["accounts"]["look"]["user"], "write_user": profile["accounts"]["write"]["user"],
                       "account_mode": profile["accounts"]["write"]["account_mode"],
                       "expected_grants_sha256": profile["accounts"]["write"].get("expected_grants_sha256", "")}
-            self.form_template = dict(profile["platform_binding"].get("form_config") or {})
-            values.setdefault("login_url", self.form_template.get("login_url", ""))
+            form_template = dict(profile["platform_binding"].get("form_config") or {})
+            values.setdefault("login_url", form_template.get("login_url", ""))
+            platform_version = dict(profile.get("platform_version") or {})
+            refresh_config = dict(profile.get("refresh") or {})
+            for key in ("api_prefix", "contract_path"):
+                values[key] = form_template.get(key, "")
+            self.project_id = profile["project_id"]
+            self.credential_source_id = self.project_id
+            self.form_template, self.platform_version, self.refresh_config = form_template, platform_version, refresh_config
             self.platform_credential_target = str(profile["platform_binding"].get("credential_target") or "")
             self.platform_credential_user = str(profile["platform_binding"].get("account") or "")
-            self.platform_version = dict(profile.get("platform_version") or {})
-            self.refresh_config = dict(profile.get("refresh") or {})
-            for key in ("api_prefix", "contract_path"):
-                values[key] = self.form_template.get(key, "")
             for key, variable in self.fields.items():
                 variable.set(str(values.get(key, "")))
             self.update_credentials_summary()
             self.update_platform_summary()
+            return True
         except Exception:
-            self.message.set("项目配置无法加载，请检查本机配置版本。")
+            previous = self._project_index(self.project_id)
+            if previous >= 0:
+                self.selector.current(previous)
+            else:
+                self.project_id = ""
+                self.selector.set("")
+            self.message.set("所选项目配置无法加载，未改变切换目标。请重新加载后再试。")
+            return False
 
     def profile(self):
         value = {key: var.get().strip() for key, var in self.fields.items() if not key.endswith("password")}
@@ -254,9 +293,56 @@ class ProjectSettingsWindow:
         expected = self.revision
         self.run("save_current", lambda: settings.save_current_project(expected))
 
+    def remove_selected_project(self):
+        if self.busy or self._remove_dialog is not None:
+            return
+        index = self._project_index(self.project_id)
+        if index < 0 or self.selector.current() != index:
+            self.message.set("请选择要移除的已保存配置。")
+            return
+        project_id, expected = self.project_id, self.revision
+        if project_id == self._active_project_id(self._status_snapshot or {}):
+            self.message.set("当前生效的项目不能移除。请先切换到其他项目。")
+            return
+        label = self.selector.get()
+        if messagebox.askyesno("移除项目配置", f"从本机项目列表移除以下配置？\n\n{label}\n\n不会删除数据库、历史资料或系统凭据。",
+                               parent=self.root, default=messagebox.NO):
+            self._confirm_removal(label, project_id, expected)
+
+    def _confirm_removal(self, label, project_id, expected):
+        dialog = self._remove_dialog = tk.Toplevel(self.root)
+        dialog.title("再次确认移除")
+        dialog.transient(self.root)
+        dialog.resizable(False, False)
+
+        def dismiss():
+            dialog.destroy()
+            self._remove_dialog = None
+
+        def confirm():
+            dismiss()
+            self.run("remove", lambda: settings.remove_project(project_id, expected))
+
+        content = ttk.Frame(dialog, padding=16)
+        content.pack(fill="both", expand=True)
+        ttk.Label(content, text="将从项目列表移除：\n" + label, wraplength=420).pack(anchor="w")
+        buttons = ttk.Frame(content)
+        buttons.pack(anchor="e", pady=(14, 0))
+        cancel = ttk.Button(buttons, text="取消", command=dismiss)
+        cancel.pack(side="left", padx=(0, 8))
+        ttk.Button(buttons, text="确认移除", command=confirm).pack(side="left")
+        dialog.protocol("WM_DELETE_WINDOW", dismiss)
+        dialog.bind("<Escape>", lambda _event: dismiss())
+        dialog.grab_set()
+        cancel.focus_set()
+
     def switch(self):
         if not self.project_id:
             self.message.set("请先保存项目配置。")
+            return
+        selected = self._project_index(self.project_id)
+        if selected < 0 or self.selector.current() != selected:
+            self.message.set("请重新选择要切换的已保存项目。")
             return
         project_id, expected = self.project_id, self.revision
         self.run("switch", lambda: settings.switch_project(project_id, expected))
@@ -280,7 +366,7 @@ class ProjectSettingsWindow:
             self._view_epoch += 1
             self.busy = True
             self.selector.configure(state="disabled")
-            self.message.set({"load": "正在读取配置…", "save": "正在保存项目配置…", "save_current": "正在保留原配置并加入项目列表…", "reload_projects": "正在更新项目列表…", "switch": "正在测试连接并切换项目…", "refresh": "正在启动刷新…", "sessions": "正在打开未结束流程…"}.get(action, "正在处理…"))
+            self.message.set({"load": "正在读取配置…", "save": "正在保存项目配置…", "save_current": "正在保留原配置并加入项目列表…", "reload_projects": "正在更新项目列表…", "remove": "正在移除所选配置…", "load_after_remove": "配置已移除，正在更新项目列表…", "switch": "正在测试连接并切换项目…", "refresh": "正在启动刷新…", "sessions": "正在打开未结束流程…"}.get(action, "正在处理…"))
         epoch = self._view_epoch
         def worker():
             try:
@@ -314,7 +400,8 @@ class ProjectSettingsWindow:
                 lines.append("  " + str(item["error_code"]))
             if item.get("reason"):
                 lines.append("  " + str(item["reason"]))
-            stages = {"design_metadata": "读取设计目录", "current_design_fingerprint": "核对当前设计指纹"}
+            stages = {"action_catalog": "枚举动作目录", "design_ids": "分页读取设计编号",
+                      "design_metadata": "读取设计目录", "current_design_fingerprint": "核对当前设计指纹"}
             if item.get("stage") in stages:
                 lines.append(("  当前阶段：" if item.get("status") == "fetching" else "  失败阶段：") + stages[item["stage"]])
             counts = item.get("counts") or {}
@@ -365,6 +452,7 @@ class ProjectSettingsWindow:
             self.background_busy = False
             if epoch == self._view_epoch and not self.busy and result.get("ok", True):
                 self._status_snapshot = result
+                self._update_project_options(result)
                 self.render_progress(result)
             # A background status read never dismisses an operation error,
             # changes the form revision, or unlocks a foreground operation.
@@ -378,41 +466,44 @@ class ProjectSettingsWindow:
             # Registering the original connection must not discard the target
             # form, its selected project or passwords the user has just typed.
             self.run("reload_projects", settings.settings_status)
+        elif action == "remove":
+            self.project_id = self.credential_source_id = self.legacy_source_id = ""
+            self.selector.set("")
+            self._update_project_options({**(self._status_snapshot or {}), "projects": [
+                project for project in self.projects if project["project_id"] != result["project_id"]]}, reload=True)
+            self.new_project()
+            self.run("load_after_remove", settings.settings_status)
         elif action == "reload_projects":
             self._status_snapshot = result
             self.revision = result["revision"]
+            self._update_project_options(result, reload=True)
             self.render_progress(result)
-            selection = self.selector.get()
-            self.projects = result.get("projects", [])
-            self.selector.configure(values=[p["name"] + " · " + p["database"]["host"] + ":" + str(p["database"]["port"]) + "/" + p["database"]["database"] for p in self.projects])
-            selected = next((i for i, p in enumerate(self.projects) if p["project_id"] == self.project_id), -1)
-            if selected >= 0:
-                self.selector.current(selected)
-            else:
-                self.selector.set(selection)
             self.message.set("原连接已加入项目列表。当前填写的内容已保留，请点击“保存项目”保存。")
-        elif action in {"load", "progress"}:
+        elif action in {"load", "load_after_remove"}:
             self._status_snapshot = result
             self.revision = result["revision"]
+            active_id = self._update_project_options(result, reload=True)
             self.render_progress(result)
-            if action == "load":
-                self.projects = result.get("projects", [])
-                self.selector.configure(values=[p["name"] + " · " + p["database"]["host"] + ":" + str(p["database"]["port"]) + "/" + p["database"]["database"] for p in self.projects])
-                selected = next((i for i, p in enumerate(self.projects) if p["project_id"] == self.project_id), next((i for i, p in enumerate(self.projects) if p.get("active")), -1))
-                if selected >= 0:
-                    self.selector.current(selected)
-                    self.selected()
-                else:
-                    self.new_project()
-                    self.legacy_source_id = result.get("active_project_id") or ""
-                    legacy = result.get("settings") or {}
-                    for key in ("host", "port", "database", "look_user", "write_user", "account_mode", "expected_grants_sha256"):
-                        if legacy.get(key):
-                            self.fields[key].set(str(legacy[key]))
-                    self.credentials_summary.set("")
-                    self.update_credentials_summary()
-                    self.apply_platform_defaults(result.get("platform_defaults") or {})
-            self.message.set("项目资料按数据库隔离。选择已保存项目可一键切换。")
+            selected = self._project_index(self.project_id)
+            if selected < 0:
+                selected = self._project_index(active_id)
+            if selected >= 0:
+                self.selector.current(selected)
+                loaded = self.selected()
+            else:
+                self.new_project()
+                self.legacy_source_id = active_id or ""
+                legacy = result.get("settings") or {}
+                for key in ("host", "port", "database", "look_user", "write_user", "account_mode", "expected_grants_sha256"):
+                    if legacy.get(key):
+                        self.fields[key].set(str(legacy[key]))
+                self.credentials_summary.set("")
+                self.update_credentials_summary()
+                self.apply_platform_defaults(result.get("platform_defaults") or {})
+                loaded = True
+            if loaded:
+                self.message.set("所选配置已从项目列表移除。" if action == "load_after_remove" else
+                                 "项目资料按数据库隔离。选择已保存项目可一键切换。")
         else:
             if action == "save":
                 self.project_id = result["project_id"]
