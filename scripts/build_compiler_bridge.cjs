@@ -4,7 +4,7 @@ const fs = require('node:fs');
 const path = require('node:path');
 const crypto = require('node:crypto');
 const {createRequire} = require('node:module');
-if (!process.argv[2]) throw new Error('Usage: node scripts/build_compiler_bridge.cjs <frontend_repo> [output_directory]');
+if (!process.argv[2]) throw new Error('Usage: node scripts/build_compiler_bridge.cjs <frontend_repo> [output_directory] [--single-bundle]');
 const root = path.resolve(process.argv[2] || '');
 const output = path.resolve(process.argv[3] || path.join(root, 'dist/action-design-compiler'));
 const native = path.resolve(__dirname, '../mcp/gxp_editor/native_compiler');
@@ -56,6 +56,9 @@ const config = {
     'process.env.NODE_ENV':JSON.stringify('production'),
   }),new webpack.ProvidePlugin({InbizConfig:path.join(native,'config_shim.cjs')})],
 };
+if (process.argv[4] === '--single-bundle') {
+  config.plugins.push(new webpack.optimize.LimitChunkCountPlugin({maxChunks:1}));
+}
 webpack(config, (error, stats) => {
   clearTimeout(deadline);
   if (error || stats.hasErrors()) {

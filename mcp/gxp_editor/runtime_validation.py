@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 from xml.sax.saxutils import escape
 
-from .config import EditorConfig, runtime_root
+from .config import EditorConfig, RuntimeReferenceConfig, runtime_root
 from .hashing import sha256_json, sha256_text
 from .runtime_workspace import WorkspaceBusyError, cleanup_interrupted_request, lease_workspace
 
@@ -49,9 +49,9 @@ class RuntimeCsharpValidator:
     PROJECT_TEMPLATE_VERSION = 2
     NUGET_TEMPLATE_VERSION = 1
 
-    def __init__(self, config: EditorConfig):
+    def __init__(self, config: EditorConfig | RuntimeReferenceConfig):
         self.config = config
-        self.runtime = config.runtime_references
+        self.runtime = config if isinstance(config, RuntimeReferenceConfig) else config.runtime_references
         self.last_performance: list[dict[str, Any]] = []
 
     @contextmanager

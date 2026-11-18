@@ -24,6 +24,7 @@ MANIFEST_NAME = "runtime-manifest.json"
 MANIFEST_SCHEMA = 1
 RUNTIME_SCRIPT_NAMES = {
     "approval_app.py", "abort_session_app.py", "configure_connection.py",
+    "build_write_compiler.py", "build_compiler_bridge.cjs", "gxp_compiler.py", "gxp-compiler.cmd",
     "database_settings.py", "preview_component_canvas.py", "preview_saved_approval.py",
     "database_settings.cmd", "database_settings.ps1", "manage_project_sessions.py", "manage_project_sessions.ps1",
     "start_mcp.ps1", "start_mcp.cmd",

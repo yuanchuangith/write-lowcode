@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import re
@@ -17,6 +18,9 @@ class ConfigurationError(RuntimeError):
 
 ACCOUNT_MODES = {"dedicated", "shared_restricted", "shared_unrestricted"}
 DEFAULT_BACKEND_REPO = r"G:\hoyi\updateWeb\gxp2.web"
+DEFAULT_FRONTEND_REPO = r"G:\hoyi\updateComponents\gxp2.components"
+LEGACY_COMPILER_BRIDGE = "dist/action-design-compiler/bridge.js"
+DEFAULT_COMPILER_BRIDGE = "auto"
 
 
 def default_config_path() -> Path:
@@ -34,6 +38,32 @@ def runtime_root() -> Path:
     path = base / "GxpLowcodeEditor"
     path.mkdir(parents=True, exist_ok=True)
     return path
+
+
+def managed_compiler_path(frontend_repo: str | Path) -> Path:
+    source = os.path.normcase(str(Path(frontend_repo).expanduser().resolve()))
+    key = hashlib.sha256(source.encode("utf-8")).hexdigest()
+    local = os.environ.get("LOCALAPPDATA")
+    base = Path(local) if local else Path.home() / ".local" / "share"
+    return base.resolve() / "GxpLowcodeEditor" / "compiler" / key / "bridge.js"
+
+
+@dataclass(frozen=True)
+class CompilerSource:
+    frontend_repo: str
+    compiler_bridge: str = DEFAULT_COMPILER_BRIDGE
+
+    @property
+    def compiler_path(self) -> Path:
+        path = Path(self.compiler_bridge)
+        if self.compiler_bridge == "managed":
+            return managed_compiler_path(self.frontend_repo)
+        if self.compiler_bridge == DEFAULT_COMPILER_BRIDGE or path.as_posix() == LEGACY_COMPILER_BRIDGE:
+            managed = managed_compiler_path(self.frontend_repo)
+            if managed.exists():
+                return managed
+            path = Path(LEGACY_COMPILER_BRIDGE)
+        return Path(self.frontend_repo).expanduser() / path
 
 
 @dataclass(frozen=True)
@@ -135,8 +165,8 @@ class EditorConfig:
             raise ConfigurationError("runtime_references must be a JSON object")
         compiler_bridge = str(
             value.get("compiler_bridge")
-            or "dist/action-design-compiler/bridge.js"
-        ).strip()
+            or DEFAULT_COMPILER_BRIDGE
+        ).strip() or DEFAULT_COMPILER_BRIDGE
         return cls(
             database=DatabaseConfig.from_dict(database),
             frontend_repo=frontend_repo,
@@ -152,14 +182,10 @@ class EditorConfig:
 
     @property
     def compiler_path(self) -> Path:
-        path = Path(self.compiler_bridge)
-        if path.is_absolute():
-            return path
-        return Path(self.frontend_repo) / path
+        return CompilerSource(self.frontend_repo, self.compiler_bridge).compiler_path
 
 
-def load_config(path: Path | None = None) -> EditorConfig:
-    config_path = path or default_config_path()
+def _read_config(config_path: Path) -> dict[str, Any]:
     if not config_path.exists():
         raise ConfigurationError(
             f"Editor configuration was not found at {config_path}. "
@@ -171,6 +197,18 @@ def load_config(path: Path | None = None) -> EditorConfig:
         raise ConfigurationError(f"Cannot read {config_path}: {exc}") from exc
     if not isinstance(value, dict):
         raise ConfigurationError("Editor configuration must be a JSON object")
+    return value
+
+
+def load_runtime_references() -> RuntimeReferenceConfig:
+    value = _read_config(default_config_path()).get("runtime_references")
+    if not isinstance(value, dict):
+        raise ConfigurationError("runtime_references must be a JSON object")
+    return RuntimeReferenceConfig.from_dict(value)
+
+
+def load_config(path: Path | None = None) -> EditorConfig:
+    value = _read_config(path or default_config_path())
     if path is None:
         from .connection_settings import overlay_database
         value = {**value, "database": overlay_database(value.get("database") or {}, "write")}

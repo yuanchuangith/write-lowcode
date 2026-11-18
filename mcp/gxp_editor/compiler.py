@@ -12,7 +12,7 @@ from copy import deepcopy
 from pathlib import Path
 from typing import Any
 
-from .config import EditorConfig
+from .config import CompilerSource, DEFAULT_COMPILER_BRIDGE, EditorConfig, LEGACY_COMPILER_BRIDGE, managed_compiler_path
 from .hashing import compiler_binding_payload, sha256_json, sha256_text
 from .planning_limits import MAX_OPERATION_BYTES
 from .reference_repair import scan_references
@@ -101,8 +101,9 @@ class CompilerBridge:
         "SetUploadButtonStatus",
     }
 
-    def __init__(self, config: EditorConfig):
+    def __init__(self, config: EditorConfig | CompilerSource):
         self.config = config
+        self._path = config.compiler_path.absolute()
         self._registry: dict[str, Any] | None = None
         self._node_identity_value = None
         self._node_binary_sha256 = None
@@ -119,7 +120,23 @@ class CompilerBridge:
 
     @property
     def path(self) -> Path:
-        return self.config.compiler_path
+        return self._path
+
+    def _bridge_identity(self) -> str:
+        resolved = self.path.resolve()
+        try:
+            return resolved.relative_to(self.frontend_repo).as_posix()
+        except ValueError as exc:
+            if resolved == managed_compiler_path(self.frontend_repo) == self.path:
+                return resolved.as_posix()
+            raise CompilerError("ActionDesign compiler bridge must be inside the configured frontend repository or the Write compiler cache") from exc
+
+    def _rebuild_instruction(self) -> str:
+        source = str(self.frontend_repo)
+        if (self.path == managed_compiler_path(source) or
+                Path(self.config.compiler_bridge).as_posix() in {DEFAULT_COMPILER_BRIDGE, LEGACY_COMPILER_BRIDGE}):
+            return f'Run python scripts/gxp_compiler.py --frontend "{source}" build before starting a new session'
+        return f'Run node scripts/build_compiler_bridge.cjs "{source}" "{self.path.parent}" before starting a new session'
 
     def _git(self, *arguments: str, binary: bool = False) -> str | bytes:
         process = subprocess.run(
@@ -151,10 +168,7 @@ class CompilerBridge:
             raise CompilerError(
                 f"Configured frontend repository must be its Git root: configured={self.frontend_repo}, root={root}"
             )
-        try:
-            relative_bridge = self.path.resolve().relative_to(root)
-        except ValueError as exc:
-            raise CompilerError("ActionDesign compiler bridge must be inside the configured frontend repository") from exc
+        bridge_identity = self._bridge_identity()
         if not re.fullmatch(r"[0-9a-f]{40,64}", commit):
             raise CompilerError("Configured frontend repository returned an invalid commit id")
         branch = "DETACHED" if branch == "HEAD" else branch
@@ -163,14 +177,12 @@ class CompilerBridge:
             "frontend_repo": str(root),
             "commit": commit,
             "branch": branch,
-            "bridge_path": relative_bridge.as_posix(),
+            "bridge_path": bridge_identity,
             "binding_scope": "compiler_inputs_v1",
         }
 
     def _call(self, payload: dict[str, Any], *, timeout_seconds: int = 60) -> dict[str, Any]:
         self._verified_call = None
-        if not self.path.exists():
-            raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}")
         with stage("compiler.source_verification"):
             source_key = self._source_key()
             source_hash = source_key[4]
@@ -183,7 +195,7 @@ class CompilerBridge:
             text=True,
             encoding="utf-8",
             capture_output=True,
-            cwd=self.config.frontend_repo,
+            cwd=self.frontend_repo,
             timeout=timeout_seconds,
             check=False,
             creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
@@ -239,7 +251,7 @@ class CompilerBridge:
         """Reject stale native rules before a session can report compiler readiness."""
         frontend_repo = self.frontend_repo
         rules_root = frontend_repo / "src/core/common/ActionDesign"
-        rebuild = 'Run node scripts/build_compiler_bridge.cjs "' + str(frontend_repo) + '" before starting a new session'
+        rebuild = self._rebuild_instruction()
         prefix = "// GXP_COMPILER_SOURCES_V1="
         try:
             with self.path.open(encoding="utf-8") as stream:
@@ -353,6 +365,9 @@ class CompilerBridge:
 
     def _source_key(self):
         self._runtime_preflight()
+        self._bridge_identity()
+        if not self.path.is_file():
+            raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}. {self._rebuild_instruction()}")
         return (str(self.frontend_repo), str(self.path.resolve()),
                 sha256_text(self.path.read_text(encoding="utf-8")), self._adapter_sha256(),
                 self._verify_native_sources())
@@ -458,7 +473,7 @@ class CompilerBridge:
             raise CompilerError("Compiler binding hash is invalid")
         current = self._source_key()
         paths_match = (provenance.get("frontend_repo") == str(self.frontend_repo)
-                       and provenance.get("bridge_path") == self.path.resolve().relative_to(self.frontend_repo).as_posix())
+                       and provenance.get("bridge_path") == self._bridge_identity())
         if not paths_match or any(expected.get(field) != value for field, value in zip(
                 ("bridge_sha256", "adapter_sha256", "rule_source_sha256"), current[2:5])):
             raise CompilerError("Compiler input source changed after planning")
@@ -520,12 +535,20 @@ class CompilerBridge:
         if actions and not js_code.strip() and not csharp_code.strip():
             raise CompilerError("Compiler generated no executable code for a non-empty ActionDesign canvas")
 
+    def compile_design(self, design: dict[str, Any]) -> dict[str, Any]:
+        result = self._call_and_bind({"command": "compile_design", "design": design})
+        if result.get("command") != "compile_design":
+            raise CompilerError("Native code regeneration returned an invalid command identity")
+        self._validate_generated_artifacts(
+            design, js_code=result.get("js_code"), csharp_code=result.get("csharp_code"),
+            relation_data=result.get("relation_data"),
+        )
+        return result
+
     def _verify_codegen_consistency(self, design: dict[str, Any], artifacts: dict[str, Any]) -> dict[str, Any]:
         """Regenerate with the same native compiler instead of trusting code hashes alone."""
         self._validate_editable_variable_values(design)
-        regenerated = self._call_and_bind({"command": "compile_design", "design": design})
-        if regenerated.get("command") != "compile_design":
-            raise CompilerError("Native code regeneration returned an invalid command identity")
+        regenerated = self.compile_design(design)
         return self._compare_codegen_artifacts(design, artifacts, regenerated)
 
     def _compare_codegen_artifacts(self, design, artifacts, regenerated):

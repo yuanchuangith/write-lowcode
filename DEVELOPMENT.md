@@ -108,6 +108,31 @@ Claude 当前采用用户级 MCP 加技能 Junction。`%USERPROFILE%/.claude/ski
 
 基线比较继续使用原内容、关系、SQL 及审批签名算法，诊断摘要不加入签名。重开前定向读取草稿和完整关系，显式使用 REPEATABLE READ 一致快照；缺证据返回 unknown。队列锁顺序为队列终身锁探测 → 按稳定顺序获取窗口/执行锁 → 短 SQLite 控制事务，控制事务不跨业务查询或等待。启动保留 generation/token 与 revision，子窗口取得锁后再次校验，执行 claim 仍检查成员归属和当前事务。结果匹配与事务提交归因分别持久化；`state=saved` 不能单独推出 `executed=true`。完整实现及验证范围见[故障修复交付记录](docs/editor-incident-repair-delivery-2026-10-27.md)。
 
+### Write 动作编译器
+
+在 Write 根目录运行以下命令。首次使用或前端生成规则有变更时执行 `build`。
+
+```powershell
+.\scripts\gxp-compiler.cmd build
+.\scripts\gxp-compiler.cmd registry
+.\scripts\gxp-compiler.cmd validate canvas.json
+.\scripts\gxp-compiler.cmd check canvas.json --timings
+.\scripts\gxp-compiler.cmd compile canvas.json -o compiled.json
+.\scripts\gxp-compiler.cmd patch canvas.json operations.json -o candidate.json
+```
+
+画布 JSON 包含 `actionData` 和 `globalVariables`；包含 C# 动作组时还需要有效的 `code`。操作文件是 [Write 结构化操作](skills/gxp-lowcode-edit/references/patch-schema.md)的 JSON 数组。需要指定其他前端目录时，在子命令前加 `--frontend <目录>`。也可以用 `python scripts/gxp_compiler.py` 调用同一入口。
+
+`compile` 输出 `js_code`、`csharp_code`、`relation_data` 和校验结果；`patch` 同时输出候选画布与差异。结果默认写到标准输出，`-o` 仅创建新文件。CLI 不运行生成的业务代码，也不保存或发布草稿。
+
+`check` 校验画布，有后端动作时用与 Write 相同的 .NET 流程编译生成的 C#。默认读取 Write 已配置的引用 DLL，也可以用 `--references <DLL 目录>` 和 `--target-framework <目标框架>` 指定。报错含错误号、生成源码的行列和消息；`--emit-csharp <新文件.cs>` 会保留那份源码，便于定位。退出码 `0` 表示通过或没有 C#，`1` 表示 C# 编译错误，`2` 表示输入错误或检查未完成（如缺少 SDK 或引用）。
+
+纯前端画布只校验画布，不生成源码或启动 .NET；有 C# 时，相同 SDK 和引用可复用已还原的工作区，每份候选仍会实际编译。`--timings` 显示各阶段耗时；`runtime.workspace` 的 `cache_hit: true` 表示复用了工作区。
+
+构建需要 Node.js、已安装 npm 依赖的 GXP 前端 Git 仓库，以及装有 Write Python 依赖的解释器。构建脚本先生成单文件编译包并检查原生元件目录，再把它放到 Write 的本地缓存；每个前端仓库使用独立缓存。构建不写前端仓库、不访问业务数据库。
+
+Write 的 `compiler_bridge: "auto"` 会优先使用本地编译包；尚未构建时读取旧的前端 `dist/action-design-compiler/bridge.js`。旧配置中的默认相对路径也按此规则处理。选择 `"managed"` 可要求只使用 Write 的编译包；自定义路径仍必须在配置的前端 Git 根目录内。使用新编译包时重新规划，已有审批仍绑定原编译输入。运行时仍需前端源码做指纹校验，并使用前端的 Babel 依赖检查生成的 JS。
+
 ## 开发与验证流程
 
 `0.1.64` 新增 `revise_canvas_plan`（编排工具 31 个）：以当前计划 ID 修订，按哈希整条替换操作，按 ID 更新需求/断言。完整候选证据承诺纳入计划哈希；同基线、同操作、同模式且源码/引用内容一致时复用候选，始终重跑当前验收与场景。旧计划无承诺走常规生成，漂移/篡改阻断，审批不继承。支持 `read_plan_review(section="operations")` 读取精确索引、操作哈希及有界完整记录。回归见 `test_plan_revision*`、`test_planning_reuse` 及真实原生 `test_planning_workflow`；本轮只交付源码和本地验证，不自动安装。

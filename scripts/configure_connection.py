@@ -12,6 +12,8 @@ from gxp_editor.config import (
     ConfigurationError,
     DatabaseConfig,
     DEFAULT_BACKEND_REPO,
+    DEFAULT_COMPILER_BRIDGE,
+    DEFAULT_FRONTEND_REPO,
     EditorConfig,
     RuntimeReferenceConfig,
     ensure_approval_secret,
@@ -81,15 +83,15 @@ def main() -> int:
     )
     frontend_repo = ask(
         "ActionDesign frontend repository",
-        current.frontend_repo if current else r"G:\hoyi\updateComponents\gxp2.components",
+        current.frontend_repo if current else DEFAULT_FRONTEND_REPO,
     )
     backend_repo = ask(
         "Read-only backend source repository (same as gxp-lowcode-debug)",
         current.backend_repo if current else DEFAULT_BACKEND_REPO,
     )
     compiler_bridge = ask(
-        "Compiler bridge path relative to frontend repository",
-        current.compiler_bridge if current else "dist/action-design-compiler/bridge.js",
+        "Compiler (auto, managed, or a bridge path inside the frontend repository)",
+        current.compiler_bridge if current else DEFAULT_COMPILER_BRIDGE,
     )
     runtime_reference_dir = ask(
         "Read-only backend runtime reference directory (required to compile nonblank candidate C#)",

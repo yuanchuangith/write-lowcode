@@ -4,7 +4,7 @@ The editor does not invent ActionDesign nodes or generated code. Its configured 
 
 `G:\hoyi\updateComponents\gxp2.components`
 
-The configured bridge is normally `dist/action-design-compiler/bridge.js`. It executes from the frontend repository and uses the real ActionDesign element registry and generation methods bundled from that codebase.
+Write defaults to its locally built single-file compiler. Before it is built, `auto` (including the old default relative path in existing configuration) uses `dist/action-design-compiler/bridge.js` in the frontend repository. Both execute from the frontend repository and use the real ActionDesign element registry and generation methods bundled from that codebase.
 
 ## Blocking source binding
 
@@ -83,13 +83,13 @@ Compiler maintenance is separate from a business draft edit. Rebuild only when
 the bridge is missing or rejected for stale source/manifest or incomplete native
 registry coverage; a normal new edit session does not require rebuilding. For
 that maintenance, before starting a new session, run
-`node scripts/build_compiler_bridge.cjs <frontend_repo>` from this plugin to rebuild
-the offline bridge from the complete native registry, node generators, code
-generators and relation generators. The optional second
-argument stages the build in another directory; compiler acceptance still
-requires the bridge to reside within the configured frontend Git root.
+`python scripts/build_write_compiler.py <frontend_repo>` from this plugin to build
+the Write compiler from the complete native registry, node generators, code
+generators and relation generators. This builds and probes a single file
+before activating it in Write's per-frontend local cache. A custom bridge path
+must still reside within the configured frontend Git root.
 
-The builder emits a source manifest in the bridge header and source-manifest.json.
+The active bundle carries its source manifest in the bridge header.
 The Python bridge checks dependency hashes and the complete native rule file set
 before every compiler command. Changed, added or removed native rules and legacy
 bundles without a manifest require an explicit rebuild. New builds already treat
