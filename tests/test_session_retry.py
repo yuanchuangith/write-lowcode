@@ -86,6 +86,22 @@ class SessionRetryTests(unittest.TestCase):
         self.assertEqual(result["reason_code"], "session_retry_mismatch")
         self.abort.assert_not_called()
 
+    def test_foreign_target_routes_to_explicit_queue_takeover_not_cancellation(self):
+        other = self.store.create_conversation("source")["conversation_id"]
+        queue = self.store.create_edit_queue(self.owner)
+        session = self.store.create_session(self.draft, "old-backup", self.binding["compiler_binding_sha256"],
+            conversation_id=other)
+        with patch("gxp_editor.handoff_import.discover_handoffs", return_value={}), \
+                patch.object(self.compiler, "describe_registry", side_effect=AssertionError("No compiler work for occupied draft")):
+            result = self.service.begin_edit_session(self.draft["code"], queue_id=queue)
+        self.assertTrue(result["blocked"])
+        self.assertIsNone(result["next_read"])
+        self.assertEqual(result["error_code"], "target_owned_by_other_dialogue")
+        self.assertEqual(result["takeover"]["arguments"], {
+            "session_id": session["id"], "conversation_id": self.owner, "queue_id": queue})
+        self.assertEqual(self.store.get_session(session["id"])["conversation_id"], other)
+        self.abort.assert_not_called()
+
     def test_review_checkpoint_requires_correct_owner_revision_and_compare_swap(self):
         session = self.create()
         sha = self.store.save_review_spec_checkpoint(session["id"], {"revision": "r1"}, expected_sha256=None,

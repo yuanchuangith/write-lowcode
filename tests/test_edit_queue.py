@@ -22,6 +22,7 @@ class EditQueueTests(unittest.TestCase):
         self.owner = self.store.create_conversation()["conversation_id"]
         self.other = self.store.create_conversation()["conversation_id"]
         self.queue = self.store.create_edit_queue(self.owner)
+        self.enterContext(patch("gxp_editor.connection_settings.active_settings", return_value=None))
 
     def add(self, number=1, **kwargs):
         return self.store.create_session(baseline(id=f"design-{number}", ref_id=f"ref-{number}"), "backup", "compiler",
@@ -74,6 +75,109 @@ class EditQueueTests(unittest.TestCase):
         self.assertEqual(item["queued_owner_revision"], 0)
         self.assertEqual(item["owner_revision"], 1)
         self.assertEqual(item["conversation_id"], self.other)
+
+    def test_takeover_joins_current_queue_without_releasing_other_draft(self):
+        existing = self.add()
+        old_queue = self.store.create_edit_queue(self.other)
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "old-backup", "compiler",
+            conversation_id=self.other, queue_id=old_queue)
+        before = self.store.get_session(source["id"])
+        moved = self.store.transfer_session(source["id"], self.owner, expected_owner=self.other,
+            expected_revision=0, queue_id=self.queue)
+        items = self.store.edit_queue(self.queue, self.owner)
+        self.assertEqual([item["id"] for item in items], [existing["id"], source["id"]])
+        self.assertEqual(self.store.get_session(existing["id"])["state"], "locked")
+        self.assertEqual((moved["owner_revision"], moved["queue_id"]), (1, self.queue))
+        self.assertEqual(self.store.get_session(source["id"])["baseline"], before["baseline"])
+        self.assertEqual(self.store.edit_queue(old_queue, self.other), [])
+        repeated = self.store.transfer_session(source["id"], self.owner, expected_owner=self.owner,
+            expected_revision=1, queue_id=self.queue)
+        self.assertEqual(repeated["owner_revision"], 1)
+        self.assertEqual(self.store.edit_queue(self.queue, self.owner), items)
+        with self.assertRaises(StateError):
+            self.store.create_plan(source["id"], "old.json", "old", "new", "compiler",
+                conversation_id=self.other, owner_revision=0)
+
+    def test_takeover_refuses_foreign_queue_or_active_flow_outside_target_queue(self):
+        existing = self.add()
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler", conversation_id=self.other)
+        foreign = self.store.create_edit_queue(self.other)
+        another = self.store.create_edit_queue(self.owner)
+        for queue_id in ("", foreign, another):
+            with self.subTest(queue_id=queue_id), self.assertRaises(StateError):
+                self.store.transfer_session(source["id"], self.owner, expected_owner=self.other,
+                    expected_revision=0, queue_id=queue_id)
+        self.assertEqual(self.store.get_session(source["id"])["conversation_id"], self.other)
+        self.assertEqual(self.store.get_session(existing["id"])["state"], "locked")
+
+    def test_queue_takeover_preserves_pending_plan_artifact_and_approval(self):
+        self.add()
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler", conversation_id=self.other)
+        plan = self.store.create_plan(source["id"], "plan.json", "old", "new", "compiler", conversation_id=self.other)
+        artifact = Path(self.folder.name) / "approved.json"
+        artifact.write_text('{"approvals":{"statement":"signed"}}', encoding="utf-8")
+        tx = self.store.create_transaction(source["id"], plan, "write", str(artifact), conversation_id=self.other)
+        before = artifact.read_bytes()
+        service = object.__new__(EditorService)
+        service._conversation_id, service.state = self.owner, self.store
+        with patch.object(service, "_components", side_effect=RuntimeError("No business IO in fixture")), \
+                patch("gxp_editor.process_check.assert_approval_process_stopped"):
+            result = service.attach_edit_session(source["id"], queue_id=self.queue)
+        self.assertTrue(result["attached"])
+        self.assertEqual(result["queue_id"], self.queue)
+        self.assertEqual(artifact.read_bytes(), before)
+        self.assertEqual(self.store.get_transaction(tx)["state"], "awaiting_approval")
+        self.assertEqual(self.store.get_plan(plan)["status"], "frozen")
+
+    def test_queue_takeover_refuses_running_source_window(self):
+        self.add()
+        old_queue = self.store.create_edit_queue(self.other)
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler",
+            conversation_id=self.other, queue_id=old_queue)
+        service = object.__new__(EditorService)
+        service._conversation_id, service.state = self.owner, self.store
+        with patch("gxp_editor.config.runtime_root", return_value=Path(self.folder.name)), approval_queue_lock(old_queue):
+            with self.assertRaises(ApprovalWindowBusyError):
+                service.attach_edit_session(source["id"], queue_id=self.queue)
+        self.assertEqual(self.store.get_session(source["id"])["conversation_id"], self.other)
+
+    def test_queue_takeover_refuses_active_destination_window(self):
+        self.add()
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler",
+            conversation_id=self.other)
+        service = object.__new__(EditorService)
+        service._conversation_id, service.state = self.owner, self.store
+        with patch("gxp_editor.config.runtime_root", return_value=Path(self.folder.name)), approval_queue_lock(self.queue):
+            with self.assertRaises(ApprovalWindowBusyError):
+                service.attach_edit_session(source["id"], queue_id=self.queue)
+        self.assertEqual(self.store.get_session(source["id"])["conversation_id"], self.other)
+
+    def test_stale_empty_takeover_guides_normal_finish_instead_of_cancellation(self):
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler", conversation_id=self.other)
+        service = object.__new__(EditorService)
+        service._conversation_id, service.state = self.owner, self.store
+        with patch.object(service, "_components", return_value=(None, None, None, None, None)), \
+                patch.object(service, "_baseline_snapshot", return_value=(None, None, {"status": "stale", "checked_at": "fixture"})):
+            result = service.attach_edit_session(source["id"], queue_id=self.queue)
+        self.assertEqual(result["baseline_comparison"]["minimum_next_step"]["tool"], "finish_edit_session")
+        self.assertEqual(self.store.get_session(source["id"])["state"], "locked")
+
+    def test_old_queue_generation_cannot_claim_transferred_transaction(self):
+        from gxp_editor.queue_protocol import TOKEN_ENV, GENERATION_ENV
+        old_queue = self.store.create_edit_queue(self.other)
+        source = self.store.create_session(baseline(id="public", ref_id="public-ref"), "backup", "compiler",
+            conversation_id=self.other, queue_id=old_queue)
+        plan = self.store.create_plan(source["id"], "plan.json", "old", "new", "compiler", conversation_id=self.other)
+        tx = self.store.create_transaction(source["id"], plan, "write", "tx.json", conversation_id=self.other)
+        with self.store._connection() as db:
+            db.execute("UPDATE queue_runtime SET generation=1,launch_token='old-token',launch_state='active' WHERE queue_id=?", (old_queue,))
+            db.execute("UPDATE queue_runtime SET generation=1,launch_token='new-token',launch_state='active' WHERE queue_id=?", (self.queue,))
+        self.store.transfer_session(source["id"], self.owner, expected_owner=self.other, expected_revision=0,
+            expected_transaction_id=tx, queue_id=self.queue)
+        with patch.dict("os.environ", {TOKEN_ENV: "old-token", GENERATION_ENV: "1"}):
+            with self.assertRaisesRegex(StateError, "generation changed"):
+                self.store.claim_transaction(tx)
+        self.assertEqual(self.store.get_transaction(tx)["state"], "awaiting_approval")
 
     def test_new_queued_transaction_reuses_existing_window_without_spawning(self):
         session = self.add()

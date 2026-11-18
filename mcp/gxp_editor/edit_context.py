@@ -8,7 +8,7 @@ from typing import Any
 
 from .native_catalog import NativeCatalogError, validated_catalog
 from .reference_repair import _catalog
-from .operation_preflight import SCHEMA_VERSION, UNSAFE, atomic_parameters, operation_shape, same_json
+from .operation_preflight import SCHEMA_VERSION, UNSAFE, atomic_parameters, operation_shape, same_json, pointer_tokens
 from .value_transport import value_summary
 from .hashing import canonical_json
 
@@ -190,6 +190,7 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
                     locations[group_key, parent["key"]] = (groups[group_key], index, parent)
     nodes = []
     summary = response_detail == "summary" and include_context is None
+    focused_full = response_detail == "full" and include_context is None and parameter_paths is not None
     compact = not include_context if include_context is not None else operation_cursor > 0
     page_size = SUMMARY_OPERATION_PAGE_SIZE if summary else OPERATION_PAGE_SIZE
     template_index, displayed_templates = 0, 0
@@ -200,10 +201,13 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
                                    group_key=pair[0], node_key=pair[1], reason_code="target_not_found")
         group, index, node = locations[pair]
         parents = []
-        if not compact and not summary:
+        if not compact and not summary and not focused_full:
             for parent_key in node.get("depth", []):
                 _, parent_index, parent = locations[group["key"], parent_key]
                 parents.append({**_summary(parent, parent_index), **_params(parent), "depth": deepcopy(parent.get("depth", []))})
+        elif focused_full:
+            parents = [_summary(locations[group["key"], key][2], locations[group["key"], key][1])
+                       for key in node.get("depth", [])]
         templates, found_paths = [], set()
         for template in _operation_templates(group, node):
             path = template["template"]["path"]
@@ -277,6 +281,29 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
                     **({"continuation": "Keep the same context_binding. Read this node alone with include_visible_variables=true and variable_offset=next_offset; all returned variable references are exact."}
                        if not complete and oversized is None else {})}
                 evidence["evidence_omitted"].remove("visible_variables")
+        elif focused_full:
+            contract_fields = {"input_params": set(), "output_params": set()}
+            for path in parameter_paths or []:
+                tokens = pointer_tokens(path)
+                if len(tokens) < 2 or tokens[0] not in {"inputParams", "outputParams"}:
+                    continue
+                section = tokens[0]
+                contract_section = "input_params" if section == "inputParams" else "output_params"
+                parameter_key = tokens[1]
+                contract_fields[contract_section].add(parameter_key)
+            selected_contract = {"key": native["key"], "name": native.get("name")}
+            for section in ("input_params", "output_params"):
+                selected_contract[section] = [deepcopy(item) for item in native.get(section, [])
+                                              if item.get("key") in contract_fields[section]]
+            evidence = {"parameter_guards": _compact_guard_values(node, templates), "parents": parents,
+                "params_value_present": "paramsValue" in node,
+                "native_contract": selected_contract,
+                "evidence_omitted": ["params_value", "parent_parameters", "visible_variables",
+                                     "unrequested_native_parameters", "operation_contracts"],
+                "full_evidence_operation_cursor": 0}
+            if include_visible_variables:
+                evidence["visible_variables"] = deepcopy(_catalog(design, group, index, elements))
+                evidence["evidence_omitted"].remove("visible_variables")
         else:
             evidence = ({"parameter_guards": _compact_guard_values(node, templates),
                      "evidence_omitted": ["params_value", "parents", "visible_variables", "native_contract"],
@@ -293,13 +320,22 @@ def build_edit_context(design: dict[str, Any], registry: dict[str, Any], targets
     if operation_cursor > template_index:
         raise EditContextError("operation_cursor is outside this context; restart at operation_cursor=0 with the same targets")
     next_cursor = operation_cursor + displayed_templates if operation_cursor + displayed_templates < template_index else None
+    context_detail = ("summary" if summary else "focused_full" if focused_full else
+                      "compact_guards" if compact else "full_context")
+    omitted_fields = []
+    if focused_full:
+        omitted_fields = ["params_value", "parent_parameters", "unrequested_native_parameters", "operation_contracts"]
+        if not include_visible_variables:
+            omitted_fields.append("visible_variables")
+    elif compact or summary:
+        omitted_fields = ["params_value", "parents", "native_contract", "operation_contracts"]
+        if not (summary and include_visible_variables):
+            omitted_fields.append("visible_variables")
     result = {"nodes": nodes, "read_only": True, "source_evidence_required": True,
-              "context_detail": "summary" if summary else "compact_guards" if compact else "full_context",
-              "omitted_fields": ["params_value", "parents", *([] if summary and include_visible_variables else ["visible_variables"]),
-                                 "native_contract", "operation_contracts"] if compact or summary else [],
-              **({} if compact or summary else {"operation_contracts": {name: operation_shape(name) for name in ("set_parameter", "set_array_item", "insert_in_block")}}),
+              "context_detail": context_detail, "omitted_fields": omitted_fields,
+              **({} if compact or summary or focused_full else {"operation_contracts": {name: operation_shape(name) for name in ("set_parameter", "set_array_item", "insert_in_block")}}),
               "operation_page": {"cursor": operation_cursor, "page_size": page_size,
-                                  "evidence_mode": "summary" if summary else "compact_guards" if compact else "full_context",
+                                  "evidence_mode": context_detail,
                                  "returned": displayed_templates, "total": template_index, "complete": next_cursor is None,
                                  "next_operation_cursor": next_cursor,
                                   "continuation": "Repeat with identical targets, parameter_paths and detail at next_operation_cursor. Require unchanged context_binding; restart if it changes. Summary uses signed guards; read_edit_value fetches needed values. Explicit include_context retains the legacy full/compact projection."},

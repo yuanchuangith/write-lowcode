@@ -30,11 +30,13 @@ class SessionIsolationTests(unittest.TestCase):
         self.store = StateStore(self.root / "state.sqlite3")
         self.owner_a = self.store.create_conversation("First conversation")["conversation_id"]
         self.owner_b = self.store.create_conversation("Second conversation")["conversation_id"]
+        self.enterContext(patch("gxp_editor.connection_settings.active_settings", return_value=None))
 
     def service(self, owner):
         service = object.__new__(EditorService)
         service.state = self.store
         service._conversation_id = owner
+        self.enterContext(patch.object(service, "_components", side_effect=AssertionError("No business IO in isolated state tests")))
         return service
 
     def session(self, owner=None, **draft_fields):

@@ -109,3 +109,37 @@ const self=factory(id=>{assert.equal(id,'submitButton');return {configEvent:(eve
             {"operation": "create_action_group", "group_alias": "server", "group_title": "后端检查", "action_type": "csharp"}])
         self.assertTrue(result["csharp_code"].strip())
         self.assertTrue(self.bridge.verify_compiled_result(result)["code_generation_complete"])
+
+    def test_child_extraction_wiring_and_old_path_removal_execute_in_one_candidate(self):
+        def value(code, **extra):
+            return {"paramTypes": "custom", "value": code, "code": code, "label": code, "dataType": "string", **extra}
+
+        design = {"actionData": [{"key": "main", "title": "入口", "actionType": "js", "data": []}], "globalVariables": []}
+        before = self.bridge.compile_patch(design, [{"operation": "append_node", "action_group_key": "main", "element_key": "ExitAction",
+                                                    "input_params": {"returnValue": value("old")}}])["design"]
+        old_key = before["actionData"][0]["data"][0]["key"]
+        def arguments(first):
+            return {"actionName": {"value": "@child", "isActionSelect": True, "actionType": "js"},
+                    "second": value("'B'", paramName="second"), "first": value(first, paramName="first")}
+        outputs = {"selected": value("result", paramName="answer")}
+        result = self.bridge.compile_patch(before, [
+            {"operation": "create_action_group", "group_alias": "child", "group_title": "组装结果", "action_type": "js",
+             "input_params": [{"title": "first", "type": "string"}, {"title": "second", "type": "string"}],
+             "output_params": [{"title": "unused", "type": "string"}, {"title": "answer", "type": "string"}]},
+            {"operation": "append_node", "action_group_key": "@child", "element_key": "SetVariable",
+             "input_params": {"variableType": "string", "variableValue": value("first + ':' + second")},
+             "output_params": {"variableName": value("outputParams.answer", paramTypes="outputParam", value="outputParam-answer")}},
+            {"operation": "insert_before", "action_group_key": "main", "anchor_node_key": old_key,
+             "element_key": "CallAction", "input_params": arguments("'A'"), "output_params": outputs, "node_alias": "call"},
+            {"operation": "replace_params", "action_group_key": "main", "target_node_key": "@call",
+             "input_params": arguments("'changed'"), "output_params": outputs},
+            {"operation": "insert_before", "action_group_key": "main", "anchor_node_key": old_key, "element_key": "ExitAction",
+             "input_params": {"returnValue": value("result", paramTypes="localVariable", value="localVariable-result")}},
+            {"operation": "delete_block", "action_group_key": "main", "target_node_key": old_key},
+        ])
+        self.assertTrue(self.bridge.verify_compiled_result(result)["code_generation_complete"])
+        self.assertNotIn(old_key, [node["key"] for node in result["design"]["actionData"][0]["data"]])
+        self.assertNotIn("@child", json.dumps(result["design"]))
+        script = "const vm=require('node:vm'),fs=require('node:fs'); const factory=vm.runInNewContext('('+fs.readFileSync(0,'utf8')+')'); factory(()=>({}),{}).main().then(value=>{if(value!=='changed:B')throw Error('wrong binding: '+value);}).catch(e=>{console.error(e);process.exitCode=1;});"
+        ran = subprocess.run(["node", "-e", script], input=result["js_code"], encoding="utf-8", capture_output=True, timeout=20)
+        self.assertEqual(ran.returncode, 0, ran.stderr)

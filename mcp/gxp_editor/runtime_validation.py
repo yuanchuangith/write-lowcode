@@ -309,7 +309,13 @@ class RuntimeCsharpValidator:
     def _bounded_output(process: subprocess.CompletedProcess[str]) -> str:
         lines = (process.stdout + "\n" + process.stderr).splitlines()
         meaningful = [line.strip() for line in lines if line.strip()]
-        return "\n".join(meaningful[-80:])[:16000]
+        # Warnings can fill the entire excerpt before the actual compiler error.
+        # Preserve the original complete diagnostics separately; lead the bounded
+        # public message with distinct errors, wherever they occurred in the log.
+        errors = list(dict.fromkeys(line for line in meaningful if re.search(r"\berror\s*(?:[A-Z]+\d+\s*)?:", line, re.IGNORECASE)))
+        error_set = set(errors)
+        selected = errors[:40] + [line for line in meaningful[-80:] if line not in error_set]
+        return "\n".join(line[:2000] for line in selected[:80])[:16000]
 
     @staticmethod
     def _build_failure_code(output: str) -> str:

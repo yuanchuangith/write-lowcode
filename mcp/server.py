@@ -71,9 +71,9 @@ def create_conversation(label: str = "") -> dict[str, Any]:
 
 @mcp.tool()
 @traced_tool
-def attach_edit_session(session_id: str, conversation_id: str) -> dict[str, Any]:
-    """Take over a shared session marker after its approval window closes; revoke the previous dialogue's access."""
-    return service(conversation_id).attach_edit_session(session_id)
+def attach_edit_session(session_id: str, conversation_id: str, queue_id: str = "") -> dict[str, Any]:
+    """Take over a shared session after its window/executor stops. Pass this dialogue's queue_id to join its existing action queue without cancelling other drafts. Omit for legacy single-session handoff. Revokes prior ownership; retains backup, plans and transactions, never approves or saves."""
+    return service(conversation_id).attach_edit_session(session_id, **({"queue_id": queue_id} if queue_id else {}))
 
 
 @mcp.tool()
@@ -159,7 +159,7 @@ def inspect_edit_context(
     response_detail: Literal["summary", "full"] = "summary", parameter_paths: list[str] | None = None,
     include_visible_variables: bool = False, variable_offset: Offset = 0,
 ) -> dict[str, Any]:
-    """Read target summaries, bounded exact parameter values and signed old-value guards. Focus known fields with parameter_paths. Request include_visible_variables only for picker scope; variable_offset pages complete entries. Use read_edit_value for large values; full adds complete params/parents/contracts. Explicit include_context retains legacy semantics. No writes."""
+    """Read 1-10 exact targets using summary and parameter_paths first; reuse unchanged evidence. For full plus parameter_paths, return only selected complete values and their native parameter contracts, not whole nodes/parents/variable catalogs. Unfocused full adds complete params/parents/contracts; use it only for a specific missing dependency. include_visible_variables is opt-in; summary variable_offset pages entries. Use read_edit_value for large values. Group heterogeneous nodes by their actual paths. Explicit include_context retains legacy semantics. No writes."""
     return service(conversation_id).inspect_edit_context(session_id, targets, operation_cursor=operation_cursor,
                                                           include_context=include_context, response_detail=response_detail,
                                                           parameter_paths=parameter_paths,
@@ -208,6 +208,9 @@ def plan_canvas_patch(
     Operation counts are not capped; operations must fit 2 MiB. append_to_plan_id adds this batch
     to the latest plan, regenerating and checking the complete candidate for one final approval.
     Requirements, assertions and scenario calls may use declared @group_alias/@node_alias identities.
+    Construct new/changed expressions as readable native steps: expose business branches with IF,
+    not nested ternaries plus collection pipelines hidden in a variable initializer. Keep focused
+    pure calculations; do not mechanically expand LINQ into loops or extract helpers for local edits.
     """
     try:
         return service(conversation_id).plan_canvas_patch(
@@ -234,6 +237,7 @@ def revise_canvas_plan(
     scenario edits and removals. Supply only one review form. Native evidence is reused only when every bound
     input/source/reference byte is unchanged; current expectations and scenarios
     are always checked again. No approval or business save occurs.
+    Apply the same readable native-step construction rules as plan_canvas_patch to replacements.
     """
     try:
         return service(conversation_id).revise_canvas_plan(
@@ -352,7 +356,7 @@ def prepare_restore(session_id: str, backup_id: str, conversation_id: str = "") 
 @mcp.tool()
 @traced_tool
 def finish_edit_session(session_id: str, conversation_id: str = "") -> dict[str, Any]:
-    """Release a verified session and return publication_targets plus look_graph_review. Compare first; ask once to add/update Look relations only when confirmed differences exist, then wait for user consent."""
+    """Finish an owned empty session without cancellation: only if no plan, transaction or requirements checkpoint ever exists; returns empty_session, never save success. Otherwise only finish a verified save and return publication_targets/look_graph_review. Existing work or unknown execution cannot be discarded."""
     return service(conversation_id).finish_edit_session(session_id)
 
 

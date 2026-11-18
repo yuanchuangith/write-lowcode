@@ -16,6 +16,14 @@ Confirmed requirements are checkpointed separately from disposable candidate rep
 
 ## Timing and reusable preparation
 
+After a C# failure, read the actual `error CS...`/MSBuild error in the returned message before editing. Bounded build excerpts prioritize errors over dependency warnings; do not rerun unchanged candidates merely to search for an error buried in warning output. If an error or relevant contract is still missing, read that bounded evidence first rather than guessing a repair.
+
+Keep only the current goal, exclusions, exact target identities, fixed rules and latest plan/result for follow-ups. Reuse anchored evidence and signed guards; do not reload whole actions or inherited conversation history after each correction. Batch independent focused reads within their advertised limits (at most 10 context targets, at most 100 discovery results), and refresh only changed targets. These are model workflow improvements, not claims that the tool can control model latency or remove the existing conversation's context.
+
+For an ordinary canvas edit, stop evidence collection when the exact write point, controlling condition, direct call contract and required ordering are established; move to the minimal candidate. Inspect additional nodes or back-end transactions only when a specific unresolved dependency affects that candidate. Do not use operation-count caps or extra scoring gates.
+
+Conversation history is not a current save receipt. For a save owned by another dialogue, do not call its session/transaction tools from this dialogue and do not inspect local transaction files to bypass their ownership checks. Use the current dialogue's fresh draft session and fingerprint to establish which content is present. If the other dialogue's execution receipt cannot be read by its owner, report transaction attribution as unknown; do not conclude that the content is unsaved, repeat the save, or delay an already-authorized edit solely to reconstruct that receipt. Draft presence, save execution, publication and runtime effect remain separate facts.
+
 MCP responses expose `trace_id`, `total_elapsed_ms`, `timings` with bounded stages, durations, counts/cache hits and stable error codes. Failures retain completed timings. Use them to distinguish database reads, evidence checks, preflight, registry/contract loading, generation, independent regeneration, runtime reference checks, SDK discovery, restore, build and business review. They measure tool work, not the model's reasoning or network round trip. Performance logs contain no parameter values, code, credentials or exception text; timings never enter signed plan content or business fingerprints.
 
 Local spans can include `start_ms` and `depth`; nested durations overlap, so do not

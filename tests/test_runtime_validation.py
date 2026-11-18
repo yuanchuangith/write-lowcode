@@ -207,6 +207,19 @@ class RuntimeValidationTests(unittest.TestCase):
         self.assertEqual(caught.exception.code, "compilation_failed")
         self.assertEqual(caught.exception.diagnostics[0], "Candidate.cs(1,1): error CS1002: ; expected")
         self.assertGreater(len(caught.exception.diagnostics), 80)
+        self.assertIn("error CS1002", str(caught.exception))
+
+    def test_build_excerpt_prioritizes_errors_over_long_dependency_warnings(self):
+        warning = "references.targets: warning MSB3277: " + "conflicting dependency " * 100
+        error = "Candidate.cs(23,9): error CS0103: The name 'missing' does not exist"
+        process = subprocess.CompletedProcess(["dotnet", "build"], 1,
+                                              (warning + "\n") * 90 + error + "\n" + "detail\n" * 90, "")
+        validator = RuntimeCsharpValidator(editor_config())
+        with self.assertRaises(RuntimeValidationError) as caught:
+            validator._require_build_success(process)
+        self.assertIn(error, str(caught.exception)[:500])
+        self.assertLessEqual(len(validator._bounded_output(process)), 16000)
+        self.assertIn(error, caught.exception.diagnostics)
 
     def test_reference_snapshot_drift_during_build_is_rejected(self):
         with tempfile.TemporaryDirectory() as temporary:

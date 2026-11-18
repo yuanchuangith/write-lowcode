@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 import json
 import unittest
+from unittest.mock import patch
 
 from tests.helpers import baseline  # Add mcp to the test import path.
 from tests.payload_fixtures import PayloadHarness
@@ -54,6 +55,51 @@ class FocusedContextTests(unittest.TestCase):
         self.assertGreater(parameter["utf8_bytes"], 1024)
         self.assertEqual(parameter["read_value"]["arguments"]["path"], "/inputParams/record")
         self.assertEqual(parameter["read_value"]["tool"], "read_edit_value")
+
+    def test_full_parameter_paths_return_only_selected_value_and_contract(self):
+        target = self.design["actionData"][0]["data"][3]
+        target["paramsValue"]["inputParams"].update({
+            "x": {"flag": True}, "unrelated": "large-unrelated-value" * 5000})
+        self.registry["elements"][2]["input_params"] = [
+            {"key": "x", "type": "object", "description": "selected contract"},
+            {"key": "unrelated", "type": "string", "description": "unused " * 5000},
+        ]
+        self.design["actionData"][0]["data"][1]["paramsValue"]["inputParams"]["condition"] = "condition " * 5000
+
+        full = build_edit_context(self.design, self.registry, self.targets, response_detail="full")
+        with patch("gxp_editor.edit_context._catalog", side_effect=AssertionError("Unrequested variable catalog")):
+            focused = build_edit_context(self.design, self.registry, self.targets,
+                response_detail="full", parameter_paths=["/inputParams/x"])
+        node = focused["nodes"][0]
+
+        self.assertEqual(focused["context_detail"], "focused_full")
+        self.assertEqual(node["parameter_guards"], [{"path": "/inputParams/x", "value": {"flag": True}}])
+        self.assertEqual(node["edit_options"]["parameter_operations"][0]["expected_old_value_ref"]["field"], "parameter_guards")
+        self.assertNotIn("params_value", node)
+        self.assertNotIn("params_value", node["parents"][0])
+        self.assertEqual(node["native_contract"]["input_params"], [{"key": "x", "type": "object", "description": "selected contract"}])
+        self.assertNotIn("operation_contracts", focused)
+        self.assertLess(len(canonical_json(focused).encode("utf-8")), len(canonical_json(full).encode("utf-8")) // 20)
+
+    def test_full_without_parameter_paths_keeps_legacy_projection(self):
+        full = build_edit_context(self.design, self.registry, self.targets, response_detail="full")
+        self.assertEqual(full["context_detail"], "full_context")
+        self.assertEqual(full["nodes"][0]["params_value"], self.design["actionData"][0]["data"][3]["paramsValue"])
+        self.assertIn("visible_variables", full["nodes"][0])
+        self.assertIn("operation_contracts", full)
+
+    def test_focused_full_parameter_guards_support_a_checked_plan(self):
+        with PayloadHarness() as harness:
+            session_id = harness.service.begin_edit_session("ActionOne")["session_id"]
+            context = harness.service.inspect_edit_context(session_id, [{"group_key": "main", "node_key": "target"}],
+                response_detail="full", parameter_paths=["/inputParams/settings/flag"])
+            node = context["nodes"][0]
+            row = node["edit_options"]["parameter_operations"][0]
+            guard = node["parameter_guards"][row["expected_old_value_ref"]["guard_index"]]
+            operation = {**row["template"], "expected_old_value": guard["value"], "value": True}
+            result = harness.service.plan_canvas_patch(session_id, [operation], harness.spec(), response_detail="summary")
+            self.assertTrue(result["ready_for_approval"])
+            self.assertFalse(result["write_executed"])
 
     def test_inline_value_budget_is_shared_across_all_fields_and_targets(self):
         target = self.design["actionData"][0]["data"][3]

@@ -27,6 +27,27 @@ create_action_group fields:
 
 Later operations in this batch can use @group_alias for action_group_key or target_action_group_key. Requirements, assertions and scenario group calls can refer to the same aliases. To extend a candidate, pass append_to_plan_id with the latest plan ID; the server combines the original operations and new batch, regenerates and reviews the full candidate from the immutable baseline, then replaces the prior plan. No intermediate draft save is needed. The combined operations must fit 2 MiB; there is no operation count cap. Aliases are batch-local, must be declared first and are never persisted. Existing groups use their exact current keys. Returned diff entries report the generated keys and parameter declarations. Group deletion, arbitrary group metadata replacement and creating a new top-level ActionDesign are not supported.
 
+### 同批调用新建子动作
+
+For native `CallAction`, `input_params.actionName.value` may use a previously declared `@group_alias` in the same complete batch. The adapter resolves its generated key, title, language and native selector link before generation. Node insertions, `replace_params` and guarded `set_parameter` selector updates support this binding. Unknown and forward aliases fail; arbitrary expression strings are never rewritten.
+
+For an aliased call, argument dictionaries may use temporary keys, but every argument record must set `paramName` to its exact declared parameter title. The adapter binds generated parameter keys and orders inputs by declaration order (native calls are positional). Supply every input explicitly, including intentional null via the normal native expression record. Output mappings may select only consumed outputs. Unknown/duplicate names and missing inputs fail. Other record fields retain the verified native ParamInput contract. Existing real-key selectors keep their previous behavior.
+
+```json
+{
+  "operation": "append_node",
+  "action_group_key": "existing-main-group",
+  "element_key": "CallAction",
+  "input_params": {
+    "actionName": {"value": "@prepareReport", "label": "准备报告", "actionType": "csharp", "isActionSelect": true},
+    "recordInput": {"paramName": "recordId", "paramTypes": "custom", "dataType": "string", "value": "recordId", "code": "recordId", "label": "recordId"}
+  },
+  "output_params": {}
+}
+```
+
+This requires an earlier `create_action_group` with alias `prepareReport` and a `recordId` input declaration. Populate the complete child and include caller replacement and original duplicate-block removal in this plan. Do not save first merely to discover generated keys.
+
 ## Repair callback declarations
 
 set_event_callback_contract fields: action_group_key, component_type, event_name. Applies the complete verified event declaration to an existing JS callback. Preserves compatible positional input names and keys; otherwise introduces the audited default names. Does not rewrite expressions. Use only for an in-scope declaration repair, not to force unrelated old metadata into agreement. A preexisting mismatch with unchanged binding identity and complete declarations is reported without blocking; the user decides whether to repair it. Native regeneration and affected-binding checks must succeed.
@@ -84,7 +105,7 @@ parameters in the formal review rather than claiming automatic field validation.
 
 Node input_params and output_params remain the actual element's parameter dictionaries. Inspect the registry and its real parameter editor; nested table fields are not interchangeable with plain ParamInput records. A block operation addresses its complete levelMarker/endMarker range. Anchors and targets must exist in the selected group. New node keys, depth, raw title/description, generated code, SQL and relation data are forbidden.
 
-Keep native captions showing actual variable names and values. For new custom ParamInput values, `label`, `value` and `code` contain the same actual identifier, literal or expression; do not hide them behind Chinese explanations. Native selector records retain their own labels, identities and link metadata. Define complex IF/loop expressions as meaningful variables at the original evaluation point, then reference them. Use single-line native `CustomExt` notes only as a supplement. Follow [readability.md](readability.md); do not override node metadata or add a compilation pass.
+Keep native captions showing actual variable names and values. For new custom ParamInput values, `label`, `value` and `code` contain the same actual identifier, literal or expression; do not hide them behind Chinese explanations. Native selector records retain their own labels, identities and link metadata. Prefer equivalent native conditions, calls and assignments; use named variables for necessary pure computations at the original evaluation point. Use single-line native `CustomExt` notes only as a supplement. Follow [readability.md](readability.md); do not override node metadata or add a compilation pass.
 
 ### Referencing newly generated nodes in one batch
 

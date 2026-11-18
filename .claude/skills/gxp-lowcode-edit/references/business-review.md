@@ -17,7 +17,9 @@ normal and empty inputs, each relevant branch, threshold boundaries, excluded
 page modes, and sequential events where retained values or handlers matter.
 Independent cases start fresh; steps inside one case share state.
 
-Apply [readability](readability.md) within the same candidate: keep actual variable/value displays, define complex conditions as named variables, and preserve evaluation timing (including loop updates), short-circuiting, lock scope, error exits and outputs when extracting variables or child actions. This is part of constructing the change, not a separate scoring gate or approval round.
+Apply [readability](readability.md) within the same candidate: use equivalent native conditions, calls and assignments, retain actual variable/value displays, and preserve evaluation timing (including loop updates), short-circuiting, lock scope, error exits and outputs. A readability split does not authorize new validation, fallback or business rules. Bind extraction, caller replacement and duplicate-path removal to the original requirements. This is part of constructing the change, not a separate scoring gate or approval round.
+
+For a shared action's timing change, inspect its relevant direct callers and parent conditions before moving writes. Distinguish moving one field's update from moving the entire call; preserve other side effects and exclude unrelated callers from the edit.
 
 ## Planning protocol
 

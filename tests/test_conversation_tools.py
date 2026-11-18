@@ -216,6 +216,7 @@ class ConversationToolContractTests(unittest.TestCase):
                     self.assertIn("conversation_id", schema["required"])
                     if name == "attach_edit_session":
                         self.assertIn("session_id", schema["required"])
+                        self.assertEqual(schema["properties"]["queue_id"]["default"], "")
                     if name == "get_edit_queue":
                         self.assertIn("queue_id", schema["required"])
                 else:
@@ -230,8 +231,9 @@ class ConversationToolContractTests(unittest.TestCase):
             def editor_status(self, *, probe_runtime=False):
                 return {"conversation_id": self.conversation_id}
 
-            def attach_edit_session(self, session_id: str):
-                return {"conversation_id": self.conversation_id, "session_id": session_id}
+            def attach_edit_session(self, session_id: str, *, queue_id: str = ""):
+                return {"conversation_id": self.conversation_id, "session_id": session_id,
+                        **({"queue_id": queue_id} if queue_id else {})}
 
         with patch.object(SERVER, "EditorService", ScopedService):
             for arguments, expected in (
@@ -250,6 +252,9 @@ class ConversationToolContractTests(unittest.TestCase):
             )
             self.assertEqual({key: value for key, value in result.items() if key not in {"trace_id", "timings", "total_elapsed_ms"}},
                 {"conversation_id": "dialogue-b", "session_id": "shared-flow"})
+            _, result = asyncio.run(SERVER.mcp.call_tool("attach_edit_session", {
+                "session_id": "shared-flow", "conversation_id": "dialogue-b", "queue_id": "queue-b"}))
+            self.assertEqual(result["queue_id"], "queue-b")
 
 
 if __name__ == "__main__":

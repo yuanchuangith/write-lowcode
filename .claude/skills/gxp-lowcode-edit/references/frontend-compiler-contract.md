@@ -118,8 +118,9 @@ commit writes that string to both `value` and `code`. Validation blocks missing 
 different custom `value`/`code` before approval. Technically `label` may differ;
 it is the canvas description, not the executable expression. This skill preserves
 native variable/value displays: use the actual identifier or expression as the
-custom label, and extract complex conditions into named variables rather than
-hiding them behind Chinese descriptions. Native selector labels remain intact. Do not extend this
+custom label. Prefer equivalent native conditions, calls and assignments; use
+named variables for necessary pure calculations, without hiding business
+operations in initializers. Native selector labels remain intact. Do not extend this
 equality rule to other element contracts without inspecting their actual editors.
 
 Report the action, group, canvas row, element name, adjacent visible elements,

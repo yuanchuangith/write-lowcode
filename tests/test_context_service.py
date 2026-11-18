@@ -24,6 +24,7 @@ class ContextServiceTests(unittest.TestCase):
         self.state = StateStore(self.root / "state.sqlite3")
         self.owner = self.state.create_conversation("owner")["conversation_id"]
         self.other_owner = self.state.create_conversation("other")["conversation_id"]
+        self.enterContext(patch("gxp_editor.connection_settings.active_settings", return_value=None))
         self.canvas = {"actionData": [{"key": "main", "title": "主动作", "actionType": "csharp", "data": [
             {"key": "query", "elementKey": "GetData", "title": "查询", "depth": [],
              "paramsValue": {"inputParams": {"status": "active", "deleted": 0, "kind": "old"},

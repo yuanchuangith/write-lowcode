@@ -32,6 +32,36 @@ class _SessionFixture(unittest.TestCase):
 
 
 class SessionCompletionTests(_SessionFixture):
+    def test_explicit_finish_releases_empty_session_without_save_claim(self):
+        with patch.object(self.service, "_components", side_effect=AssertionError("No business IO")):
+            result = self.service.finish_edit_session(self.session["id"])
+            repeated = self.service.finish_edit_session(self.session["id"])
+        self.assertTrue(result["finished"])
+        self.assertTrue(result["session_released"])
+        self.assertEqual(result["completion_kind"], "empty_session")
+        self.assertFalse(result["verified"])
+        self.assertFalse(result["write_executed"])
+        self.assertEqual(result["publication_targets"], [])
+        self.assertEqual(repeated["completion_kind"], "empty_session")
+        self.assertIsNone(self.store.active_session(self.owner))
+
+    def test_finish_does_not_discard_failed_planning_checkpoint(self):
+        checkpoint = {"schema_version": 1, "revision": "request-1", "requirements": []}
+        self.store.save_review_spec_checkpoint(self.session["id"], checkpoint, expected_sha256=None,
+            conversation_id=self.owner, owner_revision=0)
+        with self.assertRaises(EditorServiceError):
+            self.service.finish_edit_session(self.session["id"])
+        self.assertEqual(self.store.get_session(self.session["id"])["state"], "locked")
+        self.assertIsNotNone(self.store.review_spec_checkpoint(self.session["id"], conversation_id=self.owner))
+
+    def test_explicit_finish_refuses_existing_plan_and_unknown_execution(self):
+        plan = self.store.create_plan(self.session["id"], "plan.json", "old", "new", "compiler", conversation_id=self.owner)
+        for state in ("planned", "locked", "saved_state_pending"):
+            self.store.update_session(self.session["id"], state, conversation_id=self.owner)
+            with self.subTest(state=state), self.assertRaises(EditorServiceError):
+                self.service.finish_edit_session(self.session["id"])
+        self.assertEqual(self.store.get_plan(plan)["status"], "ready")
+
     def test_no_changes_releases_fresh_session_and_allows_another_target(self):
         result = self.service._no_changes_response(self.session)
         self.assertTrue(result["no_changes"])
@@ -75,7 +105,8 @@ class SessionCompletionTests(_SessionFixture):
 
         def finish():
             barrier.wait(timeout=5)
-            return self.finish()
+            return self.store.finish_no_changes(self.session["id"], conversation_id=self.owner,
+                owner_revision=0, require_no_checkpoint=True)
 
         with ThreadPoolExecutor(max_workers=2) as pool:
             planned = pool.submit(plan)

@@ -11,6 +11,12 @@
 5. 保留现有节点时，用当前 `node_key` 作为 `target_node_key`；插入时用已核对的相邻节点作为 `anchor_node_key`。`action_group_key` 来自当前草稿，新增元件的 `element_key` 来自真实注册表，不能臆造 Key 或参数结构。
 6. 给用户展示可见位置、修改前后规则以及实际操作方式。若采用原元件中的自定义表达式，明确表达式所在配置字段；不能描述为“新增 IF 元件”。编译成功证明结构和生成规则可接受，不能证明业务定位正确。
 
+### 取证范围与停止条件
+
+普通编排编辑只查到足以形成候选的证据：**精确草稿和目标节点、实际写入/分支位置、会改变本次操作的直接父条件、直接调用参数，以及必须保留的前后顺序和副作用**。这些已确认且没有冲突时，固定需求并生成最小候选；不要为了“再确认一下有没有别的影响”继续整动作分页、重复 `inspect_control_flow` 或追查无关后端事务。
+
+发现具体缺口就只读取该项：缺节点身份用 `find_edit_nodes`；缺原值或元件字段契约用当前草稿的 `inspect_edit_context`；某个值超过摘要预算才用 `read_edit_value`；缺直接调用关系才用一次有界 `inspect_control_flow`。目标不同的参数路径分开取上下文，不要把一个节点的路径套在其它节点上。当前草稿版本和上下文绑定未变时复用已读结果；指纹变化时只刷新受影响目标和它的直接依赖。若关键写入、执行时点或保留规则仍未知，应说明具体缺口并停在候选前，不用扩展扫描掩盖未知。
+
 `find_edit_nodes` 与 `inspect_edit_context` 都检查会话归属、当前草稿指纹和编译器绑定；搜索结果的 `context_binding` 不替代完整参数，也不能代替审批前检查。精确定位后复用已有匹配上下文。只读 MCP 不可用时，仍可通过这两个 Write 工具完成草稿定位；若会话备份和现有证据也不能提供必要内容，保留已确认结论、说明缺少的证据，不根据源码猜测业务节点。互不依赖的页面、元件契约和源码读取可并行；同一草稿的已确认操作汇总为一次计划。此取证流程不会自动从 debug 技能进入编辑；仍遵守编辑技能的用户授权和审批流程。
 
 `begin_edit_session` 已返回 `supported_operations`、`source_repositories` 和 `readiness_snapshot`，无需为相同证据再调用 `editor_status`。状态工具默认 `probe_runtime=false`；只有排查 SDK 或引用可用性时才显式使用 `true`，候选 C# 的强制编译检查不受此选项影响。`inspect_edit_context` 只读取已确认目标，不用于搜索未知节点；先用 `find_edit_nodes` 或已有只读定位证据缩小范围。
@@ -19,7 +25,7 @@
 
 ## 参数摘要、完整值与模板
 
-MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要不含完整 `params_value`、父参数、可见变量或原生契约；保留定位、契约计数和按需读取提示。`parameter_paths` 可指定 1–32 个不重复的现有 JSON pointer；路径必须在每个目标中存在，不支持数组下标。需要契约、可见变量或完整替换字典时显式请求 `response_detail="full"`。显式 `include_context=true` 优先返回完整上下文，`false` 优先返回旧式完整原值 guards，两者都优先于 detail。
+MCP 入口和 `inspect_edit_context` 默认 `response_detail="summary"`。摘要不含完整 `params_value`、父参数、可见变量或原生契约；保留定位、契约计数和按需读取提示。`parameter_paths` 可指定 1–32 个不重复的现有 JSON pointer；路径必须在每个目标中存在，不支持数组下标。`response_detail="full"` 配合 `parameter_paths` 只返回所选完整参数、对应的原生字段契约、父级摘要和必要守卫，不返回整节点参数、完整父节点或变量目录。若多个节点没有同一路径，按实际路径拆成小组读取。只有确实需要完整节点或多个关联参数时，才对单个精确节点请求不带路径的 `full`；变量选择范围使用 `include_visible_variables=true`。显式 `include_context=true` 优先返回完整上下文，`false` 优先返回旧式完整原值 guards，两者都优先于 detail。
 
 `edit_options.parameter_operations` 是未填完的安全模板，按 `required_inputs` 填入意图明确的替换值。摘要模板的 `guard_ref` 绑定本对话、会话修订、备份、草稿、关系、编译器、目标、路径及原值指纹；直接原样保留，可替代 `expected_old_value`。同一个操作只能选其一。服务先将签名引用还原为完整旧值，再执行原有严格预检、原生生成和审批校验。引用不代表已阅读业务内容或授予审批。
 

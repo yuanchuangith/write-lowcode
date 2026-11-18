@@ -212,6 +212,12 @@ class OperationPreflightTests(unittest.TestCase):
         self.assertIn("Remaining issues are returned", bounded["next_step"])
         self.assertTrue(all("context_ref" in issue for issue in bounded["issues"]))
 
+    def test_error_location_remains_available_past_operation_one_hundred(self):
+        bounded = CompilerError("Rejected", details={"operation_index": 144,
+            "issues": [{"operation_index": 144, "reason_code": "unknown_group_alias"}]}).details
+        self.assertEqual(bounded["operation_index"], 144)
+        self.assertEqual(bounded["issues"][0]["operation_index"], 144)
+
     def test_node_error_enrichment_handles_verify_payload_and_absent_design(self):
         bridge = CompilerBridge(editor_config())
         details = {"phase": "javascript_lexical", "reason_code": "undeclared_identifier", "group_key": "g",

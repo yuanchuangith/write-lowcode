@@ -147,7 +147,7 @@ class EditorService:
                 "pending_graph_review_count": sum(item["review_required"] for item in graph_reviews),
                 "write_executed": False}
 
-    def attach_edit_session(self, session_id: str) -> dict[str, Any]:
+    def attach_edit_session(self, session_id: str, *, queue_id: str = "") -> dict[str, Any]:
         from contextlib import ExitStack
         from .execution_lock import approval_window_lock, execution_lock
         from .process_check import assert_approval_process_stopped
@@ -156,6 +156,11 @@ class EditorService:
         session = self.state.get_session(session_id, include_baseline=False)
         assert_session_database_scope(session)
         with ExitStack() as locks:
+            queue_locks = sorted({value for value in (session.get("queue_id", ""), queue_id) if value})
+            if queue_locks:
+                from .execution_lock import approval_queue_lock
+                for active_queue in queue_locks:
+                    locks.enter_context(approval_queue_lock(active_queue))
             if session.get("transaction_id"):
                 transactions = self.state.session_transactions(session_id)
                 transaction = next((row for row in transactions if row["id"] == session["transaction_id"]), None)
@@ -168,7 +173,7 @@ class EditorService:
                 raise EditorServiceError("审批流程已变化，请重新接手。")
             attached = self.state.transfer_session(session_id, self.conversation_id,
                 expected_owner=session.get("conversation_id", ""), expected_revision=session.get("owner_revision", 0),
-                expected_transaction_id=session.get("transaction_id"), executor_idle=True)
+                expected_transaction_id=session.get("transaction_id"), executor_idle=True, queue_id=queue_id)
         # Transfer has already succeeded. A failed diagnostic must not pretend
         # ownership was left unchanged or prevent handling an obsolete flow.
         try:
@@ -180,7 +185,21 @@ class EditorService:
         except Exception:
             comparison = compare_baseline(expected_identity={"design_id": attached["design_id"], "ref_id": attached["ref_id"]},
                 session_id=session_id, backup_id=attached.get("backup_id", ""), read_error="current_snapshot_unavailable")
+        # A stale baseline with no work needs only normal empty-session closure,
+        # not a cancellation/approval round. Completion rechecks this atomically.
+        if comparison["status"] == "stale":
+            try:
+                snapshot = self.state.cancellation_snapshot(session_id, conversation_id=self.conversation_id)
+                checkpoint = self.state.review_spec_checkpoint(session_id, conversation_id=self.conversation_id,
+                    owner_revision=attached["owner_revision"])
+                if snapshot["session"]["state"] == "locked" and not snapshot["plans"] and not snapshot["transactions"] and not checkpoint:
+                    comparison["minimum_next_step"] = {"tool": "finish_edit_session",
+                        "arguments": {"session_id": session_id, "conversation_id": self.conversation_id},
+                        "instruction": "Finish this empty local session without cancellation, then back up the current draft. No save is being verified."}
+            except StateError:
+                pass  # Transfer succeeded; changed ownership still blocks the next call.
         return {"attached": True, "session_id": session_id, "conversation_id": self.conversation_id,
+                "queue_id": attached.get("queue_id", ""),
                 "owner_revision": attached["owner_revision"], "transaction_id": attached.get("transaction_id"),
                 "session": self._session_summary(attached), "write_executed": False,
                 "baseline_status": "current" if comparison["status"] == "match" else comparison["status"],
@@ -589,6 +608,10 @@ class EditorService:
                                                 queue_id=queue_id, handoff=handoff,
                                                 evidence_candidates=evidence_candidates, response_detail=response_detail)
             return {"blocked": True, "active_session_id": occupied["id"],
+                    "error_code": "target_owned_by_other_dialogue", "next_read": None,
+                    "takeover": {"tool": "attach_edit_session", "requires_explicit_user_request": True,
+                        "arguments": {"session_id": occupied["id"], "conversation_id": self.conversation_id,
+                                      **({"queue_id": queue_id} if queue_id else {})}},
                     "message": "这份草稿已有独立编辑流程。请关闭原审批窗口后，用会话标记显式接手；其他草稿可并行编辑。"}
         registry = compiler.describe_registry()
         supported = {str(item["key"]) for item in registry.get("elements") or [] if item.get("supported", True)}
@@ -2098,6 +2121,15 @@ class EditorService:
     def finish_edit_session(self, session_id: str) -> dict[str, Any]:
         from .execution_evidence import execution_evidence
         session = self._owned_session(session_id)
+        if session["state"] in {"locked", "finished"} and self.state.finish_no_changes(
+                session_id, conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0),
+                require_no_checkpoint=True):
+            return {"session_id": session_id, "finished": True, "session_released": True,
+                    "completion_kind": "empty_session", "empty_session": True,
+                    "executed": False, "write_executed": False, "verified": False,
+                    "current_draft_rechecked": False, "publication_targets": [],
+                    "backups_retained": True, "audit_retained": True,
+                    "message": "空编辑会话已结束并释放本地占用；没有计划、审批或保存，不代表业务草稿已验证。"}
         if session["state"] not in {"verified", "finished"}:
             raise EditorServiceError("Session must be verified before it can be finished")
         transaction = self.state.get_transaction(session["transaction_id"]) if session.get("transaction_id") else {}

@@ -146,6 +146,37 @@ function applyOperations(design, operations, native, api) {
     if (!aliases.has(value.slice(1))) throw new Error('Unknown action group alias: ' + value);
     return aliases.get(value.slice(1));
   };
+  // Only native CallAction selectors are aliases; expression strings are data.
+  // CallAction passes inputs positionally, in dictionary order.
+  const callParameters = (element, inputs, outputs) => {
+    const selector = inputs?.actionName;
+    if (element !== 'CallAction' || typeof selector?.value !== 'string' || !selector.value.startsWith('@')) {
+      return {inputs, outputs};
+    }
+    const target = api.actionByKey(design, resolve(selector.value));
+    const bind = (values, declarations, direction) => {
+      const named = new Map();
+      for (const [key, value] of Object.entries(values || {})) {
+        if (direction === 'input' && key === 'actionName') continue;
+        if (value == null) continue;
+        if (!object(value) || typeof value.paramName !== 'string' || named.has(value.paramName)
+            || !declarations.some(param => param.title === value.paramName)) {
+          reject('invalid_call_parameter', 'Aliased CallAction requires unique declared paramName values for ' + direction + ' parameters');
+        }
+        named.set(value.paramName, value);
+      }
+      const bound = {};
+      for (const param of declarations) {
+        if (named.has(param.title)) bound[param.key] = named.get(param.title);
+        else if (direction === 'input') reject('missing_call_parameter', 'Aliased CallAction requires every declared input parameter: ' + param.title);
+      }
+      return bound;
+    };
+    const actionName = {...selector, value: target.key, label: target.title, actionType: target.actionType,
+      isActionSelect: true, action: 'openAction', payload: {...(object(selector.payload) ? selector.payload : {}), id: target.key}};
+    return {inputs: {actionName, ...bind(inputs, target.inputParams || [], 'input')},
+      outputs: bind(outputs, target.outputParams || [], 'output')};
+  };
   const issuedKeys = new Set();
   const uid = prefix => {
     const used = new Set(design.actionData.flatMap(g => [g.key, ...(g.data || []).map(n => n.key), ...(g.inputParams || []).map(p => p.key), ...(g.outputParams || []).map(p => p.key)]));
@@ -256,6 +287,13 @@ function applyOperations(design, operations, native, api) {
       }
       op[field] = reference.nodeKey;
     }
+    if (typeof op.input_params?.actionName?.value === 'string' && op.input_params.actionName.value.startsWith('@')) {
+      const element = op.element_key || (op.operation === 'replace_params'
+        ? group.data[api.nodeIndex(group, op.target_node_key)].elementKey : null);
+      const bound = callParameters(element, op.input_params, op.output_params);
+      op.input_params = bound.inputs;
+      if (bound.outputs !== undefined) op.output_params = bound.outputs;
+    }
     const diffStart = diff.length;
     if (op.operation === 'set_parameter' || op.operation === 'set_array_item') {
       fields(op, ['operation', 'action_group_key', 'target_node_key', 'expected_element_key', 'path', 'expected_old_value', 'value', ...(op.operation === 'set_array_item' ? ['item_key'] : [])]);
@@ -305,6 +343,8 @@ function applyOperations(design, operations, native, api) {
           affected_node_keys:[], generated_nodes:[], before_node_count:group.data.length, after_node_count:group.data.length});
         continue;
       }
+      const bound = callParameters(current.elementKey, params.inputParams, params.outputParams);
+      params.inputParams = bound.inputs; params.outputParams = bound.outputs;
       // Validate native regeneration before replacing anything on the caller's canvas.
       const candidateGroup = {...group, data: group.data.slice()};
       const candidate = {...design, actionData: design.actionData.map(item => item === group ? candidateGroup : item)};

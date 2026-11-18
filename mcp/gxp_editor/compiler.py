@@ -51,7 +51,7 @@ class CompilerError(RuntimeError):
         if not isinstance(details, dict):
             return {}
         index = details.get("operation_index")
-        result = {"operation_index": index if type(index) is int and 0 <= index < 100 else None}
+        result = {"operation_index": index if type(index) is int and index >= 0 else None}
         for field in ("group_key", "node_key", "path"):
             value = details.get(field)
             result[field] = value[:256] if isinstance(value, str) else None

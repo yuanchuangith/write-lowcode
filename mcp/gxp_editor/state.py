@@ -355,16 +355,20 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         return row
 
     def finish_no_changes(self, session_id: str, *, conversation_id: str,
-                          owner_revision: int) -> bool:
+                          owner_revision: int, require_no_checkpoint: bool = False) -> bool:
         """Release a fresh no-op only; never discard a concurrent or older plan."""
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
             self._assert_owner(session, conversation_id, owner_revision)
-            if (session["state"] != "locked" or session["plan_id"] or session["transaction_id"]
+            allowed_states = {"locked", "finished"} if require_no_checkpoint else {"locked"}
+            if (session["state"] not in allowed_states or session["plan_id"] or session["transaction_id"]
                     or db.execute("SELECT 1 FROM plans WHERE session_id=?", (session_id,)).fetchone()
-                    or db.execute("SELECT 1 FROM transactions WHERE session_id=?", (session_id,)).fetchone()):
+                    or db.execute("SELECT 1 FROM transactions WHERE session_id=?", (session_id,)).fetchone()
+                    or require_no_checkpoint and db.execute("SELECT 1 FROM review_spec_checkpoints WHERE session_id=?", (session_id,)).fetchone()):
                 return False
+            if session["state"] == "finished":
+                return True
             db.execute("UPDATE sessions SET state='finished',updated_at=? WHERE id=?",
                        (datetime.now().isoformat(timespec="seconds"), session_id))
         return True
@@ -797,26 +801,48 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
             db.execute("UPDATE plans SET status='cancelled' WHERE session_id=? AND status IN ('ready','blocked','frozen')", (transaction["session_id"],))
             db.execute("UPDATE sessions SET state=?,updated_at=? WHERE id=?", ("verified" if outcome == "saved" else outcome, now, transaction["session_id"]))
 
-    def transfer_session(self, session_id: str, conversation_id: str, *, expected_owner: str, expected_revision: int, expected_transaction_id: str | None = None, executor_idle: bool = False) -> dict[str, Any]:
+    def transfer_session(self, session_id: str, conversation_id: str, *, expected_owner: str, expected_revision: int, expected_transaction_id: str | None = None, executor_idle: bool = False, queue_id: str = "") -> dict[str, Any]:
         """Caller holds the window and executor locks before changing ownership."""
         with self._connection() as db:
             db.execute("BEGIN IMMEDIATE")
             self._conversation_exists(db, conversation_id)
+            if queue_id:
+                self._assert_queue_owner(db, queue_id, conversation_id)
             session = db.execute("SELECT * FROM sessions WHERE id=?", (session_id,)).fetchone()
             self._assert_owner(session, expected_owner, expected_revision)
             if session["transaction_id"] != expected_transaction_id:
                 raise StateError("审批流程已变化，请重新接手。")
             if session["state"] not in ACTIVE_STATES:
                 raise StateError("已结束的会话无需接手，请新建编辑会话。")
-            active = db.execute("SELECT id FROM sessions WHERE conversation_id=? AND id!=? AND state IN ('locked','planned','awaiting_approval','saved','saved_state_pending','verified','restore_pending')", (conversation_id, session_id)).fetchone()
+            active = db.execute("""SELECT s.id FROM sessions s
+                LEFT JOIN edit_queue_items i ON i.session_id=s.id
+                WHERE s.conversation_id=? AND s.id!=?
+                AND s.state IN ('locked','planned','awaiting_approval','saved','saved_state_pending','verified','restore_pending')
+                AND (?='' OR s.queue_id!=? OR i.queue_id IS NULL OR i.queue_id!=? OR i.owner_revision!=s.owner_revision)""",
+                (conversation_id, session_id, queue_id, queue_id, queue_id)).fetchone()
             if active:
                 raise StateError("当前对话已有其他编辑会话，请先结束它。")
             if session["transaction_id"]:
                 transaction = db.execute("SELECT state FROM transactions WHERE id=?", (session["transaction_id"],)).fetchone()
                 if transaction and transaction["state"] == "executing" and not executor_idle:
                     raise StateError("审批流程正在执行，不能转交。")
-            if session["conversation_id"] != conversation_id:
-                db.execute("UPDATE sessions SET conversation_id=?,owner_revision=owner_revision+1,updated_at=? WHERE id=?", (conversation_id, datetime.now().isoformat(timespec="seconds"), session_id))
+            if (session["conversation_id"] != conversation_id
+                    or queue_id and session["queue_id"] != queue_id):
+                db.execute("UPDATE sessions SET conversation_id=?,queue_id=?,owner_revision=owner_revision+1,updated_at=? WHERE id=?",
+                    (conversation_id, queue_id or session["queue_id"], datetime.now().isoformat(timespec="seconds"), session_id))
+            if queue_id:
+                from .action_context import action_context
+                revision = db.execute("SELECT owner_revision FROM sessions WHERE id=?", (session_id,)).fetchone()[0]
+                member = db.execute("SELECT * FROM edit_queue_items WHERE session_id=?", (session_id,)).fetchone()
+                if not member or member["queue_id"] != queue_id or member["owner_revision"] != revision:
+                    position = db.execute("SELECT COALESCE(MAX(position),0)+1 FROM edit_queue_items WHERE queue_id=?", (queue_id,)).fetchone()[0]
+                    context = member["context_json"] if member else json.dumps(action_context(json.loads(session["baseline_json"])), ensure_ascii=False)
+                    if member:
+                        db.execute("UPDATE edit_queue_items SET queue_id=?,owner_revision=?,position=?,context_json=? WHERE session_id=?",
+                            (queue_id, revision, position, context, session_id))
+                    else:
+                        db.execute("INSERT INTO edit_queue_items VALUES (?,?,?,?,?)",
+                            (queue_id, session_id, revision, position, context))
         return self.get_session(session_id, include_baseline=False)
 
     def get_transaction(self, transaction_id: str) -> dict[str, Any]:

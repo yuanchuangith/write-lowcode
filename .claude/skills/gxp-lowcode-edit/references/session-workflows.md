@@ -32,6 +32,8 @@ Never forcibly clear live execution or silently discard an uncertain result.
 
 ## Chat-authorized cancellation of unexecuted work
 
+For an owned empty session, use the normal [empty-session completion](#结束空编辑会话) instead of cancellation. Cancellation confirmation applies to abandoning existing work, not merely closing an empty local editing context.
+
 When the user wants AI to cancel an old unexecuted workflow, call
 `inspect_session_cancellation(session_id, conversation_id)`. Show the action name
 and code, the exact plan/approval IDs and the effect: invalidate that review,
@@ -322,7 +324,10 @@ user requests continuation.
 - `session_marker` is the returned `session_id`, which the user may give to another
   dialogue. Keep `conversation_id` local to its original dialogue.
 - The receiving dialogue creates its own conversation marker once, then calls
-  `attach_edit_session(session_id, conversation_id)` when the user requests takeover.
+  `attach_edit_session(session_id, conversation_id, queue_id)` when the user requests takeover.
+  For several authorized actions, pass the receiving dialogue's existing queue ID;
+  its other current queued drafts remain open. Do not cancel those drafts just
+  to attach the next action. Omit queue_id only for a single-session handoff.
   The original approval window must be closed and its executor must be idle.
   A busy window or executor blocks handoff; close it before retrying.
 - A stale `executing` record can be handed off for recovery when the actual window,
@@ -332,6 +337,10 @@ user requests continuation.
   owner, and invalidates the old dialogue's access and in-flight mutations. It
   does not approve or execute statements. Use the returned transaction ID with
   `reopen_approval` and the new marker to open the flow in the receiving dialogue.
+- When continuing a multi-action repair, create the receiving dialogue's queue
+  first and pass that `queue_id` to `attach_edit_session`. Then continue planning
+  in the existing queue without ending its other actions. An active source or
+  destination queue window must close before membership transfer.
 - `attached=true` remains a successful transfer even when subsequent baseline
   diagnostics are unavailable. Inspect `baseline_status=current/stale/unknown`
   and its comparison time; stale evidence still permits handling/cancellation,
@@ -339,3 +348,28 @@ user requests continuation.
 - An old session handling window cannot cancel, recover, reopen or finish a flow
   after handoff. Status is scoped to the calling dialogue. Omitting a marker
   accesses only legacy sessions, never all dialogues.
+
+An explicit target queue must belong to the receiving dialogue; all its other
+active sessions must be current members of that same queue. Moving ownership or
+queue increments the session revision atomically, updates membership and invalidates
+old queue/window snapshots. Repeating the same completed attachment is idempotent.
+Source queue windows and executors must be stopped. Plans, signed artifacts and
+transaction outcomes are retained unchanged; attachment does not execute them,
+and uncertain results still need recovery before another save. Read the returned
+session and queue IDs once and reuse them for later calls.
+
+## 结束空编辑会话
+
+Use `finish_edit_session(session_id, conversation_id)` when an owned local editing
+context needs to be closed and has not produced any work. The tool atomically
+requires a locked session with no current or historical plans, transactions, or
+requirements checkpoint; it rechecks owner/revision and is safe against a racing
+first plan. It preserves the backup and history and writes no business data.
+No cancellation question or new approval is needed for this empty-context completion.
+
+`completion_kind="empty_session"`, `session_released=true` and `verified=false`
+mean only that the empty local session ended; do not report a saved draft,
+publication or runtime verification. Repeated completion is idempotent.
+Any existing plan, failed planning checkpoint or uncertain execution blocks this
+path. Continue that work or use its existing inspected cancellation/recovery
+procedure; do not repeatedly create and cancel sessions to avoid it.

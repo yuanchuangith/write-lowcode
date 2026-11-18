@@ -56,6 +56,43 @@ test('unknown or reused aliases and duplicate group titles fail',()=>{
   const d=design();assert.throws(()=>apply(d,[create(),create()]),/duplicate group_alias/);
   assert.throws(()=>apply(design(),[{...create(),group_title:'初始化'}]),/already exists/);
 });
+test('CallAction binds a new group and named arguments in one candidate without persisting aliases',()=>{
+  const d=design();
+  const param=(paramName,code)=>({paramName,paramTypes:'custom',value:code,code,label:code});
+  const call={operation:'append_node',action_group_key:'main',element_key:'CallAction',input_params:{
+    actionName:{value:'@child',label:'child',actionType:'js',payload:{id:'@child'},isActionSelect:true},
+    second:param('second','2'),first:param('first','1')},output_params:{answer:param('answer','result')}};
+  const ops=[{operation:'create_action_group',group_alias:'child',group_title:'准备结果',action_type:'csharp',
+    input_params:[{title:'first',type:'string'},{title:'second',type:'string'}],output_params:[{title:'answer',type:'string'}]},call];
+  const original=structuredClone(ops);
+  apply(d,ops);
+  const child=d.actionData[1], params=d.actionData[0].data[0].paramsValue;
+  assert.equal(params.inputParams.actionName.value,child.key);
+  assert.equal(params.inputParams.actionName.payload.id,child.key);
+  assert.equal(params.inputParams.actionName.actionType,'csharp');
+  assert.equal(params.inputParams.actionName.label,'准备结果');
+  assert.deepEqual(Object.keys(params.inputParams),['actionName',...child.inputParams.map(p=>p.key)]);
+  assert.deepEqual(Object.values(params.inputParams).slice(1).map(p=>p.code),['1','2']);
+  assert.deepEqual(Object.keys(params.outputParams),[child.outputParams[0].key]);
+  assert.equal(JSON.stringify(d).includes('@child'),false);
+  assert.deepEqual(ops,original);
+});
+test('CallAction rejects forward aliases and missing or duplicate named arguments before generation',()=>{
+  const call={operation:'append_node',action_group_key:'main',element_key:'CallAction',input_params:{actionName:{value:'@child'}}};
+  assert.throws(()=>apply(design(),[call]),/Unknown action group alias/);
+  const child={operation:'create_action_group',group_alias:'child',group_title:'子动作',action_type:'js',input_params:[{title:'id',type:'string'}]};
+  assert.throws(()=>apply(design(),[child,call]),error=>error.details.reason_code==='missing_call_parameter');
+  for(const args of [{x:{paramName:'wrong',code:'1'}},{x:{paramName:'id',code:'1'},y:{paramName:'id',code:'2'}}]){
+    assert.throws(()=>apply(design(),[child,{...call,input_params:{...call.input_params,...args}}]),error=>error.details.reason_code==='invalid_call_parameter');
+  }
+});
+test('CallAction alias binding leaves existing selectors and arbitrary expression text intact',()=>{
+  const d=design();const value={value:'main',label:'初始化'};
+  apply(d,[{operation:'append_node',action_group_key:'main',element_key:'CallAction',input_params:{actionName:value}},
+    {operation:'append_node',action_group_key:'main',element_key:'SetVariable',input_params:{variableValue:{value:'@literal',code:'@literal'}}}]);
+  assert.deepEqual(d.actionData[0].data[0].paramsValue.inputParams.actionName,value);
+  assert.equal(d.actionData[0].data[1].paramsValue.inputParams.variableValue.code,'@literal');
+});
 test('rejects generated code and unrecognized metadata fields',()=>{
   for(const extra of [{js_code:'x'},{key:'owned'},{depth:[]},{sql:'x'},{raw_code:'x'},{unexpected:true}])assert.throws(()=>apply(design(),[{...create(),...extra}]),/forbidden|Unsupported field/);
 });
