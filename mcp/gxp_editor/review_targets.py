@@ -66,6 +66,12 @@ def resolve_review_targets(spec, bindings, candidate=None):
             target(item)
     for assertion in result.get("canvas_assertions", []):
         target(assertion["target"])
+    for block in result.get("comment_blocks", []):
+        locator = {"group_key": block["group_key"], "node_key": block.get("anchor_node_key", "")}
+        target(locator)
+        block["group_key"] = locator["group_key"]
+        if "anchor_node_key" in block:
+            block["anchor_node_key"] = locator["node_key"]
     for case in result["scenarios"]["cases"]:
         for step in case["steps"]:
             if step["kind"] == "call_group":

@@ -35,7 +35,7 @@ def _database(ctx):
 
 
 def collect_schema(ctx, deadline):
-    from .schema_repository import SchemaMetadataRepository
+    from .schema_repository import SCHEMA_SEARCH_INDEX, SchemaMetadataRepository, schema_search_index_entry
     schema = SchemaMetadataRepository(_database(ctx)).load_schema(deadline=deadline)
     fingerprint = hashlib.sha256(json.dumps(schema, sort_keys=True, ensure_ascii=False, default=str,
                                             separators=(",", ":")).encode()).hexdigest()
@@ -55,11 +55,15 @@ def collect_schema(ctx, deadline):
             declared += len(table.get("foreign_keys", []))
         # Existing readers accept these standard files; no data-relation aggregates are run.
         _json_value(work / "indexes/tables.json", tables)
+        _json_value(work / SCHEMA_SEARCH_INDEX, {
+            "schema_fingerprint": fingerprint,
+            "tables": [schema_search_index_entry(table) for table in schema.get("tables", [])],
+        })
         _json_value(work / "relations/verified.json", [])
         _json_value(work / "validation-attempts.json", [])
         atomic_json(work / "indexes/table-usage.json", {"generated_at": _now(), "usages": [], "note": "metadata only"})
         counts = {"tables": len(tables), "declared_foreign_keys": declared, "candidates": 0, "verified_relations": 0}
-        atomic_json(work / "manifest.json", {"version": 1, "database": schema.get("database"), "completed_at": _now(),
+        atomic_json(work / "manifest.json", {"version": 2, "database": schema.get("database"), "completed_at": _now(),
             "schema_fingerprint": fingerprint, "project_binding": ctx.binding(), "database_scope": ctx.database_scope,
             "refresh_generation": ctx.refresh_generation, "metadata_only": True, "counts": counts,
             "policy": {"scope_id": ctx.business_scope_id, "available": False, "storage": "local", "error": "metadata_only"}})

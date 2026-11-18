@@ -67,6 +67,10 @@ class RepositoryError(RuntimeError):
     pass
 
 
+class DesignNotFound(RepositoryError):
+    """The requested design row is no longer available in this scope."""
+
+
 class GxpRepository:
     """Read-only access to action metadata, design history and business rows."""
 
@@ -559,7 +563,7 @@ LIMIT {safe_limit}
         with self.database.session(timeout_ms=10000) as session:
             rows, _ = session.query(sql, params, max_rows=1)
         if not rows:
-            raise RepositoryError(
+            raise DesignNotFound(
                 f"Design payload not found for ref_Id={ref_id}, design_id={selected.get('design_id')}"
             )
         return self._design_row(rows[0], include_content=True, include_csharp=include_csharp)
@@ -607,7 +611,7 @@ LIMIT {safe_limit}
             versions = active or versions
         if not versions:
             detail = f" at {at_time}" if at_time else ""
-            raise RepositoryError(f"No {version} design found for ref_Id={ref_id}{detail}")
+            raise DesignNotFound(f"No {version} design found for ref_Id={ref_id}{detail}")
         item = versions[0]
         if "data" not in item:
             item = self._load_design_content(

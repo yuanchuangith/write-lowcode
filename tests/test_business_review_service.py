@@ -16,7 +16,7 @@ from tests.helpers import baseline, editor_config, runtime_validation
 from tests.test_service import FakeCompiler, PlanRepository
 from gxp_editor.approval import load_artifact, save_artifact
 from gxp_editor.hashing import sha256_json, sha256_text
-from gxp_editor.logic_review import LogicReviewError
+from gxp_editor.logic_review import LogicReviewError, plan_binding_hash
 from gxp_editor.logic_scenarios import RUNNER_VERSION, LogicScenarioRunner
 from tests.scenario_evidence import passed_receipt
 from gxp_editor.service import EditorService, EditorServiceError
@@ -267,6 +267,55 @@ class BusinessReviewServiceTests(unittest.TestCase):
         self.assertFalse(self.service.prepare_write(inherited["plan_id"])["approval_window_opened"])
         self.launch.assert_not_called()
 
+    def test_required_comment_uses_existing_review_gate_and_survives_plan_append(self):
+        spec = review_spec()
+        spec["requirements"][0]["targets"] = [{"group_key": "main"}]
+        spec["comment_blocks"] = [{"id": "reason", "requirement_id": "retain", "group_key": "main",
+                                    "anchor_node_key": "assign"}]
+        missing = self.plan(spec)
+        self.assertFalse(missing["ready_for_approval"])
+        self.assertEqual(missing["review_summary"]["readability_failed"], 1)
+        self.assertEqual(missing["review_issues"][0]["section"], "readability")
+        findings = self.service.read_plan_review(missing["plan_id"], section="readability", item_id="comment:reason")
+        self.assertEqual(findings["items"][0]["rule"], "required_native_comment")
+        self.assertFalse(self.service.prepare_write(missing["plan_id"])["approval_window_opened"])
+        self.launch.assert_not_called()
+        self.assertEqual(self.service.state.session_transactions(self.session_id), [])
+
+        removed = copy.deepcopy(spec)
+        del removed["comment_blocks"]
+        with self.assertRaisesRegex(EditorServiceError, "revision"):
+            self.service.revise_canvas_plan(missing["plan_id"], review_spec=removed)
+        removed["revision"] = "request-2"
+        with self.assertRaisesRegex(EditorServiceError, "用户依据"):
+            self.service.revise_canvas_plan(missing["plan_id"], review_spec=removed)
+
+        def with_native_note(design, operations, **kw):
+            result = self.compile(design, operations, **kw)
+            note = {"key": "reason", "elementKey": "CustomExt", "depth": [], "paramsValue": {
+                "inputParams": {"content": operations[-1]["input_params"]["content"]}}}
+            result["design"]["actionData"][0]["data"].insert(0, note)
+            return result
+
+        self.compiler.compile_patch.side_effect = with_native_note
+        result = self.service.plan_canvas_patch(self.session_id, [{"operation": "insert_before",
+            "action_group_key": "main", "anchor_node_key": "assign", "element_key": "CustomExt",
+            "input_params": {"content": "保留编辑记录已有值，避免覆盖人工录入。"}}], append_to_plan_id=missing["plan_id"])
+        self.assertTrue(result["ready_for_approval"])
+        self.assertEqual(result["review_summary"]["readability_failed"], 0)
+        self.assertEqual(result["review_report"]["spec"]["comment_blocks"], spec["comment_blocks"])
+        self.assertTrue(self.service.prepare_write(result["plan_id"])["approval_window_opened"])
+        self.launch.assert_called_once()
+
+    def test_readability_warning_does_not_block_approval(self):
+        with patch("gxp_editor.readability_review._analyzer_findings", return_value=[{
+                "id": "warn", "rule": "long_expression", "status": "warning", "group_key": "main",
+                "node_key": "assign", "field_path": "paramsValue/inputParams/value", "reason": "Review expression"}]):
+            result = self.plan(review_spec())
+        self.assertTrue(result["ready_for_approval"])
+        self.assertEqual(result["review_summary"]["readability_warnings"], 1)
+        self.assertTrue(any(issue["status"] == "warning" for issue in result["review_issues"]))
+
     def test_changing_or_removing_canvas_assertion_needs_revision_and_new_basis(self):
         original = self.assertion_spec()
         self.plan(original)
@@ -462,6 +511,27 @@ class BusinessReviewServiceTests(unittest.TestCase):
         save_artifact(plan["artifact_path"], artifact)
         with self.assertRaisesRegex(EditorServiceError, "重新生成计划"):
             self.service.prepare_write(result["plan_id"])
+
+    def test_signed_review_format_stays_readable_but_legacy_unsigned_plan_requires_readability_replan(self):
+        result = self.plan(review_spec())
+        plan_id = result["plan_id"]
+        plan = self.service.state.get_plan(plan_id)
+        artifact = load_artifact(plan["artifact_path"])
+        review = artifact["business_review"]
+        del review["readability"]
+        del review["summary"]["readability_failed"]
+        del review["summary"]["readability_warnings"]
+        review["review_sha256"] = sha256_json({key: value for key, value in review.items() if key != "review_sha256"})
+        save_artifact(plan["artifact_path"], artifact)
+        with self.service.state._connection() as db:
+            db.execute("UPDATE plans SET new_hash = ? WHERE id = ?", (plan_binding_hash(artifact), plan_id))
+        self.assertEqual(self.service.read_plan_review(plan_id, section="readability")["items"], [])
+        with self.assertRaisesRegex(EditorServiceError, "旧计划缺少编排可读性检查"):
+            self.service.prepare_write(plan_id)
+        self.launch.assert_not_called()
+        refreshed = self.service.revise_canvas_plan(plan_id, response_detail="full")
+        self.assertTrue(refreshed["ready_for_approval"])
+        self.assertIn("readability", refreshed["review_report"])
 
     def test_summary_response_and_approval_preserve_complete_artifact(self):
         self.outcome = "failed"

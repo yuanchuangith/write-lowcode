@@ -3,10 +3,16 @@ from __future__ import annotations
 
 import json
 
+from .action_context import canonical_action_code
 from .handoff_store import (HandoffError, HandoffStore, environment_scope, snapshot_targets,
                             compare_targets, design_content_sha256)
 from .hashing import sha256_text
 from .telemetry import stage
+
+
+def _matches_action(action, draft):
+    code = action.get("action_code")
+    return action["ref_id"] == str(draft["ref_id"]) and (not code or code == canonical_action_code(draft))
 
 
 def discover_handoffs(draft, database_config):
@@ -18,7 +24,7 @@ def discover_handoffs(draft, database_config):
             # Public lookup accepts either a RefId or action code. A different
             # action's code can equal this RefId, so enforce exact identity here.
             candidates = [item for item in page["candidates"]
-                          if item["action"]["ref_id"] == str(draft["ref_id"])
+                          if _matches_action(item["action"], draft)
                           and item["environment_scope"] == scope]
             return {"status": "available", **page, "candidates": candidates,
                     "count": len(candidates), "environment_scope": scope, "selection_required": True,
@@ -63,7 +69,7 @@ def inspect_handoff(reference, draft, database_config):
             raise HandoffError("HANDOFF_ENVIRONMENT", "Handoff belongs to a different configured environment")
         if record["action"]["ref_id"] != str(draft["ref_id"]):
             raise HandoffError("HANDOFF_TARGET", "Handoff does not identify the selected active draft")
-        if record["action"].get("action_code") and record["action"]["action_code"] != str(draft.get("code") or ""):
+        if not _matches_action(record["action"], draft):
             raise HandoffError("HANDOFF_TARGET", "Handoff action code does not match the selected draft")
         targets = [{"group_key": item["group_key"], "node_key": item["node_key"]} for item in record["targets"]]
         # Keep the original requirements and diagnosis available even when a

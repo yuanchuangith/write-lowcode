@@ -85,7 +85,7 @@ def revise_review_spec(base_spec: dict, update: dict) -> dict:
 
     if type(base_spec) is not dict or type(update) is not dict:
         raise ValueError("base_spec and update must be JSON objects")
-    allowed = {"revision", "schema_version", "requirements", "canvas_assertions", "change_source_text"}
+    allowed = {"revision", "schema_version", "requirements", "canvas_assertions", "comment_blocks", "change_source_text"}
     if set(update) - allowed or "revision" not in update:
         raise ValueError("review update requires revision and only supported upsert fields")
     if (type(update["revision"]) is not str or not update["revision"].strip()
@@ -103,7 +103,7 @@ def revise_review_spec(base_spec: dict, update: dict) -> dict:
     revised["revision"] = update["revision"]
     if "change_source_text" in update:
         revised["change_source_text"] = deepcopy(update["change_source_text"])
-    for section in ("requirements", "canvas_assertions"):
+    for section in ("requirements", "canvas_assertions", "comment_blocks"):
         if section not in update:
             continue
         updates = update[section]

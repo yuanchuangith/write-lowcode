@@ -7,6 +7,7 @@ from copy import deepcopy
 from typing import Any
 
 from .canvas_assertions import CanvasAssertionError, build_canvas_checks, normalize_canvas_assertions, validate_json_value
+from .readability_review import build_readability, normalize_comment_blocks, validate_readability
 from .hashing import canonical_json, design_content_hash, sha256_json, sha256_text
 from .review_targets import scope_path, path_covers, resolve_review_targets
 from .planning_limits import MAX_REVIEW_BYTES
@@ -45,7 +46,7 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
         validate_json_value(spec)
     except CanvasAssertionError as exc:
         raise LogicReviewError(str(exc)) from exc
-    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text", "canvas_assertions", "scope_policy"}
+    unknown = set(spec) - {"schema_version", "revision", "requirements", "scenarios", "change_source_text", "canvas_assertions", "scope_policy", "comment_blocks"}
     if unknown:
         raise LogicReviewError("review_spec 包含未知字段：" + ", ".join(sorted(unknown)))
     revision = _text(spec.get("revision"), "review_spec.revision", limit=128)
@@ -97,6 +98,11 @@ def normalize_review_spec(spec: dict[str, Any] | None, *, legacy_scope: bool = F
         try:
             result["canvas_assertions"] = normalize_canvas_assertions(spec["canvas_assertions"], normalized)
         except CanvasAssertionError as exc:
+            raise LogicReviewError(str(exc)) from exc
+    if "comment_blocks" in spec:
+        try:
+            result["comment_blocks"] = normalize_comment_blocks(spec["comment_blocks"], normalized)
+        except ValueError as exc:
             raise LogicReviewError(str(exc)) from exc
     if "change_source_text" in spec:
         result["change_source_text"] = _text(spec["change_source_text"], "review_spec.change_source_text")
@@ -473,7 +479,7 @@ def _validate_passed_data_oracle(expect, result):
             raise LogicReviewError("场景通过断言与固定预期或实际观察值不一致：" + assertion["name"])
 
 
-def _review_summary(spec, changes, report, requirements=None, canvas_checks=None):
+def _review_summary(spec, changes, report, requirements=None, canvas_checks=None, readability=None):
     counts = {status: sum(case["candidate"]["status"] == status for case in report["cases"]) for status in _STATUSES}
     scope_unknown = sum(change["status"] == "unverified" for change in changes)
     scope_failed = sum(change["status"] == "failed" for change in changes)
@@ -488,6 +494,11 @@ def _review_summary(spec, changes, report, requirements=None, canvas_checks=None
         summary.update(configuration_counts)
         failures += configuration_counts["configuration_failed"]
         unknowns += configuration_counts["configuration_unverified"]
+    if readability is not None:
+        findings = readability["findings"]
+        failed = sum(row["status"] == "failed" for row in findings)
+        summary.update(readability_failed=failed, readability_warnings=len(findings) - failed)
+        failures += failed
     gate = {"blocked": bool(failures), "fail_count": failures, "unknown_count": unknowns,
             "pass_count": counts["passed"] + (summary.get("configuration_passed", 0))}
     return summary, gate, "failed" if failures else "unverified" if unknowns else "passed"
@@ -506,7 +517,9 @@ def build_business_review(*, review_spec, baseline_design, candidate_design, com
     try:
         canvas_checks = build_canvas_checks(spec["canvas_assertions"], baseline, candidate) if "canvas_assertions" in spec else None
         requirements = _requirements_evidence(spec, scenarios, candidate, canvas_checks)
-        summary, gate, status = _review_summary(spec, changes, scenarios, requirements, canvas_checks)
+        frontend_root = (compiler_binding.get("source_provenance") or {}).get("frontend_repo")
+        readability = build_readability(spec, baseline, candidate, frontend_root=frontend_root)
+        summary, gate, status = _review_summary(spec, changes, scenarios, requirements, canvas_checks, readability)
     except CanvasAssertionError as exc:
         raise LogicReviewError(str(exc)) from exc
     except (KeyError, TypeError) as exc:
@@ -517,7 +530,7 @@ def build_business_review(*, review_spec, baseline_design, candidate_design, com
                            "baseline_js_sha256": sha256_text(str(baseline_design.get("js_code") or "")),
                            "candidate_hashes": hashes, "compiler_binding_sha256": compiler_binding.get("compiler_binding_sha256"),
                            "review_spec_sha256": sha256_json(spec)},
-              "summary": summary, "candidate_gate": gate, "status": status,
+              "summary": summary, "candidate_gate": gate, "status": status, "readability": readability,
               "browser_verified": False, "runtime_verified": False}
     if canvas_checks is not None:
         review["canvas_checks"] = canvas_checks
@@ -634,7 +647,17 @@ def validate_business_review(review, *, baseline_design=None, candidate_design=N
             if (expected["status"] == "passed" and isinstance(recorded, dict) and recorded.get("status") == "unverified"
                     and recorded.get("reason") in _TARGET_LIMIT_REASONS):
                 expected.update(status="unverified", reason=recorded["reason"])
-    summary, gate, status = _review_summary(spec, changes, report, requirements, canvas_checks)
+    readability = None
+    if "readability" in review:
+        try:
+            readability = validate_readability(review["readability"], spec,
+                _canvas(candidate_design) if candidate_design is not None else None,
+                _canvas(baseline_design) if baseline_design is not None else None)
+        except ValueError as exc:
+            raise LogicReviewError(str(exc)) from exc
+    elif "comment_blocks" in spec:
+        raise LogicReviewError("业务审查缺少已指定的原生注释检查。")
+    summary, gate, status = _review_summary(spec, changes, report, requirements, canvas_checks, readability)
     if review.get("requirements") != requirements:
         raise LogicReviewError("业务审查逐条需求状态与关联场景不一致。")
     if review.get("summary") != summary or review.get("candidate_gate") != gate or review.get("status") != status:

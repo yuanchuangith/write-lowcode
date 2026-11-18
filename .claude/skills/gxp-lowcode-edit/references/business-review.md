@@ -17,7 +17,7 @@ normal and empty inputs, each relevant branch, threshold boundaries, excluded
 page modes, and sequential events where retained values or handlers matter.
 Independent cases start fresh; steps inside one case share state.
 
-Apply [readability](readability.md) within the same candidate: use equivalent native conditions, calls and assignments, retain actual variable/value displays, and preserve evaluation timing (including loop updates), short-circuiting, lock scope, error exits and outputs. A readability split does not authorize new validation, fallback or business rules. Bind extraction, caller replacement and duplicate-path removal to the original requirements. This is part of constructing the change, not a separate scoring gate or approval round.
+Apply [readability](readability.md) within the same candidate: use equivalent native conditions, calls and assignments; preserve evaluation timing, short-circuiting, lock scope, error exits and outputs. A readability split does not authorize new behavior. Bind requested native annotations through `review_spec.comment_blocks` and preserve those anchors across revisions. Known regressions appear in `read_plan_review(section="readability")` and use the existing candidate gate. Warnings do not add an approval round or require recompilation by themselves.
 
 For a shared action's timing change, inspect its relevant direct callers and parent conditions before moving writes. Distinguish moving one field's update from moving the entire call; preserve other side effects and exclude unrelated callers from the edit.
 

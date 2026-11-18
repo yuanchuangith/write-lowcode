@@ -25,7 +25,7 @@ Read each section only for its branch; reuse it while the source binding is unch
 | Locate current draft groups/nodes | [Targeting and source](references/targeting-and-source.md#怎样确定要修改的元件), before constructing operations |
 | Read selected parameter values, old-value guards or template pages | [Parameter summaries and exact values](references/targeting-and-source.md#参数摘要完整值与模板) |
 | Construct a supported operation | Relevant section of [patch-schema.md](references/patch-schema.md) |
-| Generate or refactor readable orchestration, including expressions in any requested edit | [Native variables and child actions](references/readability.md), before choosing conditions and structure |
+| Edit expressions, refactor orchestration or add notes | [Native conditions and `CustomExt`](references/readability.md), before choosing structure and comment anchors |
 | Fix requirements, strict scope, scenarios or static assertions | [Business acceptance](references/business-review.md#fix-expectations-before-generating-the-patch) and its planning protocol |
 | Reuse diagnosis records or handle stale/missing evidence | [Evidence reuse](references/evidence-and-performance.md#check-available-evidence-first) and its optional-record section |
 | Generation mode, baseline diagnostics | [Compiler contract](references/frontend-compiler-contract.md#structured-group-and-component-operations) |

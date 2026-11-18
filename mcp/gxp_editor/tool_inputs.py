@@ -220,17 +220,23 @@ UnchangedAssertion = _shape("UnchangedAssertion", {
     **_assertion_fields, "operator": Required[Literal["unchanged"]],
 })
 CanvasAssertion = Union[ValueAssertion, UnchangedAssertion]
+CommentBlock = _shape("CommentBlock", {
+    "id": Required[Nonblank], "requirement_id": Required[Nonblank], "group_key": Required[Nonblank],
+    "anchor_node_key": NotRequired[Nonblank],
+})
 ReviewSpec = _shape("ReviewSpec", {
     "schema_version": Required[SchemaVersion], "revision": Required[Nonblank],
     "requirements": Required[list[Requirement]],
     "scenarios": NotRequired[Scenarios], "scope_policy": NotRequired[Literal["strict", "manual_review"]],
     "change_source_text": NotRequired[Nonblank],
     "canvas_assertions": NotRequired[list[CanvasAssertion]],
+    "comment_blocks": NotRequired[Annotated[list[CommentBlock], Field(max_length=100)]],
 })
 ReviewSpecUpdate = _shape("ReviewSpecUpdate", {
     "schema_version": NotRequired[SchemaVersion],
     "revision": Required[Nonblank],
     "requirements": NotRequired[list[Requirement]],
     "canvas_assertions": NotRequired[list[CanvasAssertion]],
+    "comment_blocks": NotRequired[Annotated[list[CommentBlock], Field(max_length=100)]],
     "change_source_text": NotRequired[Nonblank],
 })

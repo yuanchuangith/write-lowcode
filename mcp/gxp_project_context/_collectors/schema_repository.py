@@ -10,6 +10,19 @@ from .sql_guard import validate_identifier
 
 
 GENERIC_COLUMNS = {"id", "code", "name", "type", "status", "state", "key", "value"}
+SCHEMA_SEARCH_COLUMN_LIMIT = 20
+SCHEMA_SEARCH_INDEX = "indexes/search-tables.json"
+
+
+def schema_search_index_entry(table: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "table_name": table.get("table_name"),
+        "table_comment": table.get("table_comment"),
+        "columns": [
+            {key: column.get(key) for key in ("column_name", "column_comment", "data_type")}
+            for column in table.get("columns", [])
+        ],
+    }
 
 
 def _is_generic_column(value: str) -> bool:
@@ -112,6 +125,68 @@ class SchemaMetadataRepository:
         setter = getattr(session, "set_query_timeout", None)
         if setter is not None:
             setter(timeout_ms)
+
+    def search_metadata(self, needle: str, *, limit: int, deadline: float) -> tuple[list[dict[str, Any]], bool]:
+        """Find a bounded set of table/column names and comments without loading the schema."""
+        limit = max(1, min(100, int(limit)))
+        params: dict[str, Any] = {"schema": self.database.config.database, "needle": needle, "page": limit + 1}
+        timeout_ms = min(self.query_timeout_ms, 5000)
+        with self.database.session(timeout_ms=timeout_ms) as session:
+            self._prepare_query(session, deadline)
+            tables, truncated = session.query(
+                """
+SELECT t.TABLE_NAME, t.TABLE_COMMENT
+FROM information_schema.TABLES t
+WHERE t.TABLE_SCHEMA = %(schema)s AND (
+    LOCATE(%(needle)s, LOWER(t.TABLE_NAME)) > 0 OR LOCATE(%(needle)s, LOWER(t.TABLE_COMMENT)) > 0
+    OR EXISTS (
+        SELECT 1 FROM information_schema.COLUMNS c
+        WHERE c.TABLE_SCHEMA = %(schema)s AND c.TABLE_NAME = t.TABLE_NAME
+          AND (LOCATE(%(needle)s, LOWER(c.COLUMN_NAME)) > 0 OR LOCATE(%(needle)s, LOWER(c.COLUMN_COMMENT)) > 0)
+    )
+)
+ORDER BY t.TABLE_NAME
+LIMIT %(page)s
+""", params, max_rows=limit,
+            )
+            matches = {
+                item["table_name"]: {**item, "matched_columns": []}
+                for item in map(_row, tables)
+            }
+            if not matches:
+                return [], not truncated
+
+            # Limit each table separately so a wide table cannot consume the whole row budget.
+            # The database session caps fetches at 500 rows. Every query shares the same deadline.
+            names = list(matches)
+            per_table = SCHEMA_SEARCH_COLUMN_LIMIT + 1
+            batch_size = 500 // per_table
+            for start in range(0, len(names), batch_size):
+                batch = names[start:start + batch_size]
+                column_params = {"schema": params["schema"], "needle": needle, "page": per_table}
+                selects = []
+                for index, table in enumerate(batch):
+                    key = f"table_{index}"
+                    column_params[key] = table
+                    selects.append(f"""(
+SELECT TABLE_NAME, COLUMN_NAME, COLUMN_COMMENT, DATA_TYPE
+FROM information_schema.COLUMNS
+WHERE TABLE_SCHEMA = %(schema)s AND TABLE_NAME = %({key})s
+  AND (LOCATE(%(needle)s, LOWER(COLUMN_NAME)) > 0 OR LOCATE(%(needle)s, LOWER(COLUMN_COMMENT)) > 0)
+ORDER BY ORDINAL_POSITION
+LIMIT %(page)s
+)""")
+                query = " UNION ALL ".join(selects) if len(selects) > 1 else selects[0][1:-1]
+                self._prepare_query(session, deadline)
+                columns, column_rows_truncated = session.query(query, column_params, max_rows=len(batch) * per_table)
+                truncated = truncated or column_rows_truncated
+                for column in map(_row, columns):
+                    matches_for_table = matches[column.pop("table_name")]["matched_columns"]
+                    if len(matches_for_table) == SCHEMA_SEARCH_COLUMN_LIMIT:
+                        truncated = True
+                    else:
+                        matches_for_table.append(column)
+        return list(matches.values()), not truncated
 
     def load_table_metadata(self, table: str, *, deadline: float | None = None) -> dict[str, Any] | None:
         """Read exactly one table, sharing a deadline across all metadata queries."""

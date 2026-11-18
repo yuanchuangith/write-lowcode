@@ -24,19 +24,21 @@ def review_response(review, plan_id, detail="summary", *, conversation_id=""):
     if detail not in {"summary", "full"}:
         raise ValueError("response_detail must be summary or full")
     issues = []
-    for section, rows in (("canvas_checks", review.get("canvas_checks", [])),
+    for section, rows in (("readability", (review.get("readability") or {}).get("findings", [])),
+                          ("canvas_checks", review.get("canvas_checks", [])),
                           ("changes", review.get("changes", [])),
                           ("requirements", review.get("requirements", [])),
                           ("scenarios", (review.get("scenarios") or {}).get("cases", []))):
         for index, row in enumerate(rows):
             evidence = row.get("candidate", {}) if section == "scenarios" else row
-            if evidence.get("status") not in {"failed", "unverified"}:
+            if evidence.get("status") not in {"failed", "unverified", "warning"}:
                 continue
             issues.append({"section": section, "index": index, "id": row.get("id"),
                            "status": evidence["status"], "reason": str(evidence.get("reason") or row.get("impact") or "")[:400],
+                           **({"rule": row["rule"]} if section == "readability" else {}),
                            "target": deepcopy(row.get("target") or {key: row[key] for key in
                                ("group_key", "node_key", "field_path") if key in row})})
-    issues.sort(key=lambda item: item["status"] != "failed")
+    issues.sort(key=lambda item: {"failed": 0, "unverified": 1, "warning": 2}[item["status"]])
     result = {"review_status": review["status"], "review_summary": deepcopy(review.get("summary") or {}),
               "report_id": plan_id, "report_sha256": review["review_sha256"],
               "review_issues": issues[:5], "additional_issue_count": max(0, len(issues) - 5),
@@ -56,7 +58,7 @@ def review_response(review, plan_id, detail="summary", *, conversation_id=""):
 
 def _row_summary(row):
     result, fields = {}, []
-    identity = {"id", "title", "status", "reason", "group_key", "node_key", "field_path", "impact", "source"}
+    identity = {"id", "title", "status", "reason", "group_key", "node_key", "field_path", "impact", "source", "rule", "requirement_id"}
     for key, value in row.items():
         if key in identity and (value is None or type(value) in (bool, int, float) or type(value) is str and len(value) <= 240):
             result[key] = deepcopy(value)
@@ -85,9 +87,10 @@ def review_page(review, section="summary", offset=0, limit=10, item_id="", *, de
                 "candidate_gate": deepcopy(review["candidate_gate"]), "status": review["status"]}
     collections = {"requirements": review["requirements"], "changes": review["changes"],
                    "scenarios": review["scenarios"]["cases"], "canvas_checks": review.get("canvas_checks", []),
+                   "readability": (review.get("readability") or {}).get("findings", []),
                    "spec": [review["spec"]]}
     if section not in collections:
-        raise ValueError("section must be summary, requirements, changes, scenarios, canvas_checks or spec")
+        raise ValueError("section must be summary, requirements, changes, scenarios, canvas_checks, readability or spec")
     rows = collections[section]
     if item_id:
         rows = [row for row in rows if row.get("id") == item_id]

@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import copy
+from contextlib import nullcontext
 import json
 import os
 import tempfile
@@ -69,7 +70,8 @@ class HandoffImportTests(unittest.TestCase):
         with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
                 patch("gxp_editor.service.BackupStore") as store, \
                 patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
-                    "production_ready": False, "gates": {}}):
+                    "production_ready": False, "gates": {"compiler": {"ready": True}},
+                    "compiler": {"compiler_binding_sha256": "b" * 64}}):
             store.return_value.create.return_value = {"backup_id": "test", "files": {}}
             return service.begin_edit_session("ActionOne", **kwargs)
 
@@ -80,6 +82,21 @@ class HandoffImportTests(unittest.TestCase):
         self.assertFalse(result["approval_inherited"])
         self.assertEqual(result["change_spec"]["preserve"], ["Keep the callback signature"])
         self.assertNotIn("js_code", result)
+
+    def test_handoff_uses_business_code_not_design_row_code(self):
+        from gxp_editor.handoff_import import discover_handoffs
+
+        row_code = self.draft["code"]
+        self.draft["metadata"] = {**(self.draft.get("metadata") or {}), "action_code": "BusinessAction"}
+        self.record["action"]["action_code"] = "BusinessAction"
+        valid = self.export()
+        self.record["action"]["action_code"] = row_code
+        wrong = self.export()
+        self.assertEqual("matched", inspect_handoff(valid, self.draft, self.config.database)["status"])
+        with self.assertRaisesRegex(HandoffError, "code does not match"):
+            inspect_handoff(wrong, self.draft, self.config.database)
+        found = discover_handoffs(self.draft, self.config.database)
+        self.assertEqual([valid["handoff_id"]], [item["handoff_id"] for item in found["candidates"]])
 
     def test_evidence_only_record_does_not_require_a_cause_or_patch(self):
         issue = copy.deepcopy(self.diagnosis["issues"][0])
@@ -125,7 +142,8 @@ class HandoffImportTests(unittest.TestCase):
         with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
                 patch("gxp_editor.service.BackupStore") as store, \
                 patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
-                    "production_ready": False, "gates": {}}), \
+                    "production_ready": False, "gates": {"compiler": {"ready": True}},
+                    "compiler": {"compiler_binding_sha256": "b" * 64}}), \
                 patch("gxp_editor.handoff_import.inspect_handoff") as inspect_saved:
             store.return_value.create.return_value = {"backup_id": "test", "files": {}}
             result = service.begin_edit_session("ActionOne")
@@ -171,13 +189,17 @@ class HandoffImportTests(unittest.TestCase):
         service, compiler = self.service()
         compiler.compiler_binding.return_value = {"compiler_binding_sha256": "b" * 64}
         session = {"id": "existing", "conversation_id": "new-dialogue", "state": "locked",
+            "database_scope": environment_scope(self.config.database),
             "ref_id": self.draft["ref_id"], "design_id": self.draft["id"], "action_code": self.draft["code"],
             "action_name": "Test", "backup_id": "old-backup", "compiler_hash": "b" * 64,
             "baseline": {**self.draft, "relations": []}}
         service.state.active_session.return_value = session
         service.state.target_session.return_value = session
         service._owned_session = Mock(return_value=session)
-        service._components.return_value[2].load_relations.return_value = []
+        repo = service._components.return_value[2]
+        repo.database.read_session.return_value = nullcontext()
+        repo.load_draft_by_id.return_value = self.draft
+        repo._relations.return_value = []
         result = service.begin_edit_session("ActionOne")
         self.assertTrue(result["session_reused"])
         self.assertFalse(result["approval_granted"])
@@ -206,7 +228,8 @@ class HandoffImportTests(unittest.TestCase):
         with patch("gxp_editor.service.approval_secret", return_value="test-secret"), \
                 patch("gxp_editor.service.BackupStore") as store, \
                 patch.object(service, "editor_status", return_value={"planning_ready": True, "write_ready": True,
-                    "production_ready": False, "gates": {}}):
+                    "production_ready": False, "gates": {"compiler": {"ready": True}},
+                    "compiler": {"compiler_binding_sha256": "b" * 64}}):
             store.return_value.create.return_value = {"backup_id": "test", "files": {}}
             result = service.begin_edit_session("ActionOne", handoff_ref=self.export())
         self.assertEqual(result["conversation_id"], "new-dialogue")
@@ -282,7 +305,7 @@ class HandoffImportTests(unittest.TestCase):
 
     def test_different_environment_or_action_is_rejected(self):
         reference = self.export()
-        for change in ({"ref_id": "other"}, {"id": "other"}, {"code": "other"}):
+        for change in ({"ref_id": "other"}, {"id": "other"}, {"metadata": {"action_code": "other"}}):
             with self.subTest(change=change), self.assertRaises(HandoffError):
                 inspect_handoff(reference, {**self.draft, **change}, self.config.database)
         with self.assertRaises(HandoffError):

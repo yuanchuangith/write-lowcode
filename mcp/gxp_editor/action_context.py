@@ -2,6 +2,11 @@
 from __future__ import annotations
 
 
+def canonical_action_code(draft):
+    draft = draft or {}
+    return str((draft.get("metadata") or {}).get("action_code") or draft.get("code") or "")
+
+
 def action_context(baseline):
     baseline = baseline or {}
     metadata = baseline.get("metadata") or {}
@@ -12,7 +17,7 @@ def action_context(baseline):
         "schema_version": 1,
         "action_type": kind,
         "action_name": str(metadata.get("action_name") or baseline.get("name") or ""),
-        "action_code": str(metadata.get("action_code") or baseline.get("code") or ""),
+        "action_code": canonical_action_code(baseline),
         "ref_id": str(baseline.get("ref_id") or ""),
         "design_id": str(baseline.get("id") or baseline.get("design_id") or ""),
         "page_id": str(metadata.get("page_id") or "") if kind != "public" else "",

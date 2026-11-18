@@ -160,7 +160,7 @@ class ReviewSpecUpdateInputTests(unittest.TestCase):
         schema = self.adapter.json_schema()
         self.assertEqual(schema["required"], ["revision"])
         self.assertFalse(schema["additionalProperties"])
-        self.assertEqual(set(schema["properties"]), {"schema_version", "revision", "requirements", "canvas_assertions", "change_source_text"})
+        self.assertEqual(set(schema["properties"]), {"schema_version", "revision", "requirements", "canvas_assertions", "comment_blocks", "change_source_text"})
         self.assertIn("Requirement", schema["$defs"])
         self.assertIn("ValueAssertion", schema["$defs"])
 

@@ -1045,16 +1045,20 @@ class EditorService:
                 assertion_id not in new_assertions or sha256_json(assertion) != sha256_json(new_assertions[assertion_id])
                 for assertion_id, assertion in old_assertions.items()
             )
+            old_comments = {item["id"]: item for item in previous.get("comment_blocks", [])}
+            new_comments = {item["id"]: item for item in spec.get("comment_blocks", [])}
+            changed_existing_comments = any(new_comments.get(key) != value for key, value in old_comments.items())
             changed_scope_policy = spec.get("scope_policy") != previous.get("scope_policy", "manual_review")
             locator_correction = (old_rules != new_rules and only_invalid_locator_corrections(
                 previous, spec, self._compiler_design(session["baseline"]), operations))
-            if (old_rules != new_rules and not locator_correction) or changed_existing_cases or changed_existing_assertions or changed_scope_policy:
+            if ((old_rules != new_rules and not locator_correction) or changed_existing_cases
+                    or changed_existing_assertions or changed_existing_comments or changed_scope_policy):
                 old_sources = {str(item.get("source_text") or "").strip() for item in previous.get("requirements", [])}
                 new_sources = {str(item.get("source_text") or "").strip() for item in spec.get("requirements", [])}
                 change_source = str(spec.get("change_source_text") or "").strip()
                 previous_change_source = str(previous.get("change_source_text") or "").strip()
                 if not (change_source and change_source != previous_change_source) and not (new_sources - old_sources - {""}):
-                    raise EditorServiceError("修改或移除业务预期、已有场景或画布断言时必须附新的用户依据 source_text 或 change_source_text。")
+                    raise EditorServiceError("修改或移除业务预期、已有场景、画布断言或注释要求时必须附新的用户依据 source_text 或 change_source_text。")
         checkpoint_sha = self.state.save_review_spec_checkpoint(session["id"], spec,
             expected_sha256=checkpoint["sha256"] if checkpoint else None,
             conversation_id=self.conversation_id, owner_revision=session.get("owner_revision", 0))
@@ -1270,7 +1274,7 @@ class EditorService:
                {"reference_repair_count": len(plan_artifact["reference_repairs"])}),
             **review_response(business_review, plan_id, response_detail, conversation_id=self.conversation_id),
             "ready_for_approval": business_review["status"] != "failed",
-            "blocked_reasons": ["业务验收未通过，请按 review_issues 查看失败的配置、范围或场景证据。"] if business_review["status"] == "failed" else [],
+            "blocked_reasons": ["业务验收未通过，请按 review_issues 查看配置、范围、场景或编排可读性问题。"] if business_review["status"] == "failed" else [],
         }
 
     @staticmethod
@@ -1654,10 +1658,12 @@ class EditorService:
             return {
                 "plan_id": plan_id, **review_response(artifact["business_review"], plan_id, response_detail, conversation_id=self.conversation_id),
                 "ready_for_approval": False, "approval_window_opened": False, "write_executed": False,
-                "blocked_reasons": ["业务验收未通过，请修正失败的配置、范围或场景后重新规划。"],
+                "blocked_reasons": ["业务验收未通过，请按复核结果修正配置、范围、场景或编排可读性问题。"],
             }
         if "scope_policy" not in artifact["business_review"]["spec"]:
             raise EditorServiceError("旧计划缺少修改范围策略，只可查看；请重新生成计划后审批。")
+        if "readability" not in artifact["business_review"]:
+            raise EditorServiceError("旧计划缺少编排可读性检查，只可查看；请重新生成计划后审批。")
         checkpoint = self.state.review_spec_checkpoint(session["id"], conversation_id=self.conversation_id,
                                                       owner_revision=session.get("owner_revision", 0))
         if checkpoint is not None and sha256_json(checkpoint["spec"]) != sha256_json(requirements_spec(artifact["business_review"])):

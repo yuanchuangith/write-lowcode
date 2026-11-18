@@ -9,6 +9,7 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Iterator
 
+from .action_context import canonical_action_code
 from .config import load_config, runtime_root
 from .hashing import sha256_json
 
@@ -322,7 +323,7 @@ VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                     session_id,
                     str(draft["ref_id"]),
                     str(draft["id"]),
-                    str(metadata.get("action_code") or draft.get("code") or ""),
+                    canonical_action_code(draft),
                     str(metadata.get("action_name") or draft.get("name") or ""),
                     "locked",
                     json.dumps(draft, ensure_ascii=False),

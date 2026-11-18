@@ -255,13 +255,13 @@ def _compiler_failure(exc: CompilerError) -> dict[str, Any]:
 @mcp.tool()
 @traced_tool
 def read_plan_review(
-    plan_id: str, section: Literal["summary", "requirements", "changes", "scenarios", "canvas_checks", "spec", "operations"] = "summary",
+    plan_id: str, section: Literal["summary", "requirements", "changes", "scenarios", "canvas_checks", "readability", "spec", "operations"] = "summary",
     offset: Offset = 0, limit: Annotated[int, Field(ge=1, le=20, strict=True)] = 10,
     item_id: str = "", conversation_id: str = "",
     detail: Literal["summary", "full"] = "summary", field_path: str = "", value_offset: Offset = 0,
     max_output_bytes: ValueBudget = 16384,
 ) -> dict[str, Any]:
-    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, spec, operations. Operations expose indexes/hashes for revise_canvas_plan. item_id selects exact report rows; field_path/value_offset reads bounded exact JSON. detail=full preserves exact rows or offers continuation for oversized values. No approval or writes."""
+    """Read report row summaries without compiling/opening a window. Sections: summary, requirements, changes, scenarios, canvas_checks, readability, spec, operations. Operations expose indexes/hashes for revise_canvas_plan. item_id selects exact report rows; field_path/value_offset reads bounded exact JSON. detail=full preserves exact rows or offers continuation for oversized values. No approval or writes."""
     return service(conversation_id).read_plan_review(
         plan_id, section=section, offset=offset, limit=limit, item_id=item_id, detail=detail,
         field_path=field_path, value_offset=value_offset, max_output_bytes=max_output_bytes)
