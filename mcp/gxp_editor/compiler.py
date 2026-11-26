@@ -6,6 +6,7 @@ import os
 import re
 import subprocess
 import shutil
+import sys
 import threading
 from collections import OrderedDict
 from copy import deepcopy
@@ -22,6 +23,7 @@ from .runtime_package import MANIFEST_NAME, RuntimeResourceError, assert_runtime
 _REGISTRY_CACHE = OrderedDict()
 _CONTRACT_CACHE = OrderedDict()
 _CACHE_LOCK = threading.RLock()
+_COMPILER_BUILD_LOCK = threading.Lock()
 _CACHE_LIMIT = 8
 
 
@@ -247,8 +249,65 @@ class CompilerBridge:
             self._binding_call_active = False
             self._verified_call = None
 
+    def _auto_rebuild_allowed(self) -> bool:
+        selected = getattr(self.config, "compiler_bridge", DEFAULT_COMPILER_BRIDGE)
+        return selected in {"managed", DEFAULT_COMPILER_BRIDGE, LEGACY_COMPILER_BRIDGE}
+
+    def _rebuild_managed_bridge(self) -> None:
+        script = Path(__file__).resolve().parents[2] / "scripts" / "gxp_compiler.py"
+        if not script.is_file():
+            raise CompilerError(f"Compiler rebuild script is missing: {script}")
+        try:
+            process = subprocess.run(
+                [sys.executable, str(script), "--frontend", str(self.frontend_repo), "build"],
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                encoding="utf-8",
+                timeout=150,
+                check=False,
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+            )
+        except (OSError, subprocess.SubprocessError) as exc:
+            raise CompilerError(f"Automatic compiler rebuild failed: {exc}") from exc
+        if process.returncode:
+            detail = (process.stderr or process.stdout or "").strip()
+            if len(detail) > 1200:
+                detail = detail[-1200:]
+            raise CompilerError("Automatic compiler rebuild failed" + (f": {detail}" if detail else ""))
+        self._path = managed_compiler_path(self.frontend_repo).absolute()
+
     def _verify_native_sources(self) -> str:
-        """Reject stale native rules before a session can report compiler readiness."""
+        """Verify exact compiler inputs, rebuilding the managed bridge once on drift."""
+        initial_error = None
+        try:
+            return self._verify_native_sources_once()
+        except CompilerError as exc:
+            if not self._auto_rebuild_allowed():
+                raise
+            initial_error = exc
+        with _COMPILER_BUILD_LOCK:
+            # Another request may have rebuilt while this one waited. Default and
+            # managed configurations always resolve to the managed cache.
+            self._path = managed_compiler_path(self.frontend_repo).absolute()
+            try:
+                return self._verify_native_sources_once()
+            except CompilerError as drift_error:
+                try:
+                    self._rebuild_managed_bridge()
+                except CompilerError as build_error:
+                    raise CompilerError(
+                        f"Compiler sources changed and the managed bridge could not be refreshed: {build_error}"
+                    ) from initial_error
+                try:
+                    return self._verify_native_sources_once()
+                except CompilerError as verify_error:
+                    raise CompilerError(
+                        f"Managed bridge was rebuilt but source verification still failed: {verify_error}"
+                    ) from drift_error
+
+    def _verify_native_sources_once(self) -> str:
+        """Check the bridge manifest against the current frontend compiler inputs."""
         frontend_repo = self.frontend_repo
         rules_root = frontend_repo / "src/core/common/ActionDesign"
         rebuild = self._rebuild_instruction()
@@ -366,11 +425,14 @@ class CompilerBridge:
     def _source_key(self):
         self._runtime_preflight()
         self._bridge_identity()
+        # Refresh the managed bundle before capturing its identity. Verification
+        # may replace the bundle and switch a legacy path to the managed cache.
+        rule_source_hash = self._verify_native_sources()
         if not self.path.is_file():
             raise CompilerError(f"ActionDesign compiler bridge was not found: {self.path}. {self._rebuild_instruction()}")
         return (str(self.frontend_repo), str(self.path.resolve()),
                 sha256_text(self.path.read_text(encoding="utf-8")), self._adapter_sha256(),
-                self._verify_native_sources())
+                rule_source_hash)
 
     def _registry_key(self):
         with stage("compiler.rule_binding"):
@@ -395,6 +457,8 @@ class CompilerBridge:
             with stage("compiler.git_provenance"):
                 provenance = self.source_provenance()
             key = self._registry_key()
+            if provenance.get("binding_scope") == "compiler_inputs_v1":
+                provenance["bridge_path"] = self._bridge_identity()
             result = _cached(_REGISTRY_CACHE, key)
             with stage("compiler.registry", cache_hit=result is not None) as tags:
                 try:

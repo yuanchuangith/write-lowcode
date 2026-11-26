@@ -4,7 +4,7 @@ The editor does not invent ActionDesign nodes or generated code. Its configured 
 
 `G:\hoyi\updateComponents\gxp2.components`
 
-Write defaults to its locally built single-file compiler. Before it is built, `auto` (including the old default relative path in existing configuration) uses `dist/action-design-compiler/bridge.js` in the frontend repository. Both execute from the frontend repository and use the real ActionDesign element registry and generation methods bundled from that codebase.
+Write defaults to its locally built single-file compiler. Before it is built, `auto` (including the old default relative path in existing configuration) uses `dist/action-design-compiler/bridge.js` in the frontend repository. A missing or stale default/managed bundle is rebuilt once in the local Write compiler cache and source-verified before use; no manual frontend rebuild is needed. Explicit custom bridge paths retain manual maintenance. Both execute from the frontend repository and use the real ActionDesign element registry and generation methods bundled from that codebase.
 
 ## Blocking source binding
 
@@ -18,7 +18,7 @@ The compiler binding contains:
 - stable element-registry SHA-256;
 - a SHA-256 over the complete binding.
 
-The binding covers actual compiler input bytes, not unrelated workspace files. A documentation-only change does not invalidate a plan. Actual bridge, adapter, rule or dependency drift still blocks. New plans bind their operation list, native diff and complete review; prepare/save reuse that evidence after content/source checks, without launching generators again. Do not rebuild, reset, format, or modify the frontend repository as part of an edit request.
+The binding covers actual compiler input bytes, not unrelated workspace files. A documentation-only change does not invalidate a plan. Automatic cache refresh uses a new binding: existing sessions, plans and approvals never inherit it silently. Actual bridge, adapter, rule or dependency drift still invalidates old evidence; a failed rebuild or failed source verification remains blocking. New plans bind their operation list, native diff and complete review; prepare/save reuse that evidence after content/source checks, without launching generators again. The editor may rebuild its managed compiler cache automatically, but must not rebuild, reset, format, or modify the frontend repository as part of an edit request.
 
 ## Structured group and component operations
 

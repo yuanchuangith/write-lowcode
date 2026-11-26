@@ -12,6 +12,8 @@ from unittest.mock import patch
 
 from tests.helpers import editor_config
 from gxp_editor.compiler import CompilerBridge, CompilerError
+from gxp_editor.config import DEFAULT_COMPILER_BRIDGE, LEGACY_COMPILER_BRIDGE
+from gxp_editor.hashing import sha256_json, sha256_text
 
 
 class NativeSourceBindingTests(unittest.TestCase):
@@ -25,12 +27,17 @@ class NativeSourceBindingTests(unittest.TestCase):
         self.path = self.root / 'bridge.js'
         self.bridge = CompilerBridge(replace(editor_config(), frontend_repo=str(self.root)))
 
-    def manifest(self):
-        entries = [{'path': self.rule.relative_to(self.root).as_posix(),
-                    'sha256': hashlib.sha256(self.rule.read_bytes()).hexdigest()}]
-        digest = hashlib.sha256(json.dumps(entries, separators=(',', ':')).encode()).hexdigest()
+    def manifest(self, dependencies=(), output_path=None):
+        rules = [{'path': self.rule.relative_to(self.root).as_posix(),
+                  'sha256': hashlib.sha256(self.rule.read_bytes()).hexdigest()}]
+        entries = rules + [{'path': path.relative_to(self.root).as_posix(),
+                            'sha256': hashlib.sha256(path.read_bytes()).hexdigest()}
+                           for path in dependencies]
+        digest = hashlib.sha256(json.dumps(rules, separators=(',', ':')).encode()).hexdigest()
         manifest = {'schema_version': 1, 'rule_source_sha256': digest, 'files': entries}
-        self.path.write_text('// GXP_COMPILER_SOURCES_V1=' + json.dumps(manifest) + '\n', encoding='utf-8')
+        output = self.path if output_path is None else output_path
+        output.parent.mkdir(parents=True, exist_ok=True)
+        output.write_text('// GXP_COMPILER_SOURCES_V1=' + json.dumps(manifest) + '\n', encoding='utf-8')
         return digest
 
     def test_current_source_is_accepted_and_changes_are_blocked(self):
@@ -69,6 +76,105 @@ class NativeSourceBindingTests(unittest.TestCase):
         dependency.write_text('{"version":"changed"}', encoding='utf-8')
         with self.assertRaisesRegex(CompilerError, 'native source changed: package.json'):
             self.bridge._verify_native_sources()
+
+    def test_managed_bridge_rebuilds_once_when_a_bundled_dependency_changes(self):
+        dependency = self.root / 'src/core/common/Audit/ShowAudit.tsx'
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text('export const version = 1;', encoding='utf-8')
+        self.manifest([dependency])
+        dependency.write_text('export const version = 2;', encoding='utf-8')
+        config = replace(editor_config(), frontend_repo=str(self.root), compiler_bridge='managed')
+        with patch('gxp_editor.config.managed_compiler_path', return_value=self.path), \
+             patch('gxp_editor.compiler.managed_compiler_path', return_value=self.path):
+            bridge = CompilerBridge(config)
+            with patch.object(bridge, '_rebuild_managed_bridge', side_effect=lambda: self.manifest([dependency])) as rebuild:
+                self.assertEqual(bridge._verify_native_sources(), self.manifest([dependency]))
+                rebuild.assert_called_once_with()
+
+    def test_managed_bridge_stays_blocked_when_automatic_rebuild_fails(self):
+        self.manifest()
+        self.rule.write_text('changed rule source', encoding='utf-8')
+        config = replace(editor_config(), frontend_repo=str(self.root), compiler_bridge='managed')
+        with patch('gxp_editor.config.managed_compiler_path', return_value=self.path), \
+             patch('gxp_editor.compiler.managed_compiler_path', return_value=self.path):
+            bridge = CompilerBridge(config)
+            with patch.object(bridge, '_rebuild_managed_bridge', side_effect=CompilerError('build unavailable')):
+                with self.assertRaisesRegex(CompilerError, 'could not be refreshed: build unavailable'):
+                    bridge._verify_native_sources()
+
+    def test_source_key_uses_rebuilt_bridge_path_and_bytes(self):
+        dependency = self.root / 'src/core/common/Audit/ShowAudit.tsx'
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text('export const version = 1;', encoding='utf-8')
+        legacy = self.root / LEGACY_COMPILER_BRIDGE
+        self.manifest([dependency], output_path=legacy)
+        old_sha256 = sha256_text(legacy.read_text(encoding='utf-8'))
+        dependency.write_text('export const version = 2;', encoding='utf-8')
+        managed_root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        managed = managed_root / 'bridge.js'
+        config = replace(editor_config(), frontend_repo=str(self.root), compiler_bridge=DEFAULT_COMPILER_BRIDGE)
+        with patch('gxp_editor.config.managed_compiler_path', return_value=managed), \
+             patch('gxp_editor.compiler.managed_compiler_path', return_value=managed):
+            bridge = CompilerBridge(config)
+            self.assertEqual(bridge.path, legacy)
+            with patch.object(bridge, '_rebuild_managed_bridge',
+                              side_effect=lambda: self.manifest([dependency], output_path=managed)) as rebuild:
+                key = bridge._source_key()
+            rebuild.assert_called_once_with()
+            self.assertEqual(key[1], str(managed.resolve()))
+            self.assertEqual(key[2], sha256_text(managed.read_text(encoding='utf-8')))
+            self.assertNotEqual(key[2], old_sha256)
+
+    def test_old_binding_rejects_dependency_drift_even_when_rule_hash_is_unchanged(self):
+        dependency = self.root / 'src/core/common/Audit/ShowAudit.tsx'
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text('export const version = 1;', encoding='utf-8')
+        rule_hash = self.manifest([dependency])
+        config = replace(editor_config(), frontend_repo=str(self.root), compiler_bridge='managed')
+        with patch('gxp_editor.config.managed_compiler_path', return_value=self.path), \
+             patch('gxp_editor.compiler.managed_compiler_path', return_value=self.path):
+            bridge = CompilerBridge(config)
+            original_key = bridge._source_key()
+            expected = {
+                'bridge_sha256': original_key[2], 'adapter_sha256': original_key[3],
+                'registry_hash': 'b' * 64, 'rule_source_sha256': rule_hash,
+                'frontend_version': 'fixture', 'source_provenance': {
+                    'ready': True, 'frontend_repo': str(self.root.resolve()),
+                    'bridge_path': bridge._bridge_identity(), 'binding_scope': 'compiler_inputs_v1',
+                },
+            }
+            expected['compiler_binding_sha256'] = sha256_json(bridge._binding_fields(expected))
+            dependency.write_text('export const version = 2;', encoding='utf-8')
+            with patch.object(bridge, '_rebuild_managed_bridge', side_effect=lambda: self.manifest([dependency])) as rebuild:
+                with self.assertRaisesRegex(CompilerError, 'Compiler input source changed after planning'):
+                    bridge.verify_binding(expected)
+            rebuild.assert_called_once_with()
+            self.assertEqual(bridge._verify_native_sources_once(), rule_hash)
+            self.assertNotEqual(sha256_text(self.path.read_text(encoding='utf-8')), original_key[2])
+
+    def test_first_registry_after_legacy_migration_binds_managed_bridge_provenance(self):
+        dependency = self.root / 'src/core/common/Audit/ShowAudit.tsx'
+        dependency.parent.mkdir(parents=True)
+        dependency.write_text('export const version = 1;', encoding='utf-8')
+        legacy = self.root / LEGACY_COMPILER_BRIDGE
+        rule_hash = self.manifest([dependency], output_path=legacy)
+        dependency.write_text('export const version = 2;', encoding='utf-8')
+        managed_root = Path(self.enterContext(tempfile.TemporaryDirectory())).resolve()
+        managed = managed_root / 'bridge.js'
+        config = replace(editor_config(), frontend_repo=str(self.root), compiler_bridge=DEFAULT_COMPILER_BRIDGE)
+        response = {'ok': True, 'command': 'describe_registry', 'rule_source_sha256': rule_hash,
+                    'elements': [{'key': 'SyncLock'}]}
+        with patch('gxp_editor.config.managed_compiler_path', return_value=managed), \
+             patch('gxp_editor.compiler.managed_compiler_path', return_value=managed):
+            bridge = CompilerBridge(config)
+            with patch.object(bridge, '_git', return_value=f'{self.root}\n' + 'a' * 40 + '\nmain\n'), \
+                 patch.object(bridge, '_node_identity', return_value=('fixture-node', 'v22.0.0')), \
+                 patch.object(bridge, '_call', return_value=response), \
+                 patch.object(bridge, '_rebuild_managed_bridge',
+                              side_effect=lambda: self.manifest([dependency], output_path=managed)):
+                result = bridge.describe_registry()
+            self.assertEqual(result['source_provenance']['bridge_path'], managed.resolve().as_posix())
+            self.assertEqual(result['bridge_sha256'], sha256_text(managed.read_text(encoding='utf-8')))
 
     def test_manifest_paths_cannot_escape_frontend_root(self):
         self.manifest()
