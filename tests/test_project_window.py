@@ -212,6 +212,15 @@ class ProjectWindowTests(unittest.TestCase):
         self.assertEqual(failure, self.window.message.get())
         self.assertEqual("initial", self.window.revision)
 
+    def test_session_manager_launch_error_shows_safe_diagnostic(self):
+        def fail_to_open_manager():
+            raise RuntimeError("Runtime manifest changed after instance startup")
+
+        self.window.run("sessions", fail_to_open_manager)
+        self.pump()
+        self.assertIn("RuntimeError", self.window.message.get())
+        self.assertIn("Runtime manifest changed after instance startup", self.window.message.get())
+
     def test_idle_window_does_not_keep_querying_progress(self):
         self.window._status_snapshot = {"refresh": None, "active_edit_sessions": []}
         self.backend.reset_mock()

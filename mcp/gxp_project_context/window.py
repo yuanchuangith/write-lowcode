@@ -373,8 +373,12 @@ class ProjectSettingsWindow:
                 result = function()
             except ProjectError as error:
                 result = {"ok": False, "error": str(error), "error_code": error.code}
-            except Exception:
-                result = {"ok": False, "error": "操作未完成，请检查本机配置；密码不会显示在错误中。"}
+            except Exception as error:
+                if action == "sessions":
+                    detail = str(error).strip() or type(error).__name__
+                    result = {"ok": False, "error": f"未能打开流程管理器（{type(error).__name__}）：{detail}"}
+                else:
+                    result = {"ok": False, "error": "操作未完成，请检查本机配置；密码不会显示在错误中。"}
             self.results.put((action, result, epoch))
         threading.Thread(target=worker, daemon=True, name="gxp-project-settings").start()
 
